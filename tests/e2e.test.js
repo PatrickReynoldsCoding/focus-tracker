@@ -240,6 +240,15 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(permissionAsked, 1, 'switching the pomodoro on asks for notification permission');
     await waitFor(() => $('#pomo'), 'pomodoro shown');
     assert.ok(/Work 2[45]:\d\d left/.test($('#pomo').textContent), $('#pomo').textContent);
+    click($('[data-act="today.pomodoroSettings"]'));
+    await waitFor(() => $('#dlg-test-alert'), 'lengths dialog with the test button');
+    assert.ok($('#dlg-alert-status').textContent.includes('permission: granted'), $('#dlg-alert-status').textContent);
+    click($('#dlg-test-alert'));
+    await waitFor(() => notifications.length === 1, 'test notification sent');
+    assert.strictEqual(notifications[0].title, '⏰ Test notification');
+    await waitFor(() => $('#dlg-alert-status').textContent.includes('Sent.'), 'status says it was sent');
+    notifications.length = 0;
+    click($('#dlg-cancel'));
     // Pretend the work period ran out: the box switches to "take a break" and the tab title changes
     server.run(`(function () {
       var props = PropertiesService.getUserProperties(), s = JSON.parse(props.getProperty('today.state'));

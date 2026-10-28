@@ -179,6 +179,30 @@
     } catch (e) {}
   }
 
+  /** Says in words what the browser lets this page do, because the page sits inside Google's iframe. */
+  function notificationStatusText() {
+    if (!window.Notification) return 'This browser has no notifications.';
+    var where = window.top !== window ? ' (page is inside an iframe)' : '';
+    return 'Notification permission: ' + Notification.permission + where + '.';
+  }
+
+  /** Sends one test notification and one chime, and reports what happened in the dialog. */
+  function testAlert(statusEl) {
+    unlockAudio();
+    var chimed = chime();
+    var soundText = chimed ? 'Sound played.' : 'Sound did not play.';
+    if (!window.Notification) { statusEl.textContent = notificationStatusText() + ' ' + soundText; return; }
+    Promise.resolve(Notification.permission === 'default' ? Notification.requestPermission() : null).then(function () {
+      try {
+        var sent = new Notification('⏰ Test notification', { body: 'Pomodoro notifications work.', tag: 'pomodoro-test' });
+        sent.onerror = function () { statusEl.textContent += ' The browser reported an error showing it.'; };
+        statusEl.textContent = notificationStatusText() + ' Sent. ' + soundText;
+      } catch (e) {
+        statusEl.textContent = notificationStatusText() + ' Failed: ' + e.message + '. ' + soundText;
+      }
+    }).catch(function (e) { statusEl.textContent = 'Permission request failed: ' + e.message + '. ' + soundText; });
+  }
+
   /** Browsers only allow sound after a click, so the audio context is made during one. */
   function unlockAudio() {
     if (audio) return;
@@ -358,6 +382,11 @@
         { id: 'break', label: 'Break (minutes)', value: String(settings.break) }
       ],
       hint: 'A new length applies from the next period you start.',
+      after: '<label>Alerts</label><div class="settingrow"><span id="dlg-alert-status" style="color:var(--muted)">' + FT.esc(notificationStatusText()) + '</span>' +
+        '<button class="btn" type="button" id="dlg-test-alert">Test notification</button></div>',
+      onOpen: function () {
+        document.getElementById('dlg-test-alert').addEventListener('click', function () { testAlert(document.getElementById('dlg-alert-status')); });
+      },
       onSubmit: function (v) { return FT.rpc('today', 'pomodoroSettings', { work: v.work, break: v.break }, { quiet: true }); }
     });
   });
