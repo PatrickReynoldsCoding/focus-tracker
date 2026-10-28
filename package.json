@@ -4,9 +4,12 @@
   "private": true,
   "description": "Daily focus picker and project tracker. Google Sheets + Apps Script, modular.",
   "scripts": {
-    "test": "node tests/server.test.js && node tests/e2e.test.js"
+    "test": "node tests/server.test.js && node tests/e2e.test.js",
+    "push": "clasp push",
+    "deploy": "clasp deploy"
   },
   "devDependencies": {
+    "@google/clasp": "^2.5.0",
     "jsdom": "^24.0.0"
   }
 }
