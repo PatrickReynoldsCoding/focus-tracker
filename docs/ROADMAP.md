@@ -63,7 +63,7 @@ Original plan:
 - Speed: each sheet tab is read once per request and writes keep that copy up to date (sheetdb.js), header and rows come in one read. Sheet calls fell from 86 to 44 to open the app and from 44 to 12 to add a card. Card add, move, edit and delete show on screen first and save in the background, one save at a time and in order; a reply's data is only used when no later save is waiting. The browser warns before closing the tab while saves are pending.
 - Undo: every call records its row changes; they are kept in the mode's Undo tab (last 30) and the header button or Cmd/Ctrl+Z puts the newest back. Deletes are immediate with an Undo button in the message. Notes, whiteboards and the Today session are not undone.
 - Drag and drop (SortableJS 1.15.2 from jsDelivr, short press on touch) replaces the move arrows on boards and lists, including order inside a column. The card dialog has a Column/Group choice as well.
-- Panels can be hidden in Edit layout ("Hide", then "Show ..." in the bar). Lists have a background colour. The project form has "+ New category…". Enter saves inline name fields.
+- Panels can be hidden in Edit layout ("Hide", then "Show ..." in the bar). Lists have a colour: "⚙ Settings" on a list (Lists tab and Today) opens name, colour swatches with a live preview of the list, and Show on Today. A coloured list has a solid top bar and a tint. The project form has "+ New category…". Enter saves inline name fields.
 
 ### Todoist import into Work (pushed 2026-10-28)
 - Paddy chose to import all 54 open Todoist tasks as they are, accepting that iManage-internal content goes into his personal Google account.

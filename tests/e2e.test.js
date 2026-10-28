@@ -355,9 +355,10 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-cardcolumn'), $('#dlg-cardcolumn').options[1].value, 'change');
     click($('#dlg-submit'));
     await waitFor(() => list().querySelectorAll('.col')[1].querySelectorAll('.kcard').length === 1, 'moved to the second group', 200);
-    const toggle = list().querySelector('[data-change="lists.today"]');
-    toggle.checked = true;
-    toggle.dispatchEvent(new w.Event('change', { bubbles: true }));
+    click(list().querySelector('[data-act="lists.settings"]'));
+    await waitFor(() => $('#dlg-showtoday'), 'settings dialog');
+    $('#dlg-showtoday').checked = true;
+    click($('#dlg-submit'));
     await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0].show_today === 'yes', 'saved on the server');
     click(tab('Today'));
     await waitFor(() => $$('#app .listpanel .label').some((l) => l.textContent === 'Keep in mind'), 'list on Today');
@@ -403,13 +404,22 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('a list can be given a colour, shown on the Lists tab and on Today', async () => {
     click(tab('Lists'));
-    const select = await waitFor(() => $('.listpanel [data-change="lists.color"]'), 'colour menu');
-    setVal(select, '6', 'change');
+    click(await waitFor(() => $('.listpanel [data-act="lists.settings"]'), 'settings button'));
+    await waitFor(() => $('#dlg-listpreview'), 'settings dialog with preview');
+    assert.ok(!$('#dlg-listpreview').classList.contains('tinted'), 'preview starts without colour');
+    const green = $$('input[name="dlg-listcolor"]').find((r) => r.value === '6');
+    green.checked = true; green.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok($('#dlg-listpreview').classList.contains('tinted') && $('#dlg-listpreview').style.getPropertyValue('--list-c').includes('--cat-6'), 'preview shows the colour');
+    setVal($('#dlg-listname'), 'How I work');
+    assert.strictEqual($('#dlg-previewname').textContent, 'How I work', 'preview shows the name');
+    click($('#dlg-submit'));
     await waitFor(() => $('.listpanel.tinted'), 'tinted on Lists');
+    assert.strictEqual($('.listpanel .listname').value, 'How I work');
     assert.ok($('.listpanel.tinted').getAttribute('style').includes('--cat-6'));
     click(tab('Today'));
     await waitFor(() => $('#app .listpanel.tinted'), 'tinted on Today');
-    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0].color === '6', 'saved');
+    assert.ok($('#app .listpanel [data-act="lists.settings"]'), 'settings on Today too');
+    await waitFor(() => { const l = JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0]; return l.color === '6' && l.name === 'How I work'; }, 'saved');
   });
 
   await step('acceptance criteria sit above the Kanban: add with Enter, tick, hide checked, edit', async () => {
