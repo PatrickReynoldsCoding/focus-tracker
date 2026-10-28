@@ -9,12 +9,16 @@
 .nt-bar .dot { width: 30px; padding: 0; }
 .nt-bar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
 .nt-bar .dot.hi i { border-radius: 3px; }
-/* The corner handle resizes the editor; the panel grows with it. */
-.nt-edit { min-height: 200px; height: 320px; max-height: 90vh; resize: vertical; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
+/* The bar under the editor resizes it (drag, or arrow keys); the panel grows with it. */
+.nt-edit { min-height: 120px; height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
 .nt-edit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .nt-edit[contenteditable="false"] { opacity: 0.6; }
 .nt-edit:empty::before { content: attr(data-placeholder); color: var(--muted); }
 .nt-edit ul, .nt-edit ol { margin: 4px 0; padding-left: 22px; }
+.nt-grip { height: 16px; margin-top: 2px; cursor: ns-resize; touch-action: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+.nt-grip::before { content: ""; width: 56px; height: 5px; border-radius: 3px; background: var(--line); }
+.nt-grip:hover::before, .nt-grip:focus-visible::before, .nt-grip.dragging::before { background: var(--accent); }
+.nt-grip:focus-visible { outline: 2px solid var(--accent); }
 .nt-edit h2, .nt-edit h3, .nt-edit h4 { margin: 10px 0 4px; line-height: 1.25; }
 .nt-edit h2 { font-size: 1.75em; } .nt-edit h3 { font-size: 1.4em; } .nt-edit h4 { font-size: 1.15em; }
 .nt-edit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
@@ -123,6 +127,7 @@
     return '<section class="panel"><div class="label">Notes</div>' + toolbar() +
       '<div class="nt-edit" id="nt-text" contenteditable="' + (loaded ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes"' + (h ? ' style="height:' + FT.esc(h) + '"' : '') +
       ' data-placeholder="' + (loaded ? PLACEHOLDER : 'Loading…') + '">' + (cache[p.id] ? cache[p.id].html : '') + '</div>' +
+      '<div class="nt-grip" id="nt-grip" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag to make the notes taller or shorter" aria-label="Resize notes. Drag, or press the up and down arrow keys."></div>' +
       '<div class="notes-foot"><span id="nt-status"></span><span class="nt-right">' +
       '<button type="button" class="nt-copy" data-act="notes.copy">Copy as markdown</button>' +
       '<a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></span></div></section>';
@@ -241,18 +246,35 @@
     }
   });
 
-  // ---------- resize: the editor's corner handle sets its height, the panel follows and the height is remembered ----------
-  var observer = null, watched = null;
-  FT.onRender(function () {
+  // ---------- resize: the bar under the editor sets its height, the panel follows and the height is remembered ----------
+  var MIN_HEIGHT = 120, MAX_HEIGHT = 3000, STEP = 40;
+
+  function setHeight(px) {
     var el = editor();
-    if (!el || el === watched || !window.ResizeObserver) return;
-    if (observer) observer.disconnect();
-    watched = el;
-    observer = new ResizeObserver(function () {
-      FT.fitPanel(el);
-      if (el.style.height) { try { localStorage.setItem(HEIGHT_KEY, el.style.height); } catch (e) {} }
-    });
-    observer.observe(el);
+    if (!el) return;
+    var h = Math.round(Math.min(Math.max(px, MIN_HEIGHT), MAX_HEIGHT));
+    el.style.height = h + 'px';
+    requestAnimationFrame(function () { FT.fitPanel(el); });
+    try { localStorage.setItem(HEIGHT_KEY, h + 'px'); } catch (e) {}
+  }
+
+  var drag = null;
+  document.addEventListener('pointerdown', function (e) {
+    var grip = e.target.closest && e.target.closest('#nt-grip');
+    var el = editor();
+    if (!grip || !el) return;
+    drag = { y: e.clientY, h: el.offsetHeight, grip: grip };
+    grip.classList.add('dragging');
+    e.preventDefault();
+  });
+  document.addEventListener('pointermove', function (e) { if (drag) setHeight(drag.h + e.clientY - drag.y); });
+  function endDrag() { if (drag) { drag.grip.classList.remove('dragging'); drag = null; } }
+  document.addEventListener('pointerup', endDrag);
+  document.addEventListener('pointercancel', endDrag);
+  document.addEventListener('keydown', function (e) {
+    if (!e.target || e.target.id !== 'nt-grip' || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    setHeight(editor().offsetHeight + (e.key === 'ArrowDown' ? STEP : -STEP));
   });
 })();
 </script>
