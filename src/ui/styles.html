@@ -251,7 +251,9 @@ textarea { min-height: 150px; resize: vertical; }
 .toastx { border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer; }
 @media (max-width: 760px) { .toast { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 68px)); } }
 .toastbtn { margin-left: 0; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
-.hidebtn { position: absolute; top: 14px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+/* In Edit layout the Hide button gets its own strip at the top of the panel, so it never covers the panel's own buttons. */
+.grid-stack-item:has(> .hidebtn) > .grid-stack-item-content > .panel { padding-top: 50px; }
+.hidebtn { position: absolute; top: 10px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .back { margin-bottom: 4px; }
 @media (prefers-reduced-motion: no-preference) { .btn, .tab { transition: background 0.12s, color 0.12s; } }

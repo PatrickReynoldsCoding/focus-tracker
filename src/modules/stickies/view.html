@@ -121,7 +121,7 @@
     return '<div class="stickyfab">' +
       (isHidden ? '' : '<button data-act="stickies.add" aria-label="Add a sticky note">+ Note</button>') +
       '<button data-act="stickies.toggle" aria-pressed="' + !isHidden + '" aria-label="' + (isHidden ? 'Show ' + count + ' sticky notes' : 'Hide sticky notes') + '" title="' + (isHidden ? 'Show sticky notes' : 'Hide sticky notes') + '">' +
-      '🗒 ' + (isHidden ? 'Show' : 'Hide') + (isHidden && count ? '<span class="badge">' + count + '</span>' : '') + '</button></div>';
+      '🗒 ' + (isHidden ? 'Show notes' : 'Hide notes') + (isHidden && count ? '<span class="badge">' + count + '</span>' : '') + '</button></div>';
   }
 
   /** Draw the notes over the project page after every redraw, keeping the cursor if you were typing in one. */
