@@ -98,6 +98,8 @@ a.iconbtn[hidden] { display: none; }
 .modes { flex: none; }
 .modeselect { width: auto; padding: 6px 30px 6px 12px; font-weight: 600; font-size: 13.5px; border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft); cursor: pointer; }
 @media (max-width: 760px) { .widebtn, .layoutbtn { display: none; } body.wide .wrap { max-width: 1080px; } }
+.backbtn[hidden] { display: none; }
+.backbtn { display: inline-flex; align-items: center; justify-content: center; }
 /* Phone: the bar is only the menu button, the name, sync and undo. Views, mode and Settings sit in the menu. */
 .menubtn, .menulabel { display: none; }
 @media (max-width: 760px) {
@@ -107,7 +109,7 @@ a.iconbtn[hidden] { display: none; }
   #undoBtn { width: 40px; height: 40px; }
   .sync { min-width: 0; }
   .tabs, .modes, #settingsBtn { display: none; }
-  .menubtn { order: 0; } .brand { order: 1; } .sync { order: 2; } #undoBtn { order: 3; } .tabs { order: 10; } .modes { order: 11; } #settingsBtn { order: 12; }
+  .backbtn { order: -1; width: 40px; height: 40px; } .menubtn { order: 0; } .brand { order: 1; } .sync { order: 2; } #undoBtn { order: 3; } .tabs { order: 10; } .modes { order: 11; } #settingsBtn { order: 12; }
   body.menuopen .tabs { display: flex; flex-direction: column; flex: 1 1 100%; overflow: visible; gap: 2px; }
   body.menuopen .tab { text-align: left; padding: 12px 14px; font-size: 16px; }
   body.menuopen .modes { display: block; flex: 1 1 100%; }

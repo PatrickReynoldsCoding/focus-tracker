@@ -2,7 +2,7 @@
 #app { position: relative; }
 .stickylayer { position: absolute; inset: 0; pointer-events: none; z-index: 15; }
 /* Pastel paper with dark text in both themes; --paper-a is how solid the paper is (the text always stays solid). */
-.sticky { --paper: #fff3a3; --paper-a: 1; position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; max-width: 900px; max-height: 900px;
+.sticky { --paper: #fff3a3; --paper-a: 1; position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; max-width: min(900px, 100%); max-height: 900px; touch-action: pan-x pan-y;
   background: color-mix(in srgb, var(--paper) calc(var(--paper-a) * 100%), transparent); color: #2a2418; border-radius: 4px 4px 12px 4px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12); resize: both; overflow: hidden; }
 .sticky .grip { display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding: 2px 4px; min-height: 28px; cursor: grab; touch-action: none;
@@ -83,9 +83,12 @@
     });
   }
 
+  /** A note's left edge: its saved place, but never so far right that it hangs off a narrow screen. */
+  function leftCss(note) { return 'max(0px, min(' + note.x + '%, calc(100% - ' + note.w + 'px)))'; }
+
   function noteHtml(s) {
     var id = FT.esc(s.id);
-    return '<div class="sticky" data-sticky="' + id + '" data-color="' + FT.esc(s.color) + '" style="left:' + s.x + '%;top:' + s.y + 'px;width:' + s.w + 'px;height:' + s.h +
+    return '<div class="sticky" data-sticky="' + id + '" data-color="' + FT.esc(s.color) + '" style="left:' + leftCss(s) + ';top:' + s.y + 'px;width:min(' + s.w + 'px, 100%);height:' + s.h +
       'px;--paper:' + (SHADE[s.color] || SHADE.yellow) + ';--paper-a:' + s.opacity + '">' +
       '<div class="grip" title="Drag to move">' +
       '<button class="sbtn" data-act="stickies.menu" data-id="' + id + '" aria-label="Note options" title="Colour and see-through" aria-haspopup="true" aria-expanded="' + (menuFor === s.id) + '">⋯</button>' +
@@ -186,9 +189,40 @@
     if (!note) return;
     note.x = Math.round(Math.min(100, Math.max(0, el.offsetLeft / width * 100)) * 100) / 100;
     note.y = Math.round(Math.max(0, el.offsetTop));
-    el.style.left = note.x + '%';
+    el.style.left = leftCss(note);
     FT.rpc('stickies', 'update', { id: note.id, x: note.x, y: note.y }, { render: false }).catch(FT.saveFailed);
   });
+
+  // ---------- pinching a note to resize it (two fingers on a note) ----------
+  var pinch = null;
+  function clampNum(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+  function fingerGap(e) { return Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 2) return;
+    var el = e.target.closest && e.target.closest('.sticky');
+    if (!el) return;
+    drag = null;
+    pinch = { el: el, gap: fingerGap(e) || 1, w: el.offsetWidth, h: el.offsetHeight, left: el.offsetLeft };
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    var k = fingerGap(e) / pinch.gap, appWidth = document.getElementById('app').clientWidth;
+    var w = clampNum(pinch.w * k, 120, Math.min(900, appWidth)), h = clampNum(pinch.h * k, 80, 900);
+    pinch.el.style.width = w + 'px'; pinch.el.style.height = h + 'px';
+    pinch.el.style.left = clampNum(pinch.left, 0, Math.max(0, appWidth - w)) + 'px'; // stays on screen as it grows
+  }, { passive: false });
+  document.addEventListener('touchend', function (e) {
+    if (!pinch || e.touches.length >= 2) return;
+    var el = pinch.el, note = byId(el.dataset.sticky), appWidth = document.getElementById('app').clientWidth;
+    pinch = null;
+    if (!note) return;
+    note.w = Math.round(el.offsetWidth); note.h = Math.round(el.offsetHeight);
+    note.x = Math.round(clampNum(el.offsetLeft / appWidth * 100, 0, 100) * 100) / 100;
+    el.style.left = leftCss(note);
+    FT.rpc('stickies', 'update', { id: note.id, x: note.x, w: note.w, h: note.h }, { render: false }).catch(FT.saveFailed);
+  }, { passive: true });
+  document.addEventListener('touchcancel', function () { pinch = null; }, { passive: true });
 
   // ---------- actions ----------
   /** A new note appears near the top of what you can see, on the right. */

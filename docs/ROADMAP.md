@@ -137,6 +137,11 @@ Original plan:
 - The Projects table is a list of cards on a phone (it was wider than the screen and scrolled sideways).
 - Settings has a "Wrapper site" link and a "Copy address and open wrapper" button. The server gives the app its own address with `ScriptApp.getService().getUrl()` (in a try/catch, so it cannot break the app; no new scope was added). The button copies it and opens the wrapper with `#u=` so it is filled in. Not tried on Google's runtime: if `getUrl()` returns nothing the dialog says so.
 
+### Sticky pinch, notes toolbar on top, Back button (done 2026-10-28, requested by Paddy; real Chrome with touch events, not a phone)
+- Sticky notes: two fingers on a note resize it (pinch in or out, capped at the screen width, kept on screen, saved). A note can no longer hang off a narrow screen: its left edge and width are clamped in CSS (`leftCss`), so a note placed on the desktop fits on a phone. The saved size and place are unchanged until you move or resize it.
+- Notes editor: the formatting bar is at the top of the full screen editor, beside Done, with Undo and Redo first (browser undo for the text box; the Drive file is saved after each change). The card note editor has Undo and Redo too.
+- Back button (left of the bar, hidden when there is nowhere to go): returns to the pages you came from, in this browser and mode only (`ft.back.<mode>`, 20 deep, survives a reload; pages that were deleted or are locked are skipped). It is an in-app button; the phone's own back button is not wired to it. The header Undo still undoes data changes, and there is still no Redo for those.
+
 ### Separate project: PR notifications (dropped 2026-10-28, not wanted)
 - Wanted: search work GitHub for his open PRs and notify him when someone comments, as a macOS notification on his work Mac.
 - Apps Script cannot show native macOS notifications. Recommendation: a small local tool on the work Mac using the `gh` CLI (already signed in) run by a scheduled job (launchd) that checks for new comments and calls the macOS notification command. This also keeps a work token out of his personal Google account.

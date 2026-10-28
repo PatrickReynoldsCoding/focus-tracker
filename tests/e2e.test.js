@@ -407,7 +407,7 @@ async function waitFor(fn, label, ms = 3000) {
     click(card.querySelector('[data-act="kanban.open-card"]'));
     await waitFor(() => $('#dlg-note'), 'card dialog');
     assert.strictEqual($('#dlg-cardtitle').value, 'Tell a story with your commits');
-    assert.strictEqual($$('.rtbar button').length, 13);
+    assert.strictEqual($$('.rtbar button').length, 15);
     $$('input[name="dlg-color"]').find((r) => r.value === '5').checked = true;
     $('#dlg-note').innerHTML = '<b>Why:</b> reviewers read history<script>alert(1)</script>';
     setVal($('#dlg-cardtitle'), 'Tell a story with commits');

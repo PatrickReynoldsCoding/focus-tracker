@@ -1,16 +1,18 @@
 <style>
-.notes-top { display: none; }
+.notes-top { display: block; }
+.notes-done { display: none; }
 .notes-edit { min-height: 220px; max-height: 60vh; font-size: 15.5px; }
 .notes-panel .rtbar { margin-bottom: 8px; }
 .notes-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
-/* Phone: tapping the notes opens them edge to edge. Only a Done button at the top; the formatting bar sits at the bottom, above the keyboard. */
+/* Phone: tapping the notes opens them edge to edge. The top row is the formatting bar (undo, redo, text styles) and Done; the rest is the note. */
 @media (max-width: 760px) {
   .notes-panel.full { position: fixed; top: 0; left: 0; right: 0; height: var(--vvh, 100dvh); z-index: 50; margin: 0; padding: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
   .notes-panel.full > .label, .notes-panel.full .notes-foot { display: none; }
-  .notes-panel.full .notes-top { display: flex; justify-content: flex-end; padding: max(8px, env(safe-area-inset-top, 0px)) 12px 4px; }
-  .notes-panel.full .notes-edit { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; outline: 0; padding: 8px 18px 18px; font-size: 17px; line-height: 1.6; }
-  .notes-panel.full .rtbar { order: 3; flex-wrap: nowrap; overflow-x: auto; margin: 0; padding: 8px 10px max(8px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--surface); }
-  .notes-panel.full .rtbar button { min-width: 40px; height: 40px; flex: none; }
+  .notes-panel.full .notes-top { display: flex; align-items: center; gap: 8px; padding: max(8px, env(safe-area-inset-top, 0px)) 10px 8px; border-bottom: 1px solid var(--line); }
+  .notes-panel.full .notes-top .rtbar { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; margin: 0; }
+  .notes-panel.full .notes-top .rtbar button { min-width: 40px; height: 40px; flex: none; }
+  .notes-panel.full .notes-done { display: inline-flex; flex: none; }
+  .notes-panel.full .notes-edit { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; outline: 0; padding: 12px 18px 18px; font-size: 17px; line-height: 1.6; }
 }
 </style>
 <script>
@@ -23,6 +25,7 @@
 
   // The toolbar edits what the markdown file can hold: bold, italic, headings, lists and quotes.
   var TOOLS = [
+    ['undo', null, '↶', 'Undo'], ['redo', null, '↷', 'Redo'],
     ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'],
     ['formatBlock', 'h1', 'H1', 'Heading 1'], ['formatBlock', 'h2', 'H2', 'Heading 2'], ['formatBlock', 'p', 'Text', 'Normal text'],
     ['insertUnorderedList', null, '• List', 'Bullet list'], ['insertOrderedList', null, '1. List', 'Numbered list'],
@@ -43,8 +46,7 @@
     var row = noteRow(p.id);
     var loaded = Object.prototype.hasOwnProperty.call(cache, p.id) || !row;
     return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel"><div class="label">Notes</div>' +
-      '<div class="notes-top"><button class="btn primary" type="button" data-act="notes.done">Done</button></div>' +
-      toolbarHtml() +
+      '<div class="notes-top">' + toolbarHtml() + '<button class="btn primary notes-done" type="button" data-act="notes.done">Done</button></div>' +
       '<div class="rtedit notes-edit" id="nt-text" contenteditable="' + (loaded ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes" data-placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '">' + FT.mdToHtml(cache[p.id] || '') + '</div>' +
       '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
   }

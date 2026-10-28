@@ -292,7 +292,37 @@ var FT = (function () {
       .sort(function (a, b) { return (a.tab.order || 0) - (b.tab.order || 0); });
   }
 
+  // Back: the pages you came from in this device and mode, newest last (kept in this browser so it survives a reload).
+  var BACK_KEY = 'ft.back.', BACK_MAX = 20, backStack = null, going = false;
+  function pageNow() { return { view: FT.state.view, projectId: FT.state.view === 'project' ? FT.state.projectId : '' }; }
+  function samePage(a, b) { return !!a && !!b && a.view === b.view && (a.projectId || '') === (b.projectId || ''); }
+  function backPages() {
+    if (backStack) return backStack;
+    try { backStack = JSON.parse(localStorage.getItem(BACK_KEY + FT.state.mode) || '[]'); } catch (e) { backStack = []; }
+    return Array.isArray(backStack) ? backStack : (backStack = []);
+  }
+  function keepBack() { try { localStorage.setItem(BACK_KEY + FT.state.mode, JSON.stringify(backPages())); } catch (e) {} }
+  function showBackButton() { var b = $('backBtn'); if (b) b.hidden = !FT.ready || backPages().length === 0; }
+
+  FT.back = function () {
+    var pages = backPages();
+    while (pages.length) {
+      var page = pages.pop();
+      keepBack();
+      if (usablePage(page) && !samePage(page, pageNow())) {
+        going = true;
+        try { if (page.view === 'project') FT.go('project', { id: page.projectId }); else FT.go(page.view); } finally { going = false; }
+        return;
+      }
+    }
+    showBackButton();
+  };
+
   FT.go = function (view, opts) {
+    if (!going && FT.ready && FT.state.view) {
+      var from = pageNow(), to = { view: view, projectId: view === 'project' ? opts.id : '' };
+      if (!samePage(from, to)) { var pages = backPages(); pages.push(from); if (pages.length > BACK_MAX) pages.shift(); keepBack(); }
+    }
     FT.state.view = view;
     if (view === 'project') {
       FT.state.projectId = opts.id;
@@ -713,6 +743,7 @@ var FT = (function () {
     lsSet(LAST_KEY + FT.state.mode, JSON.stringify({ view: FT.state.view, projectId: FT.state.view === 'project' ? FT.state.projectId : '' }));
   }
   FT.onRender(saveLastPage);
+  FT.onRender(showBackButton);
 
   /** A saved page that still exists and is not locked, or null (the caller then shows the first tab, Today). */
   function usablePage(page) {
@@ -739,7 +770,7 @@ var FT = (function () {
   function applyBootstrap(b, opts) {
     opts = opts || {};
     var current = opts.keepPage ? { view: FT.state.view, projectId: FT.state.projectId } : null;
-    FT.config = b.config; FT.store = b.data; FT.state.mode = b.config.mode; FT.ready = true;
+    FT.config = b.config; FT.store = b.data; FT.state.mode = b.config.mode; FT.ready = true; backStack = null;
     loaded = {};
     b.modules.forEach(function (m) { loaded[m.id] = true; });
     document.title = b.config.appName || document.title;
@@ -949,6 +980,7 @@ var FT = (function () {
     var open = document.body.classList.toggle('menuopen');
     $('menuBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
   });
+  FT.action('core.back', function () { FT.back(); });
   FT.action('core.reload', function () { location.reload(); });
   FT.on('change', 'core.mode', function (el) {
     if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
