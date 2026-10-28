@@ -135,7 +135,8 @@ function loadServer(opts = {}) {
   const files = [];
   (function walk(d) { fs.readdirSync(d, { withFileTypes: true }).forEach((e) => {
     const p = path.join(d, e.name);
-    if (e.isDirectory()) walk(p); else if (p.endsWith('.js')) files.push(p);
+    // src/private holds git-ignored local data (one-time imports); tests never load it unless asked to
+    if (e.isDirectory()) { if (e.name !== 'private' || opts.includePrivate) walk(p); } else if (p.endsWith('.js')) files.push(p);
   }); })(root);
   files.forEach((f) => vm.runInContext(fs.readFileSync(f, 'utf8'), sandbox, { filename: path.relative(root, f) }));
   // Run helpers in the sandbox so results keep their own realm

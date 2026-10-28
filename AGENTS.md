@@ -10,6 +10,7 @@ The Resources feature stores links to Google Drive files. Before adding, suggest
 2. Check the file first. If it contains bank or card details, passwords, ID or passport numbers, tax references, health records or similar, stop and ask the owner to confirm before linking. A link is one click away from the contents.
 3. Never copy the contents of a linked file into the sheet, the notes files or this repository. Store the link, a title and a short note only.
 4. Never put the owner's real links, file IDs, spreadsheet IDs or folder IDs in the repository. They belong in the sheet and in Script Properties.
+6. Imported data (for example from Todoist) lives only in git-ignored `src/private/` while it waits to be imported. Never commit it, and delete it once the import has run.
 5. If in doubt, ask.
 
 ## How the code is organised

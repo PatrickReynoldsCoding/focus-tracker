@@ -26,7 +26,7 @@ function projectsModule() {
           last_touched: now,
           created: now
         });
-        ctx.optional('kanban', 'initProject', { projectId: row.id });
+        ctx.optional('kanban', 'initProject', { projectId: row.id, columns: a.columns });
         ctx.refresh('projects', 'kanban', 'today');
         return row;
       },

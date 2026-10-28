@@ -95,6 +95,33 @@ function kanbanModule() {
         return row;
       },
 
+      /**
+       * Add many cards to a board in one write, for imports. a.cards: [{ column (name), title, color, noteHtml }].
+       * Cards go into the named column (the first column if the name is unknown), after any cards already there.
+       */
+      importCards: function (a, ctx) {
+        var cols = columnsOf_(a.projectId);
+        assert_(cols.length, 'That board has no columns.');
+        var byName = {};
+        cols.forEach(function (c) { byName[c.name] = c.id; });
+        var nextInColumn = {};
+        TASKS.all().forEach(function (t) { nextInColumn[t.column_id] = Math.max(nextInColumn[t.column_id] || 0, t.order); });
+        var rows = (a.cards || []).map(function (card) {
+          var columnId = byName[card.column] || cols[0].id;
+          nextInColumn[columnId] = (nextInColumn[columnId] || 0) + 1;
+          var noteHtml = sanitizeRichText_(card.noteHtml || '');
+          var noteText = richTextToPlain_(noteHtml);
+          return {
+            project_id: a.projectId, column_id: columnId, title: clean_(card.title, 200) || 'Untitled', order: nextInColumn[columnId],
+            created: nowIso_(), color: CARD_COLORS.indexOf(String(card.color || '')) !== -1 ? String(card.color || '') : '',
+            note_html: noteText ? noteHtml : '', note_text: noteText
+          };
+        });
+        TASKS.insertMany(rows);
+        ctx.refresh('kanban');
+        return rows.length;
+      },
+
       moveTask: function (a) {
         var inCol = TASKS.all().filter(function (t) { return t.column_id === a.columnId; });
         return TASKS.update(a.id, { column_id: a.columnId, order: nextOrder_(inCol) });

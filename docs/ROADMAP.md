@@ -53,6 +53,11 @@ Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
+### Todoist import into Work (pushed 2026-10-28)
+- Paddy chose to import all 54 open Todoist tasks as they are, accepting that iManage-internal content goes into his personal Google account.
+- Mapping: "Current Stuff" becomes project "Current work" (sections are columns) except "keep in mind" (list "Keep in mind", shown on Today) and "todo" (project "Admin"). "Read and Watch" becomes a list with its sections as groups. Subtasks are their own cards ("parent → child"), descriptions and due dates go into card notes, Todoist P1/P2/P3 become red/orange/blue cards.
+- Mechanism: `core/import.js` runs `pendingImportData_()` from git-ignored `src/private/` once, when the target mode first opens. The data file must be deleted and pushed again after the import ran. Never commit it.
+
 ### Lists (done, 2026-10-28, requested by Paddy)
 - A Lists tab with any number of named lists (for example "Keep in mind", "Read and Watch"). Each list has groups and items, edited exactly like a vertical Kanban: a list is a Kanban board owned by the list id.
 - "Show on Today" puts a list on Today as its own panel (slot `today.panels`).

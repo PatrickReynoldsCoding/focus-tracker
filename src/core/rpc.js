@@ -5,6 +5,7 @@ function bootstrap(modeId) {
   var mode = setMode_(modeId);
   var mods = loadModules_();
   var ctx = makeCtx_(mods);
+  runPendingImport_(ctx);
   var data = {};
   Object.keys(mods).forEach(function (id) {
     if (typeof mods[id].snapshot === 'function') data[id] = mods[id].snapshot(ctx);

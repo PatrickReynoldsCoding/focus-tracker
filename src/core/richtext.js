@@ -76,7 +76,7 @@ function richTextToPlain_(html) {
   var text = String(html || '')
     .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, function (all, href, label) {
       var plainLabel = label.replace(/<[^>]+>/g, '');
-      return plainLabel.trim() === decodeRichEntities_(href).trim() ? plainLabel : plainLabel + ' (' + href + ')';
+      return decodeRichEntities_(plainLabel).trim() === decodeRichEntities_(href).trim() ? plainLabel : plainLabel + ' (' + href + ')';
     })
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<li\b[^>]*>/gi, '\n- ')

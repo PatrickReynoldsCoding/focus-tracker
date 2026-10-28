@@ -431,6 +431,32 @@ test('page layouts are saved per page and per mode, validated, and can be reset'
   assert.deepStrictEqual(Object.keys(r.slices.layout), ['project']);
 });
 
+test('a pending import runs once, in its own mode, when that mode is first opened', () => {
+  const s = fresh();
+  s.run(`function pendingImportData_() { return {
+    id: 'sample-1', mode: 'work',
+    projects: [{ name: 'Tickets', category: 'delivery', next_action: 'Fix it', columns: ['in-progress', 'Waiting', 'Done'],
+      cards: [{ column: 'Waiting', title: 'Token', color: '4', note: 'See https://x.io/a?b=1&c=2\\n<script>x</script>' },
+              { column: 'nope', title: 'Lands in the first column' }] }],
+    lists: [{ name: 'Keep in mind', showToday: true, groups: ['Items'], items: [{ group: 'Items', title: 'Tell a story' }] }]
+  }; }`);
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects.length, 0, 'the personal mode is not touched');
+  const w = json(s.run("bootstrap('work')")).data;
+  assert.deepStrictEqual(w.projects.map((p) => [p.name, p.category, p.next_action]), [['Tickets', 'delivery', 'Fix it']]);
+  const cols = w.kanban.columns.filter((c) => c.project_id === w.projects[0].id).map((c) => c.name);
+  assert.deepStrictEqual(cols, ['in-progress', 'Waiting', 'Done']);
+  const token = w.kanban.tasks.find((t) => t.title === 'Token');
+  assert.strictEqual(w.kanban.columns.find((c) => c.id === token.column_id).name, 'Waiting');
+  assert.strictEqual(token.color, '4');
+  assert.strictEqual(token.note_text, 'See https://x.io/a?b=1&c=2\n<script>x</script>', 'the note is text, not markup');
+  assert.ok(!token.note_html.includes('<script'), 'imported notes are escaped');
+  assert.strictEqual(w.kanban.columns.find((c) => c.id === w.kanban.tasks.find((t) => t.title === 'Lands in the first column').column_id).name, 'in-progress');
+  assert.deepStrictEqual(w.lists.map((l) => [l.name, l.show_today]), [['Keep in mind', 'yes']]);
+  json(s.run("bootstrap('work')"));
+  assert.strictEqual(json(s.run("bootstrap('work')")).data.projects.length, 1, 'never imported twice');
+  assert.ok(s.script._m['IMPORT_DONE.sample-1']);
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
