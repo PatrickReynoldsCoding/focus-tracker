@@ -325,6 +325,12 @@
     return baseUndo();
   };
 
+  var baseRedo = FT.redo;
+  FT.redo = function () {
+    if (down || (state && state.list.length)) { FT.toast('Redo needs a connection, and changes are still waiting to be sent.'); return Promise.resolve(); }
+    return baseRedo();
+  };
+
   // ---------- connection events ----------
   window.addEventListener('online', function () { retryNow(); });
   window.addEventListener('offline', function () { markDown(); });

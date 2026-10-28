@@ -36,3 +36,5 @@ Paddy has given standing permission: after `npm test` passes and the change is c
 ## Checks
 
 Run `npm install` once, then `npm test`. The server tests run the real server code against in-memory fakes of Sheets, Drive and Properties. The browser test loads the real page in jsdom and clicks through it. Neither runs on Google's servers, so anything that depends on Apps Script itself still needs trying after `clasp push`.
+
+`tests/browser.test.js` runs the real page in Chrome (desktop and phone sized) against a deliberately slow fake server (`tests/support/devserver.js`) and fails if a button gives no feedback within 300 ms, if a change does not reach the server, if a refused save is not rolled back with a message, or if something covers the main controls. It needs Chrome (set `CHROME_PATH`, or install google-chrome or chromium) and skips itself if there is none, so say so when you report test results. When you add a button that saves something, show its effect on screen first with `FT.optimistic(apply, send)` and add it to that test.

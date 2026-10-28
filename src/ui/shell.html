@@ -85,6 +85,7 @@ var FT = (function () {
   // ---------- server calls ----------
   function setPending(delta) {
     pending += delta;
+    document.body.classList.toggle('busy', pending > 0); // a bar along the top of the page while anything is waiting for Google
     var el = $('sync');
     clearTimeout(syncTimer);
     if (pending > 0) { el.textContent = 'Saving…'; el.dataset.state = 'saving'; return; }
@@ -182,9 +183,24 @@ var FT = (function () {
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
 
+  /**
+   * Show a change on screen at once, then save it. apply() changes FT.store and returns a function that puts it back;
+   * send() returns the save's promise. If the save fails the screen goes back (the error is already shown by FT.rpc).
+   * Without this, a button waits for Google (often 1 to 3 seconds, longer behind other saves) and looks dead.
+   */
+  FT.optimistic = function (apply, send) {
+    var revert = apply();
+    FT.render();
+    return send().catch(function (e) {
+      if (typeof revert === 'function') { revert(); FT.render(); }
+      throw e;
+    });
+  };
+
   /** Undo the newest change in this mode (after any changes still being saved). */
   FT.undo = function () {
     var mode = FT.state.mode;
+    FT.toast('Undoing…');
     waiting++;
     var done = queue.then(function () {
       setPending(1);
@@ -210,6 +226,7 @@ var FT = (function () {
   /** Do again the change that was just undone (after any changes still being saved). */
   FT.redo = function () {
     var mode = FT.state.mode;
+    FT.toast('Redoing…');
     waiting++;
     var done = queue.then(function () {
       setPending(1);

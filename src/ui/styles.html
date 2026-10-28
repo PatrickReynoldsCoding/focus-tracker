@@ -87,6 +87,13 @@ a.textlink { overflow-wrap: anywhere; text-decoration: underline; text-underline
 
 .bar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--line); }
 .menupanel { display: contents; }
+/* Anything waiting for Google shows a bar along the bottom of the header (after a short moment, so quick saves do not flash it). */
+.bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; opacity: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; transition: opacity 0.1s 0.2s; }
+body.busy .bar::after { opacity: 1; animation: busybar 1s linear infinite; }
+@keyframes busybar { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@media (prefers-reduced-motion: reduce) { body.busy .bar::after { animation: none; background: var(--accent); } }
+:root[data-theme="eink"] body.busy .bar::after { animation: none; background: #000; }
 .brand { flex: none; }
 .backbtn { order: 0; } .brand { order: 1; } .tabs { order: 2; } .sync { order: 3; } .modes { order: 4; } #settingsBtn { order: 5; } #undoBtn { order: 6; } #redoBtn { order: 7; } .layoutbtn { order: 8; } .widebtn { order: 9; }
 .iconbtn:disabled { opacity: 0.35; cursor: default; }

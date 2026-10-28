@@ -303,7 +303,20 @@
   function call(fn, args) { unlockAudio(); FT.rpc('today', fn, args).catch(function () {}); }
 
   FT.action('today.open', function (el) { FT.go('project', { id: el.dataset.id }); });
-  FT.action('today.start', function () { call('start', { projectId: FT.store.today.focusId }); });
+  /** Run a session call and show its effect on screen at once (apply() changes the store and returns the way back). */
+  function callNow(fn, args, apply) {
+    unlockAudio();
+    FT.optimistic(apply, function () { return FT.rpc('today', fn, args); }).catch(function () {});
+  }
+
+  FT.action('today.start', function () {
+    var t = FT.store.today;
+    if (t.session || !t.focusId) return;
+    callNow('start', { projectId: t.focusId }, function () {
+      t.session = { projectId: t.focusId, start: new Date().toISOString(), pausedMs: 0, pausedAt: '', pomodoro: null };
+      return function () { t.session = null; };
+    });
+  });
   FT.action('today.showAnyway', function () { showFocusOnAwayDay = FT.store.today.day; FT.render(); });
   FT.action('today.focusReminder', function (el) { call('focusReminder', { id: el.dataset.id }); });
   FT.action('today.dismissReminder', function (el) { call('dismissReminder', { id: el.dataset.id }); });
@@ -368,9 +381,24 @@
       }
     });
   });
-  FT.action('today.job', function () { call('toggleJob'); });
-  FT.action('today.pause', function () { call('pause'); });
-  FT.action('today.resume', function () { call('resume'); });
+  FT.action('today.job', function () {
+    var t = FT.store.today;
+    callNow('toggleJob', undefined, function () { t.jobDone = !t.jobDone; return function () { t.jobDone = !t.jobDone; }; });
+  });
+  FT.action('today.pause', function () {
+    var s = FT.store.today.session;
+    if (!s || s.pausedAt) return;
+    callNow('pause', undefined, function () { s.pausedAt = new Date().toISOString(); return function () { s.pausedAt = ''; }; });
+  });
+  FT.action('today.resume', function () {
+    var s = FT.store.today.session;
+    if (!s || !s.pausedAt) return;
+    var paused = s.pausedAt, before = s.pausedMs || 0;
+    callNow('resume', undefined, function () {
+      s.pausedMs = before + (Date.now() - new Date(paused).getTime()); s.pausedAt = '';
+      return function () { s.pausedMs = before; s.pausedAt = paused; };
+    });
+  });
   FT.action('today.pomodoro', function () { call('pomodoro', { on: !FT.store.today.session.pomodoro }); });
   FT.action('today.nextPhase', function () { call('nextPhase'); });
   FT.action('today.pomodoroSettings', function () {

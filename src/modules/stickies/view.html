@@ -230,19 +230,45 @@
   document.addEventListener('touchcancel', function () { pinch = null; }, { passive: true });
 
   // ---------- actions ----------
-  /** A new note appears near the top of what you can see, on the right. */
+  /**
+   * Where a new note goes: a spot that covers no button, field or other note, as near as possible to what you can see
+   * (looking down the page first, then up). If the whole page is busy, the spot that covers the fewest. (It used to go at a
+   * fixed place, which could land right on the project's Edit, Pause and Mark done buttons, so they looked dead.)
+   */
+  function freeSpot(w, h) {
+    var app = document.getElementById('app'), ar = app.getBoundingClientRect(), width = app.clientWidth || 360;
+    var obstacles = Array.prototype.map.call(app.querySelectorAll('button, a[href], input, select, textarea, [data-act], .sticky'), function (el) {
+      return el.closest('.stickylayer') && !el.classList.contains('sticky') ? null : el.getBoundingClientRect();
+    }).filter(function (r) { return r && r.width > 0 && r.height > 0; });
+    var viewTop = Math.max(0, -ar.top), pageEnd = Math.max(app.scrollHeight, viewTop + h + 32);
+    var ys = [], y;
+    for (y = viewTop + 16; y <= pageEnd - h; y += 24) ys.push(y);
+    for (y = viewTop - 8; y >= 0; y -= 24) ys.push(y);
+    if (!ys.length) ys.push(viewTop + 16);
+    var best = null;
+    for (var i = 0; i < ys.length && !(best && best.score === 0); i++) {
+      [62, 30, 0].forEach(function (x) {
+        var left = Math.max(0, Math.min(x / 100 * width, width - w));
+        var l = ar.left + left, t = ar.top + ys[i], r = l + w, bt = t + h;
+        var score = obstacles.filter(function (o) { return o.left < r && o.right > l && o.top < bt && o.bottom > t; }).length;
+        if (!best || score < best.score) best = { x: x, y: Math.round(ys[i]), score: score };
+      });
+    }
+    return best;
+  }
+
   FT.action('stickies.add', function () {
-    var app = document.getElementById('app'), appTop = app.getBoundingClientRect().top + window.scrollY;
     var note = {
       id: FT.newId(), project_id: FT.state.projectId, text: '', color: 'yellow', opacity: 1,
-      x: 62, y: Math.max(0, Math.round(window.scrollY - appTop + 90)), w: 220, h: 180, created: new Date().toISOString()
+      x: 62, y: 0, w: Math.min(220, document.getElementById('app').clientWidth || 220), h: 180, created: new Date().toISOString()
     };
-    // Step down and left past notes already in that spot, so a new note never fully covers an earlier one.
-    var others = notesOf(note.project_id);
-    while (others.some(function (s) { return Math.abs(s.x - note.x) < 2 && Math.abs(s.y - note.y) < 20; })) { note.y += 32; note.x = Math.max(0, note.x - 2); }
+    var spot = freeSpot(note.w, note.h);
+    note.x = spot.x; note.y = spot.y;
     FT.store.stickies = (FT.store.stickies || []).concat([note]);
     draw();
     var area = document.querySelector('[data-sticky="' + note.id + '"] textarea');
+    var el = document.querySelector('[data-sticky="' + note.id + '"]');
+    if (el) { var r = el.getBoundingClientRect(); if (r.top < 0 || r.bottom > window.innerHeight) el.scrollIntoView({ block: 'center' }); } // a free spot off screen: bring the note into view
     if (area) area.focus();
     FT.rpc('stickies', 'add', { id: note.id, projectId: note.project_id, x: note.x, y: note.y, w: note.w, h: note.h, color: note.color, opacity: note.opacity }, { render: false })
       .catch(FT.saveFailed);

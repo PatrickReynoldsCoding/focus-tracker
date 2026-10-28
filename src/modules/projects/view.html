@@ -272,8 +272,15 @@
     }, 0);
   });
 
+  var STATUS_DONE_WORDS = { done: 'Marked done.', paused: 'Paused.', active: 'Active again.' };
   FT.action('projects.status', function (el) {
-    FT.rpc('projects', 'update', { id: FT.state.projectId, status: el.dataset.status }).catch(function () {});
+    var id = FT.state.projectId, p = FT.project(id), status = el.dataset.status;
+    if (!p || p.status === status) return;
+    var before = p.status;
+    // The page changes at once; the save follows. If it fails the status goes back and the error is shown.
+    FT.optimistic(function () { p.status = status; return function () { p.status = before; }; },
+      function () { return FT.rpc('projects', 'update', { id: id, status: status }); }).catch(function () {});
+    FT.toast(STATUS_DONE_WORDS[status] || 'Saved.', null, { label: 'Undo', run: FT.undo });
   });
 
   FT.action('projects.delete', function () {
