@@ -182,7 +182,7 @@
   /** Says in words what the browser lets this page do, because the page sits inside Google's iframe. */
   function notificationStatusText() {
     if (!window.Notification) return 'This browser has no notifications.';
-    var where = window.top !== window ? ' (page is inside an iframe)' : '';
+    var where = window.top !== window ? ' (page is inside an iframe, address ' + window.location.origin + ')' : '';
     return 'Notification permission: ' + Notification.permission + where + '.';
   }
 
