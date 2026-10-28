@@ -321,6 +321,28 @@ test('work mode gets its own spreadsheet, folder, categories and Today state', (
   assert.throws(() => s.run("bootstrap('nope')"), /Unknown mode/);
 });
 
+test('new modes can be made in the app, with a safe unique id, their own folder, sheet and categories', () => {
+  const s = fresh();
+  const make = (label) => json(s.run('createMode')(label));
+  assert.throws(() => make('  '), /needs a name/);
+  assert.throws(() => make('work'), /already a mode called work/);
+  const side = make('Side projects!');
+  assert.deepStrictEqual(side, { id: 'side-projects', label: 'Side projects!', accent: '5' });
+  assert.strictEqual(make('Side-projects').id, 'side-projects-2', 'ids stay unique');
+  assert.strictEqual(make('日本').id, 'mode');
+  const b = json(s.run("bootstrap('side-projects')"));
+  assert.deepStrictEqual(b.config.modes.map((m) => m.id), ['personal', 'work', 'side-projects', 'side-projects-2', 'mode']);
+  assert.deepStrictEqual(b.data.categories.map((c) => c.label), ['General']);
+  assert.strictEqual(b.data.today.dailyMinimum, null);
+  const p = json(s.run('rpc')('projects', 'create', { name: 'Shed', category: 'general' }, 'side-projects')).result;
+  assert.ok(p.id);
+  const sheetId = s.script._m['SHEET_ID.side-projects'];
+  assert.strictEqual(s.drive.pathOf(s.drive.getFileById(sheetId)), 'Focus Tracker/Side projects!/Focus Tracker - Side projects!');
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects.length, 0, 'personal data untouched');
+  for (let i = 0; i < 7; i++) make('Extra ' + i);
+  assert.throws(() => make('One too many'), /up to 12 modes/);
+});
+
 test('categories can be added, renamed, recoloured and deleted only when unused', () => {
   const s = fresh();
   const added = s.call('categories', 'add', { label: '  Garden  ' });

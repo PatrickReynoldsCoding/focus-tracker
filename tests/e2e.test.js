@@ -359,8 +359,8 @@ async function waitFor(fn, label, ms = 3000) {
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {
     const personalFolder = $('#driveLink').href;
     assert.strictEqual(d.body.dataset.mode, 'personal');
-    assert.deepStrictEqual($$('.modebtn').map((b) => b.textContent), ['Personal', 'Work']);
-    click($$('.modebtn')[1]);
+    assert.deepStrictEqual(Array.from($('#modeSelect').options).filter((o) => !o.disabled).map((o) => o.textContent), ['Personal', 'Work', '+ New mode…']);
+    setVal($('#modeSelect'), 'work', 'change');
     await waitFor(() => d.body.dataset.mode === 'work' && $('.panel .empty'), 'work loaded');
     assert.strictEqual(w.localStorage.getItem('ft.mode'), 'work');
     assert.notStrictEqual($('#driveLink').href, personalFolder);
@@ -377,10 +377,31 @@ async function waitFor(fn, label, ms = 3000) {
     click(tab('Today'));
     await waitFor(() => $('.focus-name') && $('.focus-name').textContent === 'Wiz tickets', 'work focus');
     assert.ok(!$('#app').textContent.includes('Daily minimum'), 'work mode has no daily minimum');
-    click($$('.modebtn')[0]);
+    setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name') && $('.focus-name').textContent !== 'Wiz tickets', 'personal back');
     click(tab('Projects'));
     await waitFor(() => $$('tr.row').length === 6, 'personal projects unchanged');
+  });
+
+  await step('a new mode can be made from the mode menu and opens with its own data and accent', async () => {
+    setVal($('#modeSelect'), '__new', 'change');
+    await waitFor(() => $('#dlg-modename'), 'new mode dialog');
+    assert.strictEqual($('#modeSelect').value, 'personal', 'the menu goes back to the current mode');
+    setVal($('#dlg-modename'), 'Work');
+    click($('#dlg-submit'));
+    await waitFor(() => $('#dlg-err').textContent.includes('already a mode called Work'), 'duplicate refused');
+    setVal($('#dlg-modename'), 'Side projects');
+    click($('#dlg-submit'));
+    await waitFor(() => d.body.dataset.mode === 'side-projects' && $('#app .panel'), 'new mode open');
+    assert.strictEqual(d.body.dataset.accent, '5');
+    assert.strictEqual($('#modeSelect').value, 'side-projects');
+    assert.ok($('#driveLink').title.includes('Side projects folder'));
+    click(tab('Projects'));
+    await waitFor(() => $$('.catrow input').length === 1, 'starts with one category');
+    assert.strictEqual($$('.catrow input')[0].value, 'General');
+    assert.strictEqual($$('tr.row').length, 0);
+    setVal($('#modeSelect'), 'personal', 'change');
+    await waitFor(() => d.body.dataset.mode === 'personal' && !d.body.dataset.accent, 'back to personal');
   });
 
   assert.deepStrictEqual(errors, [], 'no uncaught page errors');

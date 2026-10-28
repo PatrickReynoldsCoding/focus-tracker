@@ -22,6 +22,9 @@
 /* Work mode uses a blue accent so it is always clear which mode's data is on screen. */
 body[data-mode="work"] { --accent: #2f5aa8; --accent-soft: #dfe7f6; }
 @media (prefers-color-scheme: dark) { body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
+/* Modes made in the app pick an accent from the category palette (body style --mode-accent). */
+body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in srgb, var(--mode-accent) 16%, var(--surface)); }
+@media (prefers-color-scheme: dark) { body[data-accent] { --accent-ink: #0d1413; } }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
@@ -44,11 +47,8 @@ a { color: var(--accent); }
 body.wide .wrap { max-width: none; }
 a.iconbtn { display: inline-flex; align-items: center; justify-content: center; }
 a.iconbtn[hidden] { display: none; }
-.modes { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
-.modebtn { border: 0; background: var(--surface); color: var(--muted); padding: 6px 12px; cursor: pointer; font-weight: 500; font-size: 13.5px; }
-.modebtn + .modebtn { border-left: 1px solid var(--line); }
-.modebtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-.modes:empty { display: none; }
+.modes { flex: none; }
+.modeselect { width: auto; padding: 6px 30px 6px 12px; font-weight: 600; font-size: 13.5px; border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft); cursor: pointer; }
 @media (max-width: 760px) { .widebtn, .layoutbtn { display: none; } body.wide .wrap { max-width: 1080px; } }
 
 main { padding-top: 16px; display: grid; gap: 16px; }

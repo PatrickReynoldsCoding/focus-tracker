@@ -303,17 +303,48 @@ var FT = (function () {
   };
 
   // ---------- modes ----------
+  var NEW_MODE = '__new';
+
+  function currentMode() {
+    return (FT.config.modes || []).filter(function (m) { return m.id === FT.state.mode; })[0] || { id: FT.state.mode, label: '', accent: '' };
+  }
+
+  /** The mode menu: every mode, then "New mode…". The page takes the mode's accent colour. */
   function renderModeBar() {
-    var modes = FT.config.modes || [];
-    $('modes').innerHTML = modes.length < 2 ? '' : modes.map(function (m) {
-      return '<button class="modebtn" data-act="core.mode" data-mode="' + FT.esc(m.id) + '" aria-pressed="' + (m.id === FT.state.mode ? 'true' : 'false') + '">' + FT.esc(m.label) + '</button>';
-    }).join('');
-    var link = $('driveLink'), label = (modes.filter(function (m) { return m.id === FT.state.mode; })[0] || {}).label || '';
+    var modes = FT.config.modes || [], mode = currentMode();
+    $('modes').innerHTML = '<select id="modeSelect" class="modeselect" aria-label="Mode" data-change="core.mode">' + modes.map(function (m) {
+      return '<option value="' + FT.esc(m.id) + '"' + (m.id === FT.state.mode ? ' selected' : '') + '>' + FT.esc(m.label) + '</option>';
+    }).join('') + '<option disabled>────</option><option value="' + NEW_MODE + '">+ New mode…</option></select>';
+    var link = $('driveLink');
     link.hidden = !FT.config.folderUrl;
     link.href = FT.config.folderUrl || '#';
-    link.title = 'Open the ' + label + ' folder in Google Drive';
+    link.title = 'Open the ' + mode.label + ' folder in Google Drive';
     link.setAttribute('aria-label', link.title);
     document.body.dataset.mode = FT.state.mode || '';
+    if (mode.accent) { document.body.dataset.accent = mode.accent; document.body.style.setProperty('--mode-accent', 'var(--cat-' + mode.accent + ')'); }
+    else { delete document.body.dataset.accent; document.body.style.removeProperty('--mode-accent'); }
+  }
+
+  function newModeDialog() {
+    renderModeBar();
+    FT.dialog({
+      title: 'New mode',
+      subtitle: 'A mode keeps its own projects, lists and settings, in its own Sheet and Drive folder.',
+      submit: 'Create mode',
+      fields: [{ id: 'modename', label: 'Name', placeholder: 'e.g. Side projects' }],
+      onSubmit: function (v) {
+        return new Promise(function (resolve, reject) {
+          google.script.run
+            .withSuccessHandler(function (mode) {
+              FT.config.modes = (FT.config.modes || []).concat([mode]);
+              resolve();
+              FT.switchMode(mode.id);
+            })
+            .withFailureHandler(function (err) { reject(new Error(FT.errorText(err))); })
+            .createMode(v.modename);
+        });
+      }
+    });
   }
 
   function applyBootstrap(b) {
@@ -375,7 +406,9 @@ var FT = (function () {
   // ---------- event delegation ----------
   FT.action('core.tab', function (el) { FT.go(el.dataset.view); });
   FT.action('core.reload', function () { location.reload(); });
-  FT.action('core.mode', function (el) { FT.switchMode(el.dataset.mode); });
+  FT.on('change', 'core.mode', function (el) {
+    if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
+  });
   FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
   FT.action('core.layoutReset', function () {
     if (!layoutPage) return;

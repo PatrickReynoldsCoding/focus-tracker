@@ -18,6 +18,7 @@ var MODULES = ['today', 'projects', 'categories', 'lists', 'kanban', 'notes', 'w
  *   rotation     lead category per ISO weekday (1 = Monday ... 7 = Sunday). null means any category.
  *   dailyMinimum category whose top project shows in Today's "daily minimum" panel, or null for no panel.
  * The first mode is the default. Its property names have no suffix, so data from before modes existed stays with it.
+ * More modes can be made in the app (mode menu, "New mode"); those are kept in script properties, see core/mode.js.
  */
 var MODES = [
   {

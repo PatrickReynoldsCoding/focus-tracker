@@ -65,7 +65,8 @@ Original plan:
 ### Batch 4: modes (done, 2026-10-28)
 Built as planned, with these decisions from Paddy:
 - One Drive folder "Focus Tracker" with a subfolder per mode (`Personal/`, `Work/`). Each holds that mode's spreadsheet and `Notes/`. The spreadsheet and Notes from before modes moved into `Personal/` on first load.
-- The header has a mode switcher and a folder icon that opens the mode's Drive folder. Work mode uses a blue accent.
+- The header has a mode menu (a dropdown) and a folder icon that opens the mode's Drive folder. Work mode uses a blue accent.
+- "+ New mode…" in the menu makes a mode in the app (2026-10-28): kept in the CUSTOM_MODES script property, with its own Sheet and folder made on first open, one "General" category and its own accent colour. Renaming or deleting a mode is not built yet.
 - Categories are editable in the app (Projects tab), per mode. Work starts with Delivery, Ops, Learning, Career, Admin. A category in use cannot be deleted.
 - Work mode has no daily minimum and no lead categories by default (Batch 2 makes the rotation editable).
 - PR notifications: dropped, not wanted.

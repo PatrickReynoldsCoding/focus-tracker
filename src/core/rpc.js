@@ -1,4 +1,4 @@
-/** The two functions the browser calls. Everything else is reached through rpc(). */
+/** The functions the browser calls. Everything else is reached through rpc(). */
 
 /** Everything the page needs on first load, for one mode (the first mode if none is given). */
 function bootstrap(modeId) {
@@ -15,7 +15,7 @@ function bootstrap(modeId) {
       appName: APP_NAME,
       staleDays: STALE_DAYS,
       mode: mode.id,
-      modes: MODES.map(function (m) { return { id: m.id, label: m.label }; }),
+      modes: allModes_().map(function (m) { return { id: m.id, label: m.label, accent: m.accent || '' }; }),
       folderUrl: getModeFolder_().getUrl()
     },
     modules: modeModules_().map(function (id) { return { id: id, title: mods[id].title || id }; }),
@@ -35,4 +35,9 @@ function rpc(moduleId, fn, args, modeId) {
   var slices = {};
   ctx.refreshed_().forEach(function (id) { slices[id] = mods[id].snapshot(ctx); });
   return { result: result === undefined ? null : result, slices: slices };
+}
+
+/** Make a new mode from the mode menu. Returns { id, label, accent }; the browser then opens it. */
+function createMode(label) {
+  return addMode_(label);
 }
