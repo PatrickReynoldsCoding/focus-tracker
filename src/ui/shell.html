@@ -952,6 +952,7 @@ var FT = (function () {
     try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
     FT.state.mode = mode; FT.state.projectId = null; FT.state.editLayout = false; FT.ready = false;
     renderModeBar();
+    FT.toast('Switched to ' + currentMode().label + '.');
     $('app').innerHTML = '<p class="empty">Loading…</p>';
     loadMode(mode);
   };
@@ -1076,6 +1077,8 @@ var FT = (function () {
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.body.classList.contains('menuopen')) closeMenu(); });
   FT.action('core.back', function () { FT.back(); });
+  // "Skip to content" moves focus with script, because following the #app link would add a browser history step that the back button would then undo.
+  FT.action('core.skip', function () { var m = $('app'); if (m) { m.focus(); m.scrollIntoView(); } });
   FT.action('core.reload', function () { location.reload(); });
   FT.on('change', 'core.mode', function (el) {
     closeMenu();

@@ -73,14 +73,14 @@
 
   function sessionHtml(t) {
     var s = t.session, paused = !!s.pausedAt;
-    return '<div class="timer"><span id="timer">' + clock(workedMs(s, Date.now())) + '</span>' + (paused ? '<span class="state">Paused</span>' : '') + '</div>' +
+    return '<div class="timer" role="timer" aria-label="Session time"><span id="timer">' + clock(workedMs(s, Date.now())) + '</span>' + (paused ? '<span class="state">Paused</span>' : '') + '</div>' +
       pomodoroHtml(t) +
       '<div class="actions">' +
       '<button class="btn primary" data-act="today.finish">Finish session</button>' +
       (paused ? '<button class="btn" data-act="today.resume">Resume</button>' : '<button class="btn" data-act="today.pause">Pause</button>') +
-      '<button class="btn" data-act="today.pomodoro" aria-pressed="' + (s.pomodoro ? 'true' : 'false') + '">' + (s.pomodoro ? 'Pomodoro off' : 'Pomodoro on') + '</button>' +
-      '<button class="btn" data-act="today.pomodoroSettings" title="Pomodoro lengths" aria-label="Pomodoro lengths">' +
-      t.pomodoroSettings.work + '/' + t.pomodoroSettings.break + '</button>';
+      '<button class="btn" data-act="today.pomodoro">' + (s.pomodoro ? 'Pomodoro: on' : 'Pomodoro: off') + '</button>' +
+      '<button class="btn" data-act="today.pomodoroSettings" title="Change the pomodoro lengths" aria-label="Pomodoro lengths: ' + t.pomodoroSettings.work + ' minutes work, ' + t.pomodoroSettings.break + ' minutes break. Change">' +
+      t.pomodoroSettings.work + ' / ' + t.pomodoroSettings.break + ' min</button>';
   }
 
   function minimumHtml(categoryId, project, done) {
@@ -88,7 +88,7 @@
     return '<section class="panel"><div class="label">Daily minimum: ' + FT.esc(label.toLowerCase()) + '</div>' +
       (project ? '<p style="margin:0 0 4px"><b>' + FT.esc(project.name) + '</b></p><p style="margin:0 0 12px;color:var(--muted)">' + FT.linkify(project.next_action) + '</p>'
                : '<p style="margin:0 0 12px;color:var(--muted)">No active ' + FT.esc(label.toLowerCase()) + ' project yet.</p>') +
-      '<button class="btn ' + (done ? 'done' : '') + '" data-act="today.job">' + (done ? 'Done for today' : 'Mark 10 minutes done') + '</button></section>';
+      '<button class="btn ' + (done ? 'done' : '') + '" data-act="today.job">' + (done ? 'Done for today' : 'Mark today\'s 10 minutes done') + '</button></section>';
   }
 
   /** Panels other modules add to Today, such as lists: each slot returns [{ id, html, w }]. */
@@ -152,7 +152,7 @@
     var resting = t.away && !t.session && showFocusOnAwayDay !== t.day;
     var focus = resting ? awayHtml(t)
       : f ? focusHtml(t, f)
-      : '<section class="panel"><p class="empty">No active projects yet. Add one on the Projects tab to get a focus for the day.</p></section>';
+      : '<section class="panel"><p class="empty">No active projects yet. Add one to get a focus for the day.</p><button class="btn primary" data-act="core.tab" data-view="projects">Go to Projects</button></section>';
     return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [
       { id: 'focus', title: 'Today\'s focus', html: focus, w: 7 },
       { id: 'minimum', title: 'Daily minimum', html: f && minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '', w: 5 },
