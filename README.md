@@ -23,7 +23,7 @@ AGENTS.md                rules for Claude sessions (read this)
 
 ## Setup with clasp
 
-You need Node.js. From the repo root:
+Prerequisites: a Google account, Node.js 18 or newer, and this repo cloned locally. From the repo root:
 
 ```sh
 npm install -g @google/clasp
@@ -46,6 +46,18 @@ To publish later changes: `clasp push`, then `clasp deploy --deploymentId <id>` 
 If you already created a Drive folder for the tracker, set a Script Property called `FOLDER_ID` to its id before running `setup` (Project Settings, Script Properties).
 
 The Drive scope is the broad one because the app writes notes into a folder you may have created yourself. Nothing reads or copies the files your Resources links point to.
+
+## Updating and testing
+
+- After pulling changes: `clasp push`, then `clasp deploy --deploymentId <id>` so your bookmarked URL serves the new version. While developing, `clasp push --watch` pushes on every save and the editor's "Test deployment" URL always serves the latest code.
+- `npm install` once, then `npm test` runs the server tests and a simulated-browser test. They use fakes for Google services, so they check the logic and the UI wiring but not Google's runtime.
+
+## Troubleshooting
+
+- `clasp create` fails or says the API is off: enable the Apps Script API at https://script.google.com/home/usersettings.
+- "No spreadsheet linked yet": run `setup` once from the Apps Script editor.
+- Blank page or "Could not load": open the editor, Executions, and read the error. A file-not-found error on `include` points at a file name, see Known limits below.
+- Changes not showing: the web app URL serves a deployed version. Run `clasp deploy --deploymentId <id>` or use the Test deployment URL.
 
 ## Adding or removing a feature
 
