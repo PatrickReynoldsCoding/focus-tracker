@@ -23,6 +23,7 @@
 .sticky textarea { flex: 1 1 auto; min-height: 0; border: 0; background: transparent; color: inherit; resize: none; padding: 8px 10px; font-size: 15px; line-height: 1.45; border-radius: 0; }
 .sticky textarea:focus { outline: none; }
 .sticky textarea::placeholder { color: rgba(42, 36, 24, 0.55); }
+@media (max-width: 760px) { .sticky .grip { min-height: 40px; gap: 6px; padding: 2px 6px; } .sticky .sbtn { min-width: 40px; min-height: 36px; font-size: 18px; } }
 .stickyfab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); z-index: 35; display: flex; gap: 8px; }
 .stickyfab button { position: relative; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; height: 44px; padding: 0 16px;
   font-weight: 600; cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16); display: inline-flex; align-items: center; gap: 6px; }
@@ -130,12 +131,14 @@
     var caret = focused && document.activeElement.tagName === 'TEXTAREA' ? [focused.dataset.sticky, document.activeElement.selectionStart] : null;
     if (old) old.remove();
     if (oldFab) oldFab.remove();
+    document.body.classList.remove('hasfab');
     if (observer) { observer.disconnect(); observer = null; }
     if (FT.state.view !== 'project' || !FT.project(FT.state.projectId) || FT.lockedUntil(FT.project(FT.state.projectId))) return;
     var notes = notesOf(FT.state.projectId), isHidden = hidden(), app = document.getElementById('app');
     var fab = document.createElement('div');
     fab.id = 'stickyfab'; fab.innerHTML = fabHtml(notes.length, isHidden);
     document.body.appendChild(fab);
+    document.body.classList.add('hasfab');
     if (isHidden) return;
     var layer = document.createElement('div');
     layer.id = 'stickylayer'; layer.className = 'stickylayer';
