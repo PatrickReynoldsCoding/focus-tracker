@@ -29,13 +29,31 @@ function bootstrap(modeId) {
  */
 function rpc(moduleId, fn, args, modeId) {
   startRequest_(modeId);
+  startConflictReport_();
   var mods = loadModules_();
   var ctx = makeCtx_(mods);
-  var run = withChangeJournal_(function () { return ctx.call(moduleId, fn, args); });
-  var undo = saveUndo_(moduleId + '.' + fn, run.changes);
+  var skipped = false;
+  var run = withChangeJournal_(function () {
+    // An edit that waited offline may find its row changed since (see conflicts.js); a newer stored row wins and the edit is only logged.
+    var settled = settleConflict_(moduleId, fn, args, ctx);
+    if (settled && settled.skip) { skipped = true; ctx.refresh(moduleId); return null; }
+    return ctx.call(moduleId, fn, args);
+  });
+  var undo = skipped ? false : saveUndo_(moduleId + '.' + fn, run.changes);
   var slices = {};
   ctx.refreshed_().forEach(function (id) { slices[id] = mods[id].snapshot(ctx); });
-  return { result: run.result === undefined ? null : run.result, slices: slices, undo: undo };
+  var reply = { result: run.result === undefined ? null : run.result, slices: slices, undo: undo };
+  if (requestConflicts_.length) reply.conflicts = requestConflicts_;
+  // The row's version after the call, so a browser replaying several queued edits can chain them.
+  var version = versionAfter_(moduleId, fn, args);
+  if (!version && run.result && run.result.updated) version = run.result.updated;
+  if (version) reply.version = version;
+  return reply;
+}
+
+/** A cheap call that touches no sheet: the browser uses it to find out whether Google is reachable again. */
+function ping() {
+  return 'pong';
 }
 
 /** Undo the last change made in this mode. Returns fresh data for every module, like bootstrap. */

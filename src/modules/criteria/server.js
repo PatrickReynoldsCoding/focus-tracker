@@ -4,7 +4,7 @@
  */
 
 function criteriaModule() {
-  var T = new Table('Criteria', ['id', 'project_id', 'text', 'done', 'order', 'created'], ['order']);
+  var T = new Table('Criteria', ['id', 'project_id', 'text', 'done', 'order', 'created', 'updated_at'], ['order']);
 
   function text_(value) {
     var text = clean_(value, 300);

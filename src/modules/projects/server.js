@@ -12,7 +12,7 @@ function lockEndMs_(until) {
 function projectLocked_(p) { return !!p && lockEndMs_(p.locked_until) > Date.now(); }
 
 function projectsModule() {
-  var T = new Table('Projects', ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until']);
+  var T = new Table('Projects', ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until', 'updated_at']);
   var STATUSES = ['active', 'paused', 'done', 'archived'];
 
   function list() { return T.all(); }

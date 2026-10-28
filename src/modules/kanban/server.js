@@ -5,7 +5,7 @@
 
 function kanbanModule() {
   var COLUMNS = new Table('Columns', ['id', 'project_id', 'name', 'order'], ['order']);
-  var TASKS = new Table('Tasks', ['id', 'project_id', 'column_id', 'title', 'order', 'created', 'color', 'note_html', 'note_text'], ['order']);
+  var TASKS = new Table('Tasks', ['id', 'project_id', 'column_id', 'title', 'order', 'created', 'color', 'note_html', 'note_text', 'updated_at'], ['order']);
   var CARD_COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var DEFAULT_COLUMNS = ['To do', 'Doing', 'Done'];
 

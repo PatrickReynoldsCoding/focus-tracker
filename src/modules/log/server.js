@@ -21,6 +21,17 @@ function logModule() {
         });
       },
 
+      /** A line for an edit that lost a conflict (see core/conflicts.js), so the older version is not lost. */
+      conflict: function (a) {
+        return T.insert({
+          project_id: a.projectId || '',
+          date: nowIso_(),
+          where_stopped: clean_(a.text, 300) || 'Conflict',
+          next_action: '',
+          minutes: 0
+        });
+      },
+
       removeProject: function (a) {
         T.removeWhere(function (r) { return r.project_id === a.projectId; });
         return true;

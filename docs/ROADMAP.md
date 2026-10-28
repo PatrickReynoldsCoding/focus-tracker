@@ -115,6 +115,14 @@ Original plan:
 - The Apps Script banner: not removed. See docs/banner-and-hosting.md. Local cache and offline: designed, not built. See docs/offline-design.md.
 - Tests: the flaky e2e steps ('rotating', 'Wiring listed') were races in the test and are fixed.
 
+### Local cache, offline queue, last page (built 2026-10-28, requested by Paddy; checked in jsdom and real Chrome, not on Google or a phone)
+- The page remembers the page it was on (tab or project, per mode) in this browser only, and a reload returns to it. A deleted or locked project falls back to Today. Switching mode starts on Today.
+- A saved copy of each mode's data (IndexedDB, then localStorage, then memory) draws at once with "Updating…" while the fresh data loads, and is ignored if its `SCHEMA` number differs.
+- While the connection is down, card, checklist, sticky note, list, notes and project edits are kept on the device (queue survives a reload), shown as "Offline · N waiting", and sent in order when it returns. Anything else says "You are offline" and is not queued.
+- Rows carry `updated_at` (Projects, Tasks, Criteria added to the sheet automatically). A queued edit that finds its row changed elsewhere keeps the newer version and logs the other in the Log tab; notes keep the older text as a conflict copy file. Details and limits: docs/offline-design.md.
+- The honest limit: Apps Script serves the page, so it still cannot open cold with no signal. That needs the GitHub Pages route (docs/future-github-native-spike.md and the wrapper site).
+- Untested on real devices: what `google.script.run` does with a dead connection (the code treats network-like messages, `navigator.onLine === false`, or 30 seconds without an answer as offline), and whether browser storage survives between visits inside the Google sandbox on the phone.
+
 ### Wrapper site on GitHub Pages (published 2026-10-28, spike; Paddy said yes)
 - `site/` is a free static page at https://patrickreynoldscoding.github.io/focus-tracker/ (branch `gh-pages`, published with `scripts/publish-site.sh`). It frames the existing web app full window, has a web manifest with the 192, 512 and maskable icons, and a service worker that caches only the wrapper, so it opens and says "You are offline" with no signal. The web app address is asked once and kept in the browser (`localStorage`); it is never in the repo. `#u=<address>` on the first open stores it and clears the address bar; `#reset` forgets it.
 - Checked in Chrome: manifest parses with no errors, no install blockers other than the test browser being incognito, the service worker takes control and serves the page with the server down, and the offline card shows.

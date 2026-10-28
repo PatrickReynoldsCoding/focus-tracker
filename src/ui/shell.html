@@ -111,28 +111,38 @@ var FT = (function () {
   FT.rpc = function (moduleId, fn, args, opts) {
     opts = opts || {};
     var mode = FT.state.mode;
+    // opts.raw: resolve with the whole reply (result, slices, version, conflicts). opts.noMerge: do not use the reply's slices.
+    // opts.timeout (ms): give up waiting, so a call that never answers cannot hold up every later change.
     function send() {
       setPending(1);
       return new Promise(function (resolve, reject) {
+        var settled = false, timer = null;
+        function finish() { settled = true; clearTimeout(timer); setPending(-1); if (!opts.parallel) waiting--; }
+        if (opts.timeout) timer = setTimeout(function () {
+          if (settled) return;
+          finish();
+          var e = new Error('Timed out waiting for Google.'); e.network = true; reject(e);
+        }, opts.timeout);
         google.script.run
           .withSuccessHandler(function (res) {
-            setPending(-1);
-            if (!opts.parallel) waiting--;
-            if (mode !== FT.state.mode) { resolve(res ? res.result : null); return; }
+            if (settled) return;
+            finish();
+            if (mode !== FT.state.mode) { resolve(opts.raw ? res : res ? res.result : null); return; }
             if (res && res.undo) FT.state.canUndo = true;
-            if (opts.parallel || waiting === 0) {
+            if (!opts.noMerge && (opts.parallel || waiting === 0)) {
               var slices = (res && res.slices) || {};
               Object.keys(slices).forEach(function (k) { FT.store[k] = slices[k]; });
               if (opts.render !== false) FT.render();
             }
-            resolve(res ? res.result : null);
+            resolve(opts.raw ? res : res ? res.result : null);
           })
           .withFailureHandler(function (err) {
-            setPending(-1);
-            if (!opts.parallel) waiting--;
-            var msg = FT.errorText(err);
+            if (settled) return;
+            finish();
+            var msg = FT.errorText(err), e = new Error(msg);
+            if (FT.offline && FT.offline.isNetworkError(err)) e.network = true;
             if (!opts.quiet) FT.toast(msg, 'error');
-            reject(new Error(msg));
+            reject(e);
           })
           .rpc(moduleId, fn, args || {}, mode);
       });
@@ -144,7 +154,11 @@ var FT = (function () {
     return done;
   };
 
+  /** How many changes are on their way to the server. */
+  FT.pendingSaves = function () { return waiting; };
+
   // Closing or reloading the tab while changes are still on their way would lose them, so the browser asks first.
+  // (Changes the offline queue holds are kept on this device, so they do not count.)
   window.addEventListener('beforeunload', function (e) {
     if (waiting > 0) { e.preventDefault(); e.returnValue = ''; }
   });
@@ -600,13 +614,56 @@ var FT = (function () {
     });
   }
 
-  function applyBootstrap(b) {
+  // ---------- last page (this device only) ----------
+  // The page you were on (a tab, or a project) is kept in this browser, per mode, so a reload puts you back there.
+  // It never goes to the server: another device keeps its own.
+  var LAST_KEY = 'ft.last.', DEFAULT_MODE_KEY = 'ft.defaultMode';
+
+  function lsGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function lsSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+
+  function saveLastPage() {
+    if (!FT.ready || !FT.state.view || !FT.state.mode) return;
+    lsSet(LAST_KEY + FT.state.mode, JSON.stringify({ view: FT.state.view, projectId: FT.state.view === 'project' ? FT.state.projectId : '' }));
+  }
+  FT.onRender(saveLastPage);
+
+  /** A saved page that still exists and is not locked, or null (the caller then shows the first tab, Today). */
+  function usablePage(page) {
+    if (!page || typeof page.view !== 'string') return null;
+    if (page.view === 'project') {
+      var project = FT.project(page.projectId);
+      return project && !(FT.lockedUntil && FT.lockedUntil(project)) ? page : null;
+    }
+    return tabs().some(function (m) { return m.id === page.view; }) ? page : null;
+  }
+
+  function showPage(page) {
+    FT.state.view = page.view;
+    if (page.view !== 'project') return;
+    FT.state.projectId = page.projectId;
+    Object.keys(modules).forEach(function (id) { if (modules[id].onProject) modules[id].onProject(page.projectId); });
+  }
+
+  /**
+   * opts.restore: go back to the page this device was last on (a page load only; switching modes starts on the first tab).
+   * opts.keepPage: stay on the page now showing (a fresh load replacing the saved copy) if it is still there.
+   * opts.requested: the mode the page asked for; null means the default mode, whose id is remembered for the cache.
+   */
+  function applyBootstrap(b, opts) {
+    opts = opts || {};
+    var current = opts.keepPage ? { view: FT.state.view, projectId: FT.state.projectId } : null;
     FT.config = b.config; FT.store = b.data; FT.state.mode = b.config.mode; FT.ready = true;
     loaded = {};
     b.modules.forEach(function (m) { loaded[m.id] = true; });
     document.title = b.config.appName || document.title;
     var first = tabs()[0];
     FT.state.view = first ? first.id : null;
+    var saved = null;
+    if (!current && opts.restore) { try { saved = JSON.parse(lsGet(LAST_KEY + b.config.mode) || 'null'); } catch (e) {} }
+    var page = usablePage(current || saved);
+    if (page) showPage(page);
+    if (!opts.requested) lsSet(DEFAULT_MODE_KEY, b.config.mode);
     renderModeBar();
     FT.render();
   }
@@ -615,16 +672,70 @@ var FT = (function () {
     try { return localStorage.getItem(MODE_KEY); } catch (e) { return null; }
   }
 
-  /** Load a mode. A remembered mode that no longer exists falls back to the default one. */
-  function loadMode(mode) {
-    google.script.run
-      .withSuccessHandler(applyBootstrap)
-      .withFailureHandler(function (err) {
-        if (mode && /Unknown mode/.test(FT.errorText(err))) { FT.state.mode = null; loadMode(null); return; }
-        $('app').innerHTML = '<div class="panel"><div class="label">Could not load</div><p>' + FT.esc(FT.errorText(err)) +
-          '</p><button class="btn" data-act="core.reload">Try again</button></div>';
-      })
-      .bootstrap(mode);
+  /** The key a mode's saved copy and waiting changes are kept under; the default mode (null) uses its remembered id. */
+  function cacheKey(mode) { return mode || lsGet(DEFAULT_MODE_KEY) || '_default'; }
+
+  /** True while the user is typing in a box on the page, so a redraw would throw their text away. */
+  function typingInPage() {
+    var el = document.activeElement;
+    if (!el || !$('app').contains(el)) return false;
+    return (/^(INPUT|TEXTAREA)$/.test(el.tagName) && el.type !== 'checkbox' && el.type !== 'radio' && el.value !== '') || el.isContentEditable;
+  }
+
+  /** Run fn once no change is waiting to be sent and nobody is typing, so fresh data never undoes an edit still on its way. */
+  function whenSettled(fn) {
+    var busy = FT.pendingSaves() > 0 || (FT.offline && FT.offline.busy()) || typingInPage();
+    if (!busy) { fn(); return; }
+    setTimeout(function () { whenSettled(fn); }, 200);
+  }
+
+  /**
+   * Load a mode. A remembered mode that no longer exists falls back to the default one.
+   * The copy of this mode's data saved on this device (see offline.html) is shown at once, then replaced by the fresh load.
+   * If Google cannot be reached but a saved copy is showing, the copy stays and loading is retried.
+   */
+  var loadToken = 0;
+  function loadMode(mode, isPageLoad) {
+    var token = ++loadToken, key = cacheKey(mode), haveFresh = false;
+    if (FT.offline) {
+      FT.offline.useMode(key);
+      FT.offline.setUpdating(true);
+      FT.offline.loadSnapshot(key).then(function (b) {
+        if (!b || haveFresh || token !== loadToken) return;
+        applyBootstrap(b, { requested: mode, restore: isPageLoad });
+      });
+    }
+    function attempt() {
+      google.script.run
+        .withSuccessHandler(function (b) {
+          if (token !== loadToken) return;
+          haveFresh = true;
+          // Wait for any change still on its way, so the fresh data does not undo it.
+          whenSettled(function () {
+            if (token !== loadToken) return;
+            applyBootstrap(b, { requested: mode, keepPage: FT.ready, restore: isPageLoad });
+            // The default mode's real id is known now, so the copy and the queue are kept under it from here on.
+            if (FT.offline) { FT.offline.setUpdating(false); FT.offline.onFresh(cacheKey(mode)); FT.offline.saveSnapshot(cacheKey(mode), b); }
+          });
+        })
+        .withFailureHandler(function (err) {
+          if (token !== loadToken) return;
+          if (mode && /Unknown mode/.test(FT.errorText(err))) { FT.state.mode = null; loadMode(null, isPageLoad); return; }
+          if (FT.ready && FT.offline) {
+            // A saved copy is showing: keep it, and try again until Google answers.
+            if (FT.offline.isNetworkError(err)) { FT.offline.markDown(); setTimeout(attempt, 8000); }
+            else { FT.offline.setUpdating(false); FT.toast('Could not update: ' + FT.errorText(err), 'error'); }
+            return;
+          }
+          if (FT.offline) FT.offline.setUpdating(false);
+          var offline = FT.offline && FT.offline.isNetworkError(err);
+          $('app').innerHTML = '<div class="panel"><div class="label">' + (offline ? 'You are offline' : 'Could not load') + '</div><p>' +
+            (offline ? 'Focus Tracker could not reach Google, and there is no saved copy on this device yet. Try again when you have a connection.' : FT.esc(FT.errorText(err))) +
+            '</p><button class="btn" data-act="core.reload">Try again</button></div>';
+        })
+        .bootstrap(mode);
+    }
+    attempt();
   }
 
   /** Call when a drag ends: draws any update that arrived during it. */
@@ -644,7 +755,7 @@ var FT = (function () {
 
   FT.boot = function () {
     FT.state.mode = savedMode();
-    loadMode(FT.state.mode);
+    loadMode(FT.state.mode, true);
   };
 
   // ---------- full width (desktop) ----------

@@ -18,7 +18,7 @@ function fresh() {
 test('setup creates a tab per table and a Drive folder', () => {
   const s = fresh();
   ['Projects', 'Columns', 'Tasks', 'Notes', 'Resources', 'Log'].forEach((n) => assert.ok(s.ss.sheets[n], 'missing tab ' + n));
-  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until']);
+  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until', 'updated_at']);
   assert.ok(s.script._m.FOLDER_ID && s.script._m.SHEET_ID);
 });
 
@@ -711,6 +711,101 @@ test('seed fills an empty tracker once and refuses to run twice', () => {
   assert.ok(b.data.kanban.tasks.length >= 15);
   assert.ok(b.data.notes.length >= 5);
   assert.throws(() => s.run('seedStarterData()'), /already has projects/);
+});
+
+const iso = (msFromNow) => new Date(Date.now() + msFromNow).toISOString();
+
+test('rows stamp updated_at on insert and update, and a sheet from before the column gets it added', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
+  assert.ok(p.updated_at && !isNaN(Date.parse(p.updated_at)));
+  s.run(`new Table('Projects',['id']).update('${p.id}', { updated_at: '2001-01-01T00:00:00.000Z' })`);
+  const changed = s.call('projects', 'update', { id: p.id, next_action: 'Do it' }).result;
+  assert.ok(changed.updated_at > '2001-01-01', 'an update stamps the row again');
+  // A sheet made before the column existed: the header is added on the next read, rows start blank
+  const sheet = s.ss.sheets.Projects;
+  const col = sheet.rows[0].indexOf('updated_at');
+  sheet.rows.forEach((r) => r.splice(col, 1));
+  assert.strictEqual(s.call('projects', 'list').result[0].updated_at, '');
+  assert.ok(s.ss.sheets.Projects.rows[0].indexOf('updated_at') !== -1);
+  const kcol = s.run('bootstrap()').data.kanban.columns.find((c) => c.project_id === p.id);
+  const task = s.call('kanban', 'addTask', { projectId: p.id, columnId: kcol.id, title: 'T' }).result;
+  assert.ok(task.updated_at, 'tasks are stamped too');
+  assert.strictEqual(s.run('ping()'), 'pong');
+});
+
+test('an edit made offline that finds the row changed since keeps the newest version and logs the older one', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Garden', category: 'house', next_action: 'Buy seeds' }).result;
+  const seen = p.updated_at;
+  // Nothing changed since the browser looked: applied quietly, with the new version sent back
+  const quiet = s.call('projects', 'update', { id: p.id, next_action: 'Buy soil', _base: seen, _editedAt: iso(0) });
+  assert.strictEqual(quiet.result.next_action, 'Buy soil');
+  assert.strictEqual(quiet.conflicts, undefined);
+  assert.strictEqual(quiet.version, quiet.result.updated_at);
+  const logCount = () => s.run('bootstrap()').data.log.length;
+  assert.strictEqual(logCount(), 0);
+  // Another device changed it since (the browser still holds the old version): the stored change is newer, so it stays
+  s.run(`new Table('Projects',['id']).update('${p.id}', { next_action: 'Other device', updated_at: '${iso(60000)}' })`);
+  const lost = s.call('projects', 'update', { id: p.id, next_action: 'Mine, offline', _base: quiet.version, _editedAt: iso(0) });
+  assert.deepStrictEqual(lost.conflicts, [{ what: 'project "Garden"', kept: 'server' }]);
+  assert.strictEqual(s.call('projects', 'list').result[0].next_action, 'Other device');
+  let line = s.run('bootstrap()').data.log[0];
+  assert.strictEqual(line.project_id, p.id);
+  assert.ok(/newer version was kept/.test(line.where_stopped) && /Mine, offline/.test(line.where_stopped), line.where_stopped);
+  // The offline edit is the newer one: it replaces the stored row, and the replaced version is logged
+  const base = s.call('projects', 'list').result[0].updated_at;
+  s.run(`new Table('Projects',['id']).update('${p.id}', { next_action: 'Older elsewhere', updated_at: '${iso(-60000)}' })`);
+  const won = s.call('projects', 'update', { id: p.id, next_action: 'Mine, later', _base: base, _editedAt: iso(0) });
+  assert.deepStrictEqual(won.conflicts, [{ what: 'project "Garden"', kept: 'yours' }]);
+  assert.strictEqual(won.result.next_action, 'Mine, later');
+  line = s.run('bootstrap()').data.log[0];
+  assert.ok(/replaced it/.test(line.where_stopped) && /Older elsewhere/.test(line.where_stopped), line.where_stopped);
+});
+
+test('offline conflicts on cards and criteria are settled the same way, and a skipped edit is not undoable', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Loft', category: 'house' }).result;
+  const col = s.run('bootstrap()').data.kanban.columns.find((c) => c.project_id === p.id);
+  const task = s.call('kanban', 'addTask', { projectId: p.id, columnId: col.id, title: 'Quotes' }).result;
+  s.run(`new Table('Tasks',['id']).update('${task.id}', { title: 'Renamed elsewhere', updated_at: '${iso(60000)}' })`);
+  const r = s.call('kanban', 'updateTask', { id: task.id, title: 'Mine', _base: task.updated_at, _editedAt: iso(0) });
+  assert.strictEqual(r.conflicts[0].kept, 'server');
+  assert.strictEqual(r.undo, false);
+  assert.strictEqual(s.run('bootstrap()').data.kanban.tasks.find((t) => t.id === task.id).title, 'Renamed elsewhere');
+  const crit = s.call('criteria', 'add', { projectId: p.id, text: 'Done when it is tidy' }).result;
+  s.run(`new Table('Criteria',['id']).update('${crit.id}', { done: 'yes', updated_at: '${iso(-90000)}' })`);
+  const c = s.call('criteria', 'update', { id: crit.id, done: false, _base: crit.updated_at, _editedAt: iso(0) });
+  assert.strictEqual(c.conflicts[0].kept, 'yours');
+  assert.strictEqual(s.run('bootstrap()').data.criteria.find((x) => x.id === crit.id).done, '');
+  assert.strictEqual(s.run('bootstrap()').data.log.length, 2, 'one log line per conflict');
+});
+
+test('project notes saved after waiting offline: the older text is kept as a conflict copy', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Loft', category: 'house' }).result;
+  const first = s.call('notes', 'save', { projectId: p.id, text: 'one' });
+  assert.ok(first.result.updated && first.version === first.result.updated, 'save returns the version it wrote');
+  const mdFiles = () => Object.values(s.drive.files).filter((f) => f.name.endsWith('.md'));
+  // No change elsewhere: saved quietly
+  const second = s.call('notes', 'save', { projectId: p.id, text: 'two', _base: first.version, _editedAt: iso(0) });
+  assert.strictEqual(second.conflicts, undefined);
+  assert.strictEqual(mdFiles().length, 1);
+  // Changed elsewhere after the browser looked, and that change is newer: stored text stays, offline text is copied
+  s.run(`new Table('Notes',['id']).update(new Table('Notes',['id']).all()[0].id, { updated: '${iso(60000)}' })`);
+  const lost = s.call('notes', 'save', { projectId: p.id, text: 'mine offline', _base: first.version, _editedAt: iso(0) });
+  assert.strictEqual(lost.conflicts[0].kept, 'server');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'two');
+  const copy = mdFiles().find((f) => /conflict/.test(f.name));
+  assert.strictEqual(copy.content, 'mine offline');
+  // The offline text is newer: it replaces the file and the replaced text is copied
+  const now = s.call('notes', 'get', { projectId: p.id });
+  s.run(`new Table('Notes',['id']).update(new Table('Notes',['id']).all()[0].id, { updated: '${iso(-60000)}' })`);
+  const won = s.call('notes', 'save', { projectId: p.id, text: 'mine, later', _base: first.version, _editedAt: iso(0) });
+  assert.strictEqual(won.conflicts[0].kept, 'yours');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'mine, later');
+  assert.ok(mdFiles().some((f) => /conflict/.test(f.name) && f.content === 'two'));
+  assert.ok(s.run('bootstrap()').data.log.some((l) => /Notes folder/.test(l.where_stopped)));
 });
 
 console.log('\n' + passed + ' server tests passed');
