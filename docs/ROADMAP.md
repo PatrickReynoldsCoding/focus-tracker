@@ -39,7 +39,12 @@ Original requests:
 - Weekly rotation is editable: a default rotation he can edit, plus an "edit this week" override per day (for example mark a day away or change its category) that resets automatically on Monday. A small icon opens it.
 - A full calendar was judged too complex for now. A cheap later option: read Google Calendar all-day events titled "Away" to mark days off automatically.
 
-### Batch 3: richer boards and layout
+### Batch 3: richer boards and layout (done, 2026-10-28)
+- Click a card (or list item) to open it: title, card colour and a rich-text note (bold, italic, underline, lists, small/normal/large, text colours, links). Stored as cleaned HTML in `note_html` (core/richtext.js keeps a small allowlist) plus a plain-text copy in `note_text`. The first lines show on the card.
+- Panels on Today, project pages, the Projects tab and the Lists tab can be moved and resized: header icon "Edit layout" (desktop only), GridStack 10.3.1 from jsDelivr, heights follow content. Layout saved per page and per mode in user properties (layout module). Phone, or no CDN: panels flow in order.
+- Checked in real Chrome with a local Playwright harness (drag, resize, reload, editor toolbar), not only in jsdom.
+
+Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 

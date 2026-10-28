@@ -35,7 +35,7 @@
       '<div class="catrows">' + list.map(function (c) { return rowHtml(c, list.length < 2); }).join('') + '</div></section>';
   }
 
-  FT.module({ id: 'categories', slots: { 'projects.tab': [{ order: 5, render: panel }] } });
+  FT.module({ id: 'categories', slots: { 'projects.tab': [{ id: 'categories', order: 5, w: 12, render: panel }] } });
 
   FT.action('categories.add', function () {
     FT.dialog({

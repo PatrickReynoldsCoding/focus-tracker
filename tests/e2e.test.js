@@ -117,7 +117,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual($$('.colname').map((i) => i.value).join('|'), 'To do|Doing|Done');
     assert.strictEqual($$('.kcard').length, 3);
     await waitFor(() => $('#nt-text') && !$('#nt-text').disabled && $('#nt-text').value.includes('100mm'), 'notes loaded');
-    assert.ok($$('.pcell .label').some((l) => l.textContent === 'Resources: this project'));
+    assert.ok($$('.lcell .label').some((l) => l.textContent === 'Resources: this project'));
     assert.ok(!$('#nt-link').hidden);
   });
 
@@ -296,6 +296,28 @@ async function waitFor(fn, label, ms = 3000) {
     click(tab('Today'));
     await waitFor(() => $$('#app .listpanel .label').some((l) => l.textContent === 'Keep in mind'), 'list on Today');
     assert.ok($('#app .listpanel').textContent.includes('Tell a story with your commits'));
+  });
+
+  await step('a card opens a dialog to rename it, colour it and write a note', async () => {
+    const card = $('#app .listpanel .kcard');
+    click(card.querySelector('[data-act="kanban.open-card"]'));
+    await waitFor(() => $('#dlg-note'), 'card dialog');
+    assert.strictEqual($('#dlg-cardtitle').value, 'Tell a story with your commits');
+    assert.strictEqual($$('.rtbar button').length, 13);
+    $$('input[name="dlg-color"]').find((r) => r.value === '5').checked = true;
+    $('#dlg-note').innerHTML = '<b>Why:</b> reviewers read history<script>alert(1)</script>';
+    setVal($('#dlg-cardtitle'), 'Tell a story with commits');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('#app .listpanel .kcard .knote'), 'note preview');
+    const saved = $('#app .listpanel .kcard');
+    assert.strictEqual(saved.querySelector('.kt').textContent, 'Tell a story with commits');
+    assert.strictEqual(saved.querySelector('.knote').textContent, 'Why: reviewers read history');
+    assert.ok(saved.getAttribute('style').includes('--cat-5'));
+    click(saved.querySelector('[data-act="kanban.open-card"]'));
+    await waitFor(() => $('#dlg-note'), 'reopened');
+    assert.strictEqual($('#dlg-note').innerHTML, '<b>Why:</b> reviewers read history');
+    assert.ok($$('input[name="dlg-color"]').find((r) => r.value === '5').checked);
+    click($('#dlg-cancel'));
   });
 
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {

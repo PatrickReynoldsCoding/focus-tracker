@@ -316,13 +316,67 @@ test('lists have groups and items on their own board, can be shown on Today, reo
   assert.ok(!after.kanban.columns.some((c) => c.project_id === keep.id), 'its groups are removed');
 });
 
+test('rich-text notes keep safe formatting and drop anything that could run or load', () => {
+  const s = fresh();
+  const clean = (html) => s.run('sanitizeRichText_')(html);
+  assert.strictEqual(clean('<b>Bold</b> <i>it</i><ul><li>one</li></ul>'), '<b>Bold</b> <i>it</i><ul><li>one</li></ul>');
+  assert.strictEqual(clean('<font size="5" color="#d64545" face="x">Big</font>'), '<font color="#d64545" size="5">Big</font>');
+  assert.strictEqual(clean('a<script>alert(1)</script>b'), 'ab');
+  assert.strictEqual(clean('<img src=x onerror="alert(1)">hi'), 'hi');
+  assert.strictEqual(clean('<b onclick="x()" style="color: red; background: url(x.png)">t</b>'), '<b style="color: red">t</b>');
+  assert.strictEqual(clean('<a href="javascript:alert(1)">x</a>'), '<a>x</a>');
+  assert.strictEqual(clean('<a href="https://example.com/?a=1&amp;b=2" onmouseover="x">ok</a>'),
+    '<a href="https://example.com/?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">ok</a>');
+  assert.strictEqual(clean('<span style="font-size: 18px; position: fixed">s</span>'), '<span style="font-size: 18px">s</span>');
+  assert.strictEqual(clean('<svg><script>x</script><b>gone</b></svg>kept'), 'kept');
+  assert.strictEqual(clean('1 < 2 <img src=x onerror=alert(1)'), '1 &lt; 2 &lt;img src=x onerror=alert(1)');
+  assert.strictEqual(clean('<b title="a>b" onclick=x>t</b>'), '<b>t</b>');
+  assert.throws(() => clean('x'.repeat(40001)), /too long/);
+  const plain = s.run('richTextToPlain_')('<p>Intro &amp; more</p><ul><li>One</li><li><a href="https://a.io">site</a></li></ul>Line<br>two');
+  assert.strictEqual(plain, 'Intro & more\n\n- One\n- site (https://a.io)\nLine\ntwo');
+  assert.strictEqual(s.run('plainToRichText_')('See https://a.io/x?y=1&z=2\n<b>'),
+    'See <a href="https://a.io/x?y=1&amp;z=2" target="_blank" rel="noopener noreferrer">https://a.io/x?y=1&amp;z=2</a><br>&lt;b&gt;');
+});
+
+test('a card gets a colour and a cleaned note with a plain-text copy in the sheet', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'K', category: 'coding' }).result;
+  const t = s.call('kanban', 'addTask', { projectId: p.id, title: 'Card' }).result;
+  const r = s.call('kanban', 'updateTask', { id: t.id, title: ' Renamed ', color: '4', noteHtml: '<b>Do</b> this<script>x</script><br>then <a href="https://x.io">that</a>' });
+  assert.strictEqual(r.result.title, 'Renamed');
+  assert.strictEqual(r.result.color, '4');
+  assert.strictEqual(r.result.note_html, '<b>Do</b> this<br>then <a href="https://x.io" target="_blank" rel="noopener noreferrer">that</a>');
+  assert.strictEqual(r.result.note_text, 'Do this\nthen that (https://x.io)');
+  const header = s.ss.sheets.Tasks.rows[0];
+  assert.ok(['color', 'note_html', 'note_text'].every((h) => header.includes(h)));
+  assert.throws(() => s.call('kanban', 'updateTask', { id: t.id, color: '12' }), /Unknown colour/);
+  assert.strictEqual(s.call('kanban', 'updateTask', { id: t.id, noteHtml: '<div><br></div>' }).result.note_html, '', 'an empty note is stored as empty');
+  assert.strictEqual(s.call('kanban', 'updateTask', { id: t.id, color: '' }).result.color, '');
+});
+
+test('page layouts are saved per page and per mode, validated, and can be reset', () => {
+  const s = fresh();
+  const items = [{ id: 'focus', x: 0, y: 0, w: 8 }, { id: 'list-ab12', x: 8, y: 0, w: 6 }];
+  s.call('layout', 'save', { page: 'today', items });
+  s.call('layout', 'save', { page: 'project', items: [{ id: 'kanban', x: 0, y: 3, w: 12 }] });
+  let saved = json(s.run('bootstrap()')).data.layout;
+  assert.deepStrictEqual(saved.today, { focus: { x: 0, y: 0, w: 8 }, 'list-ab12': { x: 8, y: 0, w: 4 } }, 'width is cut to fit the grid');
+  assert.deepStrictEqual(Object.keys(saved), ['today', 'project']);
+  assert.deepStrictEqual(json(s.run("bootstrap('work')")).data.layout, {}, 'work mode has its own layouts');
+  assert.throws(() => s.call('layout', 'save', { page: 'Today!', items }), /Unknown page/);
+  assert.throws(() => s.call('layout', 'save', { page: 'today', items: [{ id: 'x', x: 0, y: 0, w: 13 }] }), /Bad panel position/);
+  assert.throws(() => s.call('layout', 'save', { page: 'today', items: [{ id: '<b>', x: 0, y: 0, w: 2 }] }), /Bad panel id/);
+  const r = s.call('layout', 'reset', { page: 'today' });
+  assert.deepStrictEqual(Object.keys(r.slices.layout), ['project']);
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'lists', 'log', 'notes', 'projects', 'resources', 'today']);
-  assert.strictEqual(b.modules.length, 8);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'today']);
+  assert.strictEqual(b.modules.length, 9);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

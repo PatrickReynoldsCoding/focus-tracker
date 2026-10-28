@@ -8,7 +8,7 @@
  */
 var APP_NAME = 'Focus Tracker';
 
-var MODULES = ['today', 'projects', 'categories', 'lists', 'kanban', 'notes', 'resources', 'log'];
+var MODULES = ['today', 'projects', 'categories', 'lists', 'kanban', 'notes', 'resources', 'log', 'layout'];
 
 /**
  * Modes keep their data apart: each has its own spreadsheet and its own subfolder of the tracker folder.

@@ -22,6 +22,27 @@
 .coladd { display: flex; gap: 4px; align-items: center; }
 .coladd input { padding: 6px 9px; font-size: 14px; background: transparent; border-style: dashed; }
 .coladd input:focus { background: var(--surface); border-style: solid; }
+.kcard { border-left: 4px solid var(--card, var(--line)); }
+.kcard .ktitle { flex: 1 1 auto; min-width: 0; text-align: left; border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; color: inherit; overflow-wrap: anywhere; }
+.kcard .ktitle:hover .kt { text-decoration: underline; text-underline-offset: 3px; }
+.kcard .knote { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatches label { margin: 0; display: inline-flex; }
+.swatches input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.swatches span { width: 26px; height: 26px; border-radius: 50%; background: var(--c, var(--surface-2)); border: 2px solid var(--line); cursor: pointer; display: inline-block; }
+.swatches span.none { background: repeating-linear-gradient(45deg, var(--surface-2) 0 4px, var(--surface) 4px 8px); }
+.swatches input:checked + span { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+.swatches input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rtbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.rtbar button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; }
+.rtbar button:hover { background: var(--surface-2); }
+.rtbar .dot { width: 30px; padding: 0; }
+.rtbar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
+.rtedit { min-height: 180px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
+.rtedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rtedit:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
+.rtedit a { overflow-wrap: anywhere; }
 </style>
 <script>
 /**
@@ -62,7 +83,10 @@
 
   function cardHtml(t, ci, colCount, move) {
     var id = FT.esc(t.id);
-    return '<div class="kcard"><span>' + FT.esc(t.title) + '</span><span class="mv">' +
+    var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
+    var note = t.note_text ? '<span class="knote">' + FT.esc(t.note_text.slice(0, 160)) + '</span>' : '';
+    return '<div class="kcard"' + color + '><button class="ktitle" data-act="kanban.open-card" data-id="' + id + '" aria-label="Open ' + FT.esc(t.title) + '">' +
+      '<span class="kt">' + FT.esc(t.title) + '</span>' + note + '</button><span class="mv">' +
       '<button class="mvb" data-act="kanban.move" data-id="' + id + '" data-d="-1" aria-label="' + move.back[1] + '"' + (ci === 0 ? ' disabled' : '') + '>' + move.back[0] + '</button>' +
       '<button class="mvb" data-act="kanban.move" data-id="' + id + '" data-d="1" aria-label="' + move.forward[1] + '"' + (ci === colCount - 1 ? ' disabled' : '') + '>' + move.forward[0] + '</button>' +
       '<button class="mvb" data-act="kanban.del-task" data-id="' + id + '" aria-label="Remove">×</button></span></div>';
@@ -102,7 +126,7 @@
   }
 
   FT.kanban = { boardHtml: boardHtml };
-  FT.module({ id: 'kanban', slots: { 'project.page': [{ order: 10, span: 'full', render: panel }] } });
+  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', order: 10, span: 'full', render: panel }] } });
 
   FT.action('kanban.dir', function () {
     userDir = dir() === 'vertical' ? 'horizontal' : 'vertical';
@@ -160,6 +184,67 @@
     FT.dialog({
       title: 'Remove card', body: '<p>Remove "' + FT.esc(t.title) + '"?</p>', submit: 'Remove', danger: true,
       onSubmit: function () { return FT.rpc('kanban', 'deleteTask', { id: t.id }, { quiet: true }); }
+    });
+  });
+
+  // ---------- card dialog: title, colour and a rich-text note ----------
+  var CARD_COLORS = [['', 'No colour'], ['1', 'Teal'], ['2', 'Amber'], ['3', 'Blue'], ['4', 'Red'], ['5', 'Purple'], ['6', 'Green'], ['7', 'Grey'], ['8', 'Orange']];
+  // execCommand needs real colours, not CSS variables. These read well on light and dark backgrounds.
+  var TEXT_COLORS = [['#d64545', 'Red'], ['#2f7fd6', 'Blue'], ['#2b9a5b', 'Green'], ['#c27a00', 'Amber']];
+  var TOOLS = [
+    ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'], ['underline', null, '<u>U</u>', 'Underline'],
+    ['insertUnorderedList', null, '• List', 'Bullet list'], ['insertOrderedList', null, '1. List', 'Numbered list'],
+    ['fontSize', '2', 'Small', 'Small text'], ['fontSize', '3', 'Normal', 'Normal text'], ['fontSize', '5', 'Large', 'Large text']
+  ];
+
+  function swatchesHtml(current) {
+    return '<label>Card colour</label><div class="swatches" role="radiogroup" aria-label="Card colour">' + CARD_COLORS.map(function (c) {
+      return '<label title="' + c[1] + '"><input type="radio" name="dlg-color" value="' + c[0] + '"' + ((current || '') === c[0] ? ' checked' : '') + ' aria-label="' + c[1] + '">' +
+        '<span class="' + (c[0] ? '' : 'none') + '"' + (c[0] ? ' style="--c: var(--cat-' + c[0] + ')"' : '') + '></span></label>';
+    }).join('') + '</div>';
+  }
+
+  function toolbarHtml() {
+    return '<div class="rtbar" role="toolbar" aria-label="Text formatting">' +
+      TOOLS.map(function (t) {
+        return '<button type="button" data-cmd="' + t[0] + '"' + (t[1] ? ' data-val="' + t[1] + '"' : '') + ' title="' + t[3] + '" aria-label="' + t[3] + '">' + t[2] + '</button>';
+      }).join('') +
+      TEXT_COLORS.map(function (c) {
+        return '<button type="button" class="dot" data-cmd="foreColor" data-val="' + c[0] + '" title="' + c[1] + ' text" aria-label="' + c[1] + ' text"><i style="--dot:' + c[0] + '"></i></button>';
+      }).join('') +
+      '<button type="button" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">Clear</button></div>';
+  }
+
+  /** Toolbar buttons keep the editor's text selection: mousedown would otherwise move focus away from it. */
+  function wireToolbar() {
+    var bar = document.querySelector('.rtbar');
+    if (!bar) return;
+    bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
+    bar.addEventListener('click', function (e) {
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      document.getElementById('dlg-note').focus();
+      try { document.execCommand('styleWithCSS', false, false); } catch (err) {}
+      document.execCommand(btn.dataset.cmd, false, btn.dataset.val || null);
+    });
+  }
+
+  FT.action('kanban.open-card', function (el) {
+    var t = FT.store.kanban.tasks.filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (!t) return;
+    FT.dialog({
+      title: 'Card',
+      wide: true,
+      fields: [{ id: 'cardtitle', label: 'Title', value: t.title }],
+      after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
+        '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>',
+      onOpen: wireToolbar,
+      onSubmit: function (v) {
+        var picked = document.querySelector('input[name="dlg-color"]:checked');
+        return FT.rpc('kanban', 'updateTask', {
+          id: t.id, title: v.cardtitle, color: picked ? picked.value : '', noteHtml: document.getElementById('dlg-note').innerHTML
+        }, { quiet: true });
+      }
     });
   });
 

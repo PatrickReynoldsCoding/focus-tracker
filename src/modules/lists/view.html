@@ -25,21 +25,24 @@
 
   function tabHtml() {
     var all = lists();
-    return '<section class="panel"><div class="tophead"><div class="label">Lists</div><button class="btn sm primary" data-act="lists.add">+ New list</button></div>' +
+    var head = '<section class="panel"><div class="tophead"><div class="label">Lists</div><button class="btn sm primary" data-act="lists.add">+ New list</button></div>' +
       (all.length ? '<p class="empty" style="padding:0">Lists are for things that are not projects: reading, ideas, things to keep in mind. Tick "Show on Today" to see one on the Today tab.</p>'
-                  : '<p class="empty">No lists yet. Make one for reading, ideas or things to keep in mind.</p>') + '</section>' +
-      (all.length ? '<div class="lists">' + all.map(function (l, i) { return listPanel(l, i, all.length); }).join('') + '</div>' : '');
+                  : '<p class="empty">No lists yet. Make one for reading, ideas or things to keep in mind.</p>') + '</section>';
+    return FT.layout('lists', [{ id: 'head', html: head, w: 12 }].concat(all.map(function (l, i) {
+      return { id: 'list-' + l.id, html: listPanel(l, i, all.length), w: 6 };
+    })));
   }
 
   /** On Today, each list shows as its own panel, without the list controls. */
   function todayPanels() {
-    var shown = lists().filter(function (l) { return l.show_today; });
-    if (!shown.length) return '';
-    return '<div class="lists">' + shown.map(function (l) {
-      return '<section class="panel listpanel"><div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' +
-        '<button class="btn sm" data-act="lists.open" aria-label="Open Lists tab">Edit list</button></div>' +
-        FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
-    }).join('') + '</div>';
+    return lists().filter(function (l) { return l.show_today; }).map(function (l) {
+      return {
+        id: 'list-' + l.id, w: 6,
+        html: '<section class="panel listpanel"><div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' +
+          '<button class="btn sm" data-act="lists.open" aria-label="Open Lists tab">Edit list</button></div>' +
+          FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>'
+      };
+    });
   }
 
   FT.module({

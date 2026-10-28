@@ -72,38 +72,50 @@
       '<button class="btn ' + (done ? 'done' : '') + '" data-act="today.job">' + (done ? 'Done for today' : 'Mark 10 minutes done') + '</button></section>';
   }
 
-  /** Panels other modules add to Today, such as lists. */
+  /** Panels other modules add to Today, such as lists: each slot returns [{ id, html, w }]. */
   function extraPanels() {
-    return FT.slots('today.panels').map(function (s) { return s.render(FT); }).join('');
+    return FT.slots('today.panels').reduce(function (all, s) { return all.concat(s.render(FT) || []); }, []);
   }
 
-  function render() {
-    var t = FT.store.today || {};
-    var f = t.focusId ? FT.project(t.focusId) : null;
-    if (!f) return '<div class="panel"><p class="empty">No active projects yet. Add one on the Projects tab to get a focus for the day.</p></div>' + extraPanels();
+  function focusHtml(t, f) {
     var n = FT.daysSince(f.last_touched), running = !!t.session;
     var lastLog = (FT.store.log || []).filter(function (l) { return l.project_id === f.id; })[0];
-    var stale = activeProjects().filter(function (p) { return p.id !== f.id && FT.daysSince(p.last_touched) >= FT.config.staleDays; });
-    var minimum = t.dailyMinimum;
-    var minimumProject = minimum ? (activeProjects().filter(function (p) { return p.category === minimum && p.id !== f.id; })[0] || (f.category === minimum ? f : null)) : null;
-    var banner = stale.length ? '<div class="banner">Not touched for a while: ' + stale.map(function (p) {
-      return '<b>' + FT.esc(p.name) + '</b> (' + FT.daysSince(p.last_touched) + ' days)';
-    }).join(', ') + '.</div>' : '';
-    var rot = DAYS.map(function (d) {
-      var isToday = d[0] === t.weekday;
-      return '<tr class="' + (isToday ? 'todayrow' : '') + '"><td>' + d[1] + (isToday ? ' (today)' : '') + '</td><td>' + FT.esc((t.labels || {})[d[0]] || '') + '</td></tr>';
-    }).join('');
-    return banner + '<div class="grid2"><div class="stack"><section class="panel">' +
-      '<div class="label">Today\'s focus</div><h2 class="focus-name">' + FT.esc(f.name) + '</h2>' +
+    return '<section class="panel"><div class="label">Today\'s focus</div><h2 class="focus-name">' + FT.esc(f.name) + '</h2>' +
       '<div class="meta">' + FT.pill(f.category) + '<span class="' + FT.ageClass(n) + '">Last touched ' + FT.ageLabel(n) + '</span></div>' +
       '<div class="next"><small>Next action</small>' + FT.esc(f.next_action) + '</div>' +
       '<div class="lastnote">' + (lastLog ? '<b>Last time:</b> ' + FT.esc(lastLog.where_stopped) : 'No notes yet for this project.') + '</div>' +
       (running ? sessionHtml(t)
                : '<div class="actions"><button class="btn primary" data-act="today.start">Start session</button><button class="btn" data-act="today.swap">Swap focus</button>') +
-      '<button class="btn" data-act="today.open" data-id="' + FT.esc(f.id) + '">Open project</button></div></section></div>' +
-      '<div class="stack">' + (minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '') +
-      '<section class="panel"><div class="label">Weekly rotation</div><table class="rot"><tbody>' + rot + '</tbody></table></section></div></div>' +
-      extraPanels();
+      '<button class="btn" data-act="today.open" data-id="' + FT.esc(f.id) + '">Open project</button></div></section>';
+  }
+
+  function rotationHtml(t) {
+    var rows = DAYS.map(function (d) {
+      var isToday = d[0] === t.weekday;
+      return '<tr class="' + (isToday ? 'todayrow' : '') + '"><td>' + d[1] + (isToday ? ' (today)' : '') + '</td><td>' + FT.esc((t.labels || {})[d[0]] || '') + '</td></tr>';
+    }).join('');
+    return '<section class="panel"><div class="label">Weekly rotation</div><table class="rot"><tbody>' + rows + '</tbody></table></section>';
+  }
+
+  function staleBanner(f) {
+    var stale = activeProjects().filter(function (p) { return p.id !== f.id && FT.daysSince(p.last_touched) >= FT.config.staleDays; });
+    return stale.length ? '<div class="banner">Not touched for a while: ' + stale.map(function (p) {
+      return '<b>' + FT.esc(p.name) + '</b> (' + FT.daysSince(p.last_touched) + ' days)';
+    }).join(', ') + '.</div>' : '';
+  }
+
+  function render() {
+    var t = FT.store.today || {};
+    var f = t.focusId ? FT.project(t.focusId) : null;
+    var minimum = t.dailyMinimum;
+    var minimumProject = f && minimum ? (activeProjects().filter(function (p) { return p.category === minimum && p.id !== f.id; })[0] || (f.category === minimum ? f : null)) : null;
+    var focus = f ? focusHtml(t, f)
+                  : '<section class="panel"><p class="empty">No active projects yet. Add one on the Projects tab to get a focus for the day.</p></section>';
+    return (f ? staleBanner(f) : '') + FT.layout('today', [
+      { id: 'focus', html: focus, w: 7 },
+      { id: 'minimum', html: f && minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '', w: 5 },
+      { id: 'rotation', html: f ? rotationHtml(t) : '', w: 5 }
+    ].concat(extraPanels()));
   }
 
   // ---------- alerts ----------

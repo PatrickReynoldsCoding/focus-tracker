@@ -130,7 +130,8 @@ var FT = (function () {
   // ---------- dialog ----------
   FT.closeDialog = function () { $('dialogRoot').innerHTML = ''; };
   /**
-   * opts: { title, subtitle, body (html), hint (text), fields: [{id,label,type,value,placeholder,options}], submit, danger, onSubmit(values) }
+   * opts: { title, subtitle, body (html), fields: [{id,label,type,value,placeholder,options}], after (html), hint (text), submit, danger,
+   *         wide (true for a wider dialog), onOpen(), onSubmit(values) }
    * onSubmit may return a promise; a thrown error or rejection is shown inside the dialog.
    */
   FT.dialog = function (opts) {
@@ -143,10 +144,10 @@ var FT = (function () {
       else ctl = '<input type="text" id="' + id + '" value="' + FT.esc(f.value || '') + '" placeholder="' + FT.esc(f.placeholder || '') + '">';
       return '<label for="' + id + '">' + FT.esc(f.label) + '</label>' + ctl;
     }).join('');
-    $('dialogRoot').innerHTML = '<div class="scrim" id="dlg-scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">' +
-      '<h2 id="dlg-title">' + FT.esc(opts.title) + '</h2>' +
+    $('dialogRoot').innerHTML = '<div class="scrim" id="dlg-scrim"><div class="dialog' + (opts.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-labelledby="dlg-heading">' +
+      '<h2 id="dlg-heading">' + FT.esc(opts.title) + '</h2>' +
       (opts.subtitle ? '<div class="meta">' + FT.esc(opts.subtitle) + '</div>' : '') +
-      (opts.body || '') + fields +
+      (opts.body || '') + fields + (opts.after || '') +
       '<div class="err" id="dlg-err" role="alert"></div>' +
       (opts.hint ? '<div class="hint">' + FT.esc(opts.hint) + '</div>' : '') +
       '<div class="actions"><button class="btn ' + (opts.danger ? 'danger' : 'primary') + '" id="dlg-submit">' + FT.esc(opts.submit || 'Save') + '</button>' +
@@ -171,6 +172,7 @@ var FT = (function () {
     };
     var first = $('dialogRoot').querySelector('input, textarea, select');
     if (first) first.focus(); else $('dlg-submit').focus();
+    if (opts.onOpen) opts.onOpen();
   };
 
   // ---------- navigation and rendering ----------
@@ -200,21 +202,102 @@ var FT = (function () {
   function projectPage(id) {
     var project = FT.project(id);
     if (!project) return '<p class="empty">That project no longer exists.</p><button class="btn" data-act="core.tab" data-view="projects">Back to projects</button>';
-    var cells = FT.slots('project.page').map(function (s) {
-      var html = s.render(project, FT);
-      return html ? '<div class="pcell ' + (s.span === 'full' ? 'full' : 'half') + '">' + html + '</div>' : '';
-    }).join('');
-    return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div><div class="pgrid">' + cells + '</div>';
+    var panels = FT.slots('project.page').map(function (s) {
+      return { id: s.id || 'slot' + s.order, html: s.render(project, FT), w: s.span === 'full' ? 12 : 6 };
+    });
+    return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div>' + FT.layout('project', panels);
+  }
+
+  // ---------- page layout ----------
+  // Desktop pages are a 12-column grid (GridStack, loaded from a CDN). In "Edit layout" mode panels can be dragged
+  // and their left or right edge dragged to change the width; heights follow the content. Places are saved per page.
+  // On a phone, or if the grid library did not load, panels flow in order.
+  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null;
+  var narrow = window.matchMedia('(max-width: 760px)');
+  if (narrow.addEventListener) narrow.addEventListener('change', function () { FT.state.editLayout = false; FT.render(); });
+
+  function canArrange() { return !!window.GridStack && isLoaded('layout') && !narrow.matches; }
+
+  /** Saved panels first, in reading order (top to bottom, left to right), then new panels in their default order. */
+  function readingOrder(panels, saved) {
+    return panels.map(function (p, i) { return { p: p, i: i, s: saved[p.id] }; }).sort(function (a, b) {
+      if (a.s && b.s) return (a.s.y - b.s.y) || (a.s.x - b.s.x);
+      if (a.s || b.s) return a.s ? -1 : 1;
+      return a.i - b.i;
+    }).map(function (x) { return x.p; });
+  }
+
+  /**
+   * Lay out a page's panels. page: a short key such as 'today'. panels: [{ id, html, w }] where w is the default
+   * width in twelfths. Panels with no html are left out.
+   */
+  FT.layout = function (page, panels) {
+    layoutPage = page;
+    var saved = (FT.store.layout || {})[page] || {};
+    var shown = panels.filter(function (p) { return p.html; });
+    if (!canArrange()) {
+      return '<div class="lflow">' + readingOrder(shown, saved).map(function (p) {
+        var w = saved[p.id] ? saved[p.id].w : (p.w || LAYOUT_COLUMNS);
+        return '<div class="lcell" style="--span:' + w + '">' + p.html + '</div>';
+      }).join('') + '</div>';
+    }
+    return '<div class="grid-stack" data-page="' + FT.esc(page) + '">' + shown.map(function (p) {
+      var s = saved[p.id];
+      var place = s ? ' gs-x="' + s.x + '" gs-y="' + s.y + '" gs-w="' + s.w + '"' : ' gs-w="' + (p.w || LAYOUT_COLUMNS) + '" gs-auto-position="true"';
+      return '<div class="grid-stack-item" gs-id="' + FT.esc(p.id) + '"' + place + '><div class="grid-stack-item-content">' + p.html + '</div></div>';
+    }).join('') + '</div>';
+  };
+
+  function saveLayout(page, grid) {
+    var items = grid.engine.nodes.map(function (n) { return { id: n.id, x: n.x, y: n.y, w: n.w }; });
+    var positions = {};
+    items.forEach(function (it) { positions[it.id] = { x: it.x, y: it.y, w: it.w }; });
+    FT.store.layout = FT.store.layout || {};
+    FT.store.layout[page] = positions;
+    FT.rpc('layout', 'save', { page: page, items: items }, { render: false }).catch(function () {});
+  }
+
+  function initGrids() {
+    grids.forEach(function (g) { g.destroy(false); });
+    grids = [];
+    if (!canArrange()) return;
+    Array.prototype.forEach.call(document.querySelectorAll('#app .grid-stack'), function (el) {
+      var grid = window.GridStack.init({
+        column: LAYOUT_COLUMNS, cellHeight: 8, margin: 8, float: false, animate: false,
+        staticGrid: !FT.state.editLayout, sizeToContent: true, resizable: { handles: 'e, w' }
+      }, el);
+      var page = el.dataset.page;
+      grid.on('dragstop resizestop', function () { setTimeout(function () { saveLayout(page, grid); }, 0); });
+      grids.push(grid);
+    });
+  }
+
+  function renderLayoutButton() {
+    var btn = $('layoutBtn');
+    if (!btn) return;
+    btn.hidden = !canArrange() || !layoutPage;
+    btn.setAttribute('aria-pressed', FT.state.editLayout ? 'true' : 'false');
+  }
+
+  function editBarHtml() {
+    if (!FT.state.editLayout || !canArrange() || !layoutPage) return '';
+    return '<div class="editbar" role="status"><span><b>Editing layout.</b> Drag a panel to move it. Drag its left or right edge to change its width.</span>' +
+      '<span class="actions" style="margin:0"><button class="btn sm" data-act="core.layoutReset">Reset this page</button>' +
+      '<button class="btn sm primary" data-act="core.layout">Done</button></span></div>';
   }
 
   FT.render = function () {
     if (!FT.ready) return;
     renderTabs();
+    layoutPage = null;
     var html = '';
     if (FT.state.view === 'project') html = projectPage(FT.state.projectId);
     else if (modules[FT.state.view] && modules[FT.state.view].tab) html = modules[FT.state.view].tab.render(FT);
     var y = window.scrollY;
-    $('app').innerHTML = html;
+    $('app').innerHTML = editBarHtml() + html;
+    document.body.classList.toggle('editing-layout', !!(FT.state.editLayout && canArrange() && layoutPage));
+    initGrids();
+    renderLayoutButton();
     window.scrollTo(0, y);
     renderHooks.forEach(function (fn) { fn(); });
   };
@@ -263,7 +346,7 @@ var FT = (function () {
   FT.switchMode = function (mode) {
     if (mode === FT.state.mode) return;
     try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
-    FT.state.mode = mode; FT.state.projectId = null; FT.ready = false;
+    FT.state.mode = mode; FT.state.projectId = null; FT.state.editLayout = false; FT.ready = false;
     renderModeBar();
     $('app').innerHTML = '<p class="empty">Loading…</p>';
     loadMode(mode);
@@ -293,6 +376,12 @@ var FT = (function () {
   FT.action('core.tab', function (el) { FT.go(el.dataset.view); });
   FT.action('core.reload', function () { location.reload(); });
   FT.action('core.mode', function (el) { FT.switchMode(el.dataset.mode); });
+  FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
+  FT.action('core.layoutReset', function () {
+    if (!layoutPage) return;
+    if (FT.store.layout) delete FT.store.layout[layoutPage];
+    FT.rpc('layout', 'reset', { page: layoutPage }).catch(function () {});
+  });
   FT.action('core.wide', function () {
     var on = !document.body.classList.contains('wide');
     applyWide(on);

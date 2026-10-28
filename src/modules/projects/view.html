@@ -86,9 +86,10 @@
     var table = list.length
       ? '<div class="scroll"><table><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
       : '<p class="empty">' + (all.length ? 'No projects match these filters.' : 'No projects yet. Add the first one.') + '</p>';
-    var extra = FT.slots('projects.tab').map(function (s) { return s.render(FT); }).join('');
-    return '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
-      (all.length ? filtersHtml() : '') + table + '</section>' + extra;
+    var main = '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
+      (all.length ? filtersHtml() : '') + table + '</section>';
+    var extra = FT.slots('projects.tab').map(function (s) { return { id: s.id || 'slot' + s.order, html: s.render(FT), w: s.w || 12 }; });
+    return FT.layout('projects', [{ id: 'projects', html: main, w: 12 }].concat(extra));
   }
 
   /** Re-render after a keystroke in the search box, then put the caret back where it was. */
@@ -121,7 +122,7 @@
   FT.module({
     id: 'projects',
     tab: { title: 'Projects', order: 20, render: tabHtml },
-    slots: { 'project.page': [{ order: 0, span: 'full', render: headerHtml }] }
+    slots: { 'project.page': [{ id: 'header', order: 0, span: 'full', render: headerHtml }] }
   });
 
   FT.action('projects.open', function (el) { FT.go('project', { id: el.dataset.id }); });

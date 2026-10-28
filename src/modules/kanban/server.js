@@ -5,7 +5,8 @@
 
 function kanbanModule() {
   var COLUMNS = new Table('Columns', ['id', 'project_id', 'name', 'order'], ['order']);
-  var TASKS = new Table('Tasks', ['id', 'project_id', 'column_id', 'title', 'order', 'created'], ['order']);
+  var TASKS = new Table('Tasks', ['id', 'project_id', 'column_id', 'title', 'order', 'created', 'color', 'note_html', 'note_text'], ['order']);
+  var CARD_COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var DEFAULT_COLUMNS = ['To do', 'Doing', 'Done'];
 
   function columnsOf_(projectId) {
@@ -75,6 +76,21 @@ function kanbanModule() {
         assert_(cols.some(function (c) { return c.id === colId; }), 'That column is not on this board. Reload and try again.');
         var inCol = TASKS.all().filter(function (t) { return t.column_id === colId; });
         var row = TASKS.insert({ project_id: a.projectId, column_id: colId, title: title, order: nextOrder_(inCol), created: nowIso_() });
+        ctx.refresh('kanban');
+        return row;
+      },
+
+      /** Change a card's title, colour ('' for none) and/or note (editor HTML; cleaned, with a plain-text copy). */
+      updateTask: function (a, ctx) {
+        var patch = {};
+        if (a.title !== undefined) { patch.title = clean_(a.title, 200); assert_(patch.title, 'A task needs a title.'); }
+        if (a.color !== undefined) { assert_(CARD_COLORS.indexOf(String(a.color)) !== -1, 'Unknown colour: ' + a.color); patch.color = String(a.color); }
+        if (a.noteHtml !== undefined) {
+          patch.note_html = sanitizeRichText_(a.noteHtml);
+          patch.note_text = richTextToPlain_(patch.note_html);
+          if (!patch.note_text) patch.note_html = '';
+        }
+        var row = TASKS.update(a.id, patch);
         ctx.refresh('kanban');
         return row;
       },

@@ -21,6 +21,8 @@ The Resources feature stores links to Google Drive files. Before adding, suggest
 - Adding a feature: create `src/modules/<id>/`, add the id to `MODULES` in `src/core/config.js`. Removing it: delete the folder and that one line.
 - Modes (`MODES` in `src/core/config.js`, helpers in `src/core/mode.js`): each mode has its own spreadsheet and its own subfolder of the "Focus Tracker" Drive folder. `bootstrap(mode)` and `rpc(module, fn, args, mode)` set the mode first, so `Table`, `getSpreadsheet_()` and `getSubfolder_()` always work on the active mode. Per-user state that belongs to a mode uses `modeKey_('name')`. A mode-only feature is a module listed in that mode's `modules`.
 - Categories are data, not config: each mode's Categories tab, edited in the app. Check them through `ctx.call('categories', 'ids')`.
+- Pages lay out their panels with `FT.layout(page, [{ id, html, w }])` (shell.html), so they can be moved in "Edit layout" mode. Slots that add panels give each one a stable `id`.
+- Rich text from the browser is cleaned on the server with `sanitizeRichText_` before it is stored. Never store or render browser HTML without it.
 - Cells are plain text. Dates are ISO strings. Numbers are listed in a table's `numeric` argument.
 
 ## Checks
