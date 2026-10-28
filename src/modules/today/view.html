@@ -161,7 +161,23 @@
   }
 
   // ---------- alerts ----------
-  // Browsers often block notifications inside Apps Script pages, so a finished period is announced with a sound and the tab title.
+  // A finished period is announced with a sound, the tab title and a browser notification.
+  // Browsers often block notifications inside Apps Script pages, so the sound and title stay as the fallback.
+
+  /** Browsers only show the permission prompt after a click, so this runs when the pomodoro is switched on. */
+  function askNotificationPermission() {
+    try {
+      if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+    } catch (e) {}
+  }
+
+  function notify(phase) {
+    try {
+      if (window.Notification && Notification.permission === 'granted') {
+        new Notification(ALERT_TITLE[phase], { body: PHASE_DONE_TEXT[phase], tag: 'pomodoro' });
+      }
+    } catch (e) {}
+  }
 
   /** Browsers only allow sound after a click, so the audio context is made during one. */
   function unlockAudio() {
@@ -197,6 +213,7 @@
     if (alertedPhaseKey === key) return;
     alertedPhaseKey = key;
     chime();
+    notify(p.phase);
   }
 
   // ---------- ticking clock ----------
@@ -319,7 +336,11 @@
   FT.action('today.job', function () { call('toggleJob'); });
   FT.action('today.pause', function () { call('pause'); });
   FT.action('today.resume', function () { call('resume'); });
-  FT.action('today.pomodoro', function () { call('pomodoro', { on: !FT.store.today.session.pomodoro }); });
+  FT.action('today.pomodoro', function () {
+    var switchingOn = !FT.store.today.session.pomodoro;
+    if (switchingOn) askNotificationPermission();
+    call('pomodoro', { on: switchingOn });
+  });
   FT.action('today.nextPhase', function () { call('nextPhase'); });
   FT.action('today.pomodoroSettings', function () {
     var settings = FT.store.today.pomodoroSettings;

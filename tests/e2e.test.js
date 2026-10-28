@@ -231,7 +231,13 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('[data-act="today.pause"]') && !$('.timer .state'), 'resumed');
 
     assert.strictEqual($('#pomo'), null, 'pomodoro is off by default');
+    const notifications = [];
+    let permissionAsked = 0;
+    w.Notification = class { constructor(title, options) { notifications.push({ title, body: options.body }); } };
+    w.Notification.permission = 'default';
+    w.Notification.requestPermission = () => { permissionAsked++; w.Notification.permission = 'granted'; };
     click($('[data-act="today.pomodoro"]'));
+    assert.strictEqual(permissionAsked, 1, 'switching the pomodoro on asks for notification permission');
     await waitFor(() => $('#pomo'), 'pomodoro shown');
     assert.ok(/Work 2[45]:\d\d left/.test($('#pomo').textContent), $('#pomo').textContent);
     // Pretend the work period ran out: the box switches to "take a break" and the tab title changes
@@ -243,6 +249,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#pomo.over'), 'work period over');
     assert.ok($('#pomo').textContent.includes('Time for a break'));
     await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title');
+    assert.deepStrictEqual(notifications, [{ title: '⏰ Break time', body: 'Work period done. Time for a break.' }], 'one notification when the break starts');
     click(tab('Projects'));
     await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title stays on other tabs', 2500);
     click(tab('Today'));
@@ -250,6 +257,15 @@ async function waitFor(fn, label, ms = 3000) {
     click($('[data-act="today.nextPhase"]'));
     await waitFor(() => $('#pomo') && !$('#pomo.over') && $('#pomo').textContent.includes('Break'), 'break started');
     assert.strictEqual(d.title, 'Focus Tracker');
+    // Pretend the break ran out too
+    server.run(`(function () {
+      var props = PropertiesService.getUserProperties(), s = JSON.parse(props.getProperty('today.state'));
+      s.session.pomodoro.phaseStartMs -= 6 * 60000;
+      props.setProperty('today.state', JSON.stringify(s)); })()`);
+    await w.FT.reload();
+    await waitFor(() => d.title.startsWith('⏰ Back to work'), 'break over alert title');
+    assert.strictEqual(notifications.length, 2);
+    assert.deepStrictEqual(notifications[1], { title: '⏰ Back to work', body: 'Break over. Back to work.' }, 'one notification when the break ends');
 
     click($('[data-act="today.finish"]'));
     await waitFor(() => $('.dialog'), 'finish dialog');

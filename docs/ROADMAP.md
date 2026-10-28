@@ -24,6 +24,7 @@ Decisions Paddy made while it was built:
 - The pomodoro is off by default and is switched on per session. Lengths are kept in user properties. A changed length applies from the next period.
 - The Log has a `minutes` column: worked minutes without pauses, written on finish.
 - The alert ticks on every tab while a session runs, not only on Today.
+- A browser notification is sent when a break starts and when it ends (permission is asked when the pomodoro is switched on). Sound and tab title stay as the fallback, because Apps Script pages may block notifications. Not yet tried on Google's runtime.
 
 Original requests:
 - Desktop: a small icon at the right to stretch the page to full screen width (remember the choice per browser).
