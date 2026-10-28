@@ -53,6 +53,9 @@ Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
+### Session on the focus project page (done, 2026-10-28, requested by Paddy)
+- Today's focus project page starts with the session: the timer, pomodoro and session buttons while a session runs, or a "Today's focus" bar with Start session. Other project pages show nothing there (today module, slot `project.page`, id `session`).
+
 ### One item at a time (done, 2026-10-28, requested by Paddy)
 - List Settings has "Display on Today": Full list, or One at a time. One at a time shows a random item as a quote card (option A of the mockups) in the list's colour, with its whole card note under it, and moves to another item every n seconds (5-3600, default 30). No progress bar and no More/Less, at Paddy's request. Order is shuffled and no item repeats until all were shown; ‹ › skip. Clicking the quote opens the item. The Lists tab keeps the full list for editing and shows a "One at a time on Today" label.
 - `FT.fitPanel(el)` re-measures a grid panel whose content changed without a redraw.

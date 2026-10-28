@@ -516,6 +516,29 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-cancel'));
   });
 
+  await step('the focused project page shows the session and pomodoro at the top; other projects do not', async () => {
+    click(tab('Today'));
+    const focusName = await waitFor(() => $('.focus-name') && $('.focus-name').textContent, 'focus');
+    click($('[data-act="today.open"]'));
+    await waitFor(() => $('.focusbar'), 'start bar on the focus project');
+    assert.strictEqual($$('.lcell .label')[0].textContent, "Today's focus", 'it is the first panel');
+    click($('.focusbar [data-act="today.start"]'));
+    await waitFor(() => $('#timer') && $('[data-act="today.pomodoro"]'), 'session on the project page');
+    click($('[data-act="today.pomodoro"]'));
+    await waitFor(() => $('#pomo') && /Work 2[45]:\d\d left/.test($('#pomo').textContent), 'pomodoro on the project page');
+    click(tab('Projects'));
+    click(await waitFor(() => $$('tr.row').find((r) => !r.textContent.includes(focusName)), 'another project'));
+    await waitFor(() => $('.phead'), 'other project page');
+    assert.strictEqual($('#timer'), null, 'no session on other projects');
+    assert.strictEqual($('.focusbar'), null);
+    click(tab('Today'));
+    click(await waitFor(() => $('[data-act="today.finish"]'), 'finish'));
+    await waitFor(() => $('#dlg-where'), 'finish dialog');
+    setVal($('#dlg-where'), 'Tried the project page timer');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && !$('#timer'), 'session finished');
+  });
+
   await step('Esc leaves Edit layout mode', async () => {
     w.FT.state.editLayout = true;
     w.FT.render();
