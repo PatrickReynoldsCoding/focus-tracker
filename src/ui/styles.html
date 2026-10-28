@@ -10,8 +10,9 @@
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
   color-scheme: light;
 }
+/* Dark colours: when the theme is Dark, or "Same as computer" and the computer is in dark mode (Settings, ⚙). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
@@ -19,12 +20,21 @@
     color-scheme: dark;
   }
 }
+:root[data-theme="dark"] {
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+    --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
+    --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
+    --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
+    color-scheme: dark;
+}
 /* Work mode uses a blue accent so it is always clear which mode's data is on screen. */
 body[data-mode="work"] { --accent: #2f5aa8; --accent-soft: #dfe7f6; }
-@media (prefers-color-scheme: dark) { body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
+:root[data-theme="dark"] body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; }
 /* Modes made in the app pick an accent from the category palette (body style --mode-accent). */
 body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in srgb, var(--mode-accent) 16%, var(--surface)); }
-@media (prefers-color-scheme: dark) { body[data-accent] { --accent-ink: #0d1413; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body[data-accent] { --accent-ink: #0d1413; } }
+:root[data-theme="dark"] body[data-accent] { --accent-ink: #0d1413; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
@@ -107,6 +117,12 @@ textarea { min-height: 150px; resize: vertical; }
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(8, 14, 13, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; width: min(460px, 100%); max-height: 100%; overflow: auto; }
 .dialog.wide { width: min(640px, 100%); }
+.choice { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.dialog .choice label { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 14px; position: relative; text-align: center; }
+.choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; font-weight: 600; }
+.choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dialog .settingrow { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 6px; }
 .dialog h2 { font-size: 22px; margin-bottom: 4px; }
 .dialog label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 5px; }
 .dialog p { margin: 8px 0 0; color: var(--muted); }

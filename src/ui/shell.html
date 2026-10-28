@@ -162,6 +162,7 @@ var FT = (function () {
     'lists.create': 'List added', 'lists.rename': 'List rename', 'lists.remove': 'List deleted', 'lists.setColor': 'List colour',
     'criteria.add': 'Criterion added', 'criteria.update': 'Criterion change', 'criteria.remove': 'Criterion deleted',
     'categories.add': 'Category added', 'categories.update': 'Category edit', 'categories.remove': 'Category deleted',
+    'whiteboard.create': 'Whiteboard added', 'whiteboard.rename': 'Whiteboard rename', 'whiteboard.remove': 'Whiteboard removed',
     'resources.add': 'Link added', 'resources.remove': 'Link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
@@ -224,7 +225,8 @@ var FT = (function () {
   FT.closeDialog = function () { $('dialogRoot').innerHTML = ''; };
   /**
    * opts: { title, subtitle, body (html), fields: [{id,label,type,value,placeholder,options}], after (html), hint (text), submit, danger,
-   *         wide (true for a wider dialog), onOpen(), onSubmit(values) }
+   *         wide (true for a wider dialog), cancel (false: no Cancel button, for dialogs that apply changes at once),
+   *         onOpen(), onSubmit(values) }
    * onSubmit may return a promise; a thrown error or rejection is shown inside the dialog.
    */
   FT.dialog = function (opts) {
@@ -244,7 +246,7 @@ var FT = (function () {
       '<div class="err" id="dlg-err" role="alert"></div>' +
       (opts.hint ? '<div class="hint">' + FT.esc(opts.hint) + '</div>' : '') +
       '<div class="actions"><button class="btn ' + (opts.danger ? 'danger' : 'primary') + '" id="dlg-submit">' + FT.esc(opts.submit || 'Save') + '</button>' +
-      '<button class="btn" id="dlg-cancel">Cancel</button></div></div></div>';
+      (opts.cancel === false ? '' : '<button class="btn" id="dlg-cancel">Cancel</button>') + '</div></div></div>';
 
     function values() {
       var v = {};
@@ -258,7 +260,7 @@ var FT = (function () {
         .catch(function (e) { btn.disabled = false; $('dlg-err').textContent = FT.errorText(e); });
     }
     $('dlg-submit').onclick = submit;
-    $('dlg-cancel').onclick = FT.closeDialog;
+    if ($('dlg-cancel')) $('dlg-cancel').onclick = FT.closeDialog;
     $('dlg-scrim').onclick = function (e) { if (e.target.id === 'dlg-scrim') FT.closeDialog(); };
     $('dialogRoot').onkeydown = function (e) {
       if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submit(); }
@@ -447,14 +449,44 @@ var FT = (function () {
     $('modes').innerHTML = '<select id="modeSelect" class="modeselect" aria-label="Mode" data-change="core.mode">' + modes.map(function (m) {
       return '<option value="' + FT.esc(m.id) + '"' + (m.id === FT.state.mode ? ' selected' : '') + '>' + FT.esc(m.label) + '</option>';
     }).join('') + '<option disabled>────</option><option value="' + NEW_MODE + '">+ New mode…</option></select>';
-    var link = $('driveLink');
-    link.hidden = !FT.config.folderUrl;
-    link.href = FT.config.folderUrl || '#';
-    link.title = 'Open the ' + mode.label + ' folder in Google Drive';
-    link.setAttribute('aria-label', link.title);
     document.body.dataset.mode = FT.state.mode || '';
     if (mode.accent) { document.body.dataset.accent = mode.accent; document.body.style.setProperty('--mode-accent', 'var(--cat-' + mode.accent + ')'); }
     else { delete document.body.dataset.accent; document.body.style.removeProperty('--mode-accent'); }
+  }
+
+  // ---------- settings (⚙): Drive folder and theme ----------
+  var THEME_KEY = 'ft.theme';
+  var THEMES = [['light', 'Light'], ['dark', 'Dark'], ['', 'Same as computer']];
+
+  function savedTheme() {
+    try { var t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' ? t : ''; } catch (e) { return ''; }
+  }
+
+  /** '' follows the computer's setting. The choice is kept in this browser. */
+  FT.setTheme = function (theme) {
+    if (theme) document.documentElement.dataset.theme = theme; else delete document.documentElement.dataset.theme;
+    try { if (theme) localStorage.setItem(THEME_KEY, theme); else localStorage.removeItem(THEME_KEY); } catch (e) {}
+  };
+
+  function settingsDialog() {
+    var mode = currentMode(), theme = savedTheme();
+    FT.dialog({
+      title: 'Settings',
+      submit: 'Done',
+      cancel: false,
+      body: '<label>Data</label><div class="settingrow"><span style="color:var(--muted)">The ' + FT.esc(mode.label) + ' Sheet, notes and whiteboards are in one Drive folder.</span>' +
+        (FT.config.folderUrl ? '<a class="btn" id="dlg-drive" href="' + FT.esc(FT.config.folderUrl) + '" target="_blank" rel="noopener noreferrer">Open ' + FT.esc(mode.label) + ' folder in Drive</a>' : '') + '</div>' +
+        '<label>Theme</label><div class="choice" role="radiogroup" aria-label="Theme">' + THEMES.map(function (t) {
+          return '<label><input type="radio" name="dlg-theme" value="' + t[0] + '"' + (t[0] === theme ? ' checked' : '') + '>' + t[1] + '</label>';
+        }).join('') + '</div>',
+      onOpen: function () {
+        // The theme changes as soon as it is picked, so you can see it before closing.
+        Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-theme"]'), function (radio) {
+          radio.addEventListener('change', function () { FT.setTheme(radio.value); });
+        });
+      },
+      onSubmit: function () {}
+    });
   }
 
   function newModeDialog() {
@@ -549,6 +581,7 @@ var FT = (function () {
   });
   FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
   FT.action('core.undo', function () { FT.undo(); });
+  FT.action('core.settings', function () { settingsDialog(); });
   FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
   FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });
   FT.action('core.layoutReset', function () {

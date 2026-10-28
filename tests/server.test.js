@@ -487,24 +487,37 @@ test('a pending import runs once, in its own mode, when that mode is first opene
   assert.ok(s.script._m['IMPORT_DONE.sample-1']);
 });
 
-test('a whiteboard is saved as an .excalidraw file in the mode folder, and bad scenes are refused', () => {
+test('a project can have several named whiteboards, each its own .excalidraw file in the mode folder', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'MIDI app', category: 'coding' }).result;
-  assert.deepStrictEqual(s.call('whiteboard', 'get', { projectId: p.id }).result, { json: '', url: '' });
+  assert.throws(() => s.call('whiteboard', 'create', { projectId: p.id, name: ' ' }), /needs a name/);
+  const a = s.call('whiteboard', 'create', { id: 'dddd0001', projectId: p.id, name: 'Touch pad layout' }).result;
+  const b = s.call('whiteboard', 'create', { projectId: p.id, name: 'Signal flow' }).result;
+  const file = (id) => s.drive.getFileById(json(s.run('bootstrap()')).data.whiteboard.length && s.ss.sheets.Whiteboards.rows.find((r) => r[0] === id)[2]);
+  assert.strictEqual(s.drive.pathOf(file(a.id)), 'Focus Tracker/Personal/Whiteboards/midi-app-touch-pad-layout-dddd0001.excalidraw');
+  assert.deepStrictEqual(JSON.parse(s.call('whiteboard', 'get', { id: a.id }).result.json).elements, [], 'starts empty and white');
   const scene = (n) => JSON.stringify({ type: 'excalidraw', version: 2, elements: Array.from({ length: n }, (_, i) => ({ id: 'e' + i, type: 'rectangle' })), appState: {}, files: {} });
-  assert.throws(() => s.call('whiteboard', 'save', { projectId: p.id, json: '{not json' }), /could not be read/);
-  assert.throws(() => s.call('whiteboard', 'save', { projectId: p.id, json: '{"type":"other"}' }), /not an Excalidraw drawing/);
-  const first = s.call('whiteboard', 'save', { projectId: p.id, json: scene(1) });
-  assert.ok(first.result.url);
-  assert.strictEqual(first.slices.whiteboard.length, 1);
-  s.call('whiteboard', 'save', { projectId: p.id, json: scene(3) });
-  assert.strictEqual(JSON.parse(s.call('whiteboard', 'get', { projectId: p.id }).result.json).elements.length, 3);
-  const files = Object.values(s.drive.files).filter((f) => f.name.endsWith('.excalidraw'));
-  assert.strictEqual(files.length, 1, 'later saves update the same file');
-  assert.strictEqual(s.drive.pathOf(files[0]), 'Focus Tracker/Personal/Whiteboards/midi-app-' + p.id + '.excalidraw');
+  assert.throws(() => s.call('whiteboard', 'save', { id: a.id, json: '{not json' }), /could not be read/);
+  assert.throws(() => s.call('whiteboard', 'save', { id: a.id, json: '{"type":"other"}' }), /not an Excalidraw drawing/);
+  s.call('whiteboard', 'save', { id: a.id, json: scene(3) });
+  s.call('whiteboard', 'save', { id: b.id, json: scene(1) });
+  assert.strictEqual(JSON.parse(s.call('whiteboard', 'get', { id: a.id }).result.json).elements.length, 3);
+  assert.strictEqual(JSON.parse(s.call('whiteboard', 'get', { id: b.id }).result.json).elements.length, 1, 'boards are separate');
+  const renamed = s.call('whiteboard', 'rename', { id: b.id, name: 'Audio path' });
+  assert.strictEqual(renamed.result.name, 'Audio path');
+  assert.ok(file(b.id).name.startsWith('midi-app-audio-path-'), 'the Drive file is renamed');
+  assert.deepStrictEqual(renamed.slices.whiteboard.map((w) => w.name), ['Touch pad layout', 'Audio path']);
+  s.call('whiteboard', 'remove', { id: b.id });
+  assert.strictEqual(json(s.run('undo')()).undone, 'whiteboard.remove');
+  assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 2, 'undo brings the link back');
+  // A row from before names existed still opens, as "Whiteboard"
+  s.ss.sheets.Whiteboards.rows.push(['old00001', p.id, file(a.id).id, 'https://x', '2026-10-01T00:00:00Z', '', '']);
+  assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.find((w) => w.id === 'old00001').name, 'Whiteboard');
+  assert.ok(s.call('whiteboard', 'get', { id: 'old00001' }).result.json);
+  const fileIds = s.ss.sheets.Whiteboards.rows.slice(1).map((r) => r[2]);
   s.call('projects', 'remove', { id: p.id });
-  assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 0, 'the link goes with the project');
-  assert.ok(s.drive.files[files[0].id], 'the drawing file stays in Drive');
+  assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 0, 'the links go with the project');
+  assert.ok(fileIds.every((id) => s.drive.files[id]), 'the drawing files stay in Drive');
 });
 
 test('undo puts back the newest change: a deleted project with its board, an edit, an add', () => {

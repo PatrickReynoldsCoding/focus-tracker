@@ -13,7 +13,7 @@ Paddy juggles several coding projects, job-search goals and house maintenance, a
 - Separation of concerns, plugin style: a small core and one folder per feature. Adding or removing a feature is a folder plus one config line. See AGENTS.md.
 - Data readable by humans and by Claude: sheet tabs and plain markdown notes, no opaque blobs.
 - Never link or copy sensitive Drive material. See AGENTS.md. Never commit his real links or ids.
-- Excalidraw whiteboard per project (done, 2026-10-28): whiteboard module. React 18.2.0 and @excalidraw/excalidraw 0.17.6 load from jsDelivr only when a whiteboard opens. Saves `<mode folder>/Whiteboards/<project>-<id>.excalidraw` two seconds after a change and on close; reopens where you left off. Desktop only. Checked in real Chrome (draw, autosave, close, reopen).
+- Excalidraw whiteboards per project (done, 2026-10-28; named, several per project since the Settings change): whiteboard module. React 18.2.0 and @excalidraw/excalidraw 0.17.6 load from jsDelivr only when a whiteboard opens. Saves `<mode folder>/Whiteboards/<project>-<id>.excalidraw` two seconds after a change and on close; reopens where you left off. Desktop only. Checked in real Chrome (draw, autosave, close, reopen).
 
 ## Requested changes, in the suggested order
 
@@ -52,6 +52,10 @@ Original plan:
 Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
+
+### Settings, named whiteboards (done, 2026-10-28, requested by Paddy)
+- A ⚙ Settings button in the header replaces the folder icon. It holds "Open <mode> folder in Drive" and the theme: Light, Dark or Same as computer (kept in the browser as `ft.theme`, applied in index.html before the page draws). The dark colours now apply for `data-theme="dark"`, or for the computer's dark mode unless `data-theme="light"`.
+- A project can have any number of named whiteboards (Whiteboards tab gained `name` and `created`; old rows show as "Whiteboard"). Create, open, rename (also renames the Drive file), remove with Undo (the file stays in Drive). Excalidraw always uses its light, white canvas.
 
 ### Session on the focus project page (done, 2026-10-28, requested by Paddy)
 - Today's focus project page starts with the session: the timer, pomodoro and session buttons while a session runs, or a "Today's focus" bar with Start session. Other project pages show nothing there (today module, slot `project.page`, id `session`).

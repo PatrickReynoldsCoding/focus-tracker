@@ -119,8 +119,8 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#nt-text') && !$('#nt-text').disabled && $('#nt-text').value.includes('100mm'), 'notes loaded');
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Resources: this project'));
     assert.ok(!$('#nt-link').hidden);
-    assert.ok($$('.lcell .label').some((l) => l.textContent === 'Whiteboard'), 'whiteboard panel');
-    assert.strictEqual($('[data-act="whiteboard.open"]').textContent, 'Start a whiteboard');
+    assert.ok($$('.lcell .label').some((l) => l.textContent === 'Whiteboards'), 'whiteboards panel');
+    assert.strictEqual($('[data-act="whiteboard.new"]').textContent, '+ New whiteboard');
   });
 
   await step('each column has its own add-task control', async () => {
@@ -546,15 +546,72 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(w.FT.state.editLayout, false);
   });
 
+  /** The Drive link in Settings, then close the dialog. */
+  async function driveLinkInSettings() {
+    click($('#settingsBtn'));
+    const link = await waitFor(() => $('#dlg-drive'), 'settings dialog');
+    const found = { href: link.href, text: link.textContent };
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'settings closed');
+    return found;
+  }
+
+  await step('Settings holds the Drive folder link and a light / dark / computer theme choice', async () => {
+    assert.strictEqual($('#driveLink'), null, 'no folder icon in the header any more');
+    click($('#settingsBtn'));
+    await waitFor(() => $('#dlg-drive'), 'settings');
+    assert.ok($('#dlg-drive').textContent.includes('Personal folder'));
+    assert.strictEqual($('#dlg-drive').getAttribute('target'), '_blank');
+    assert.strictEqual($('input[name="dlg-theme"]:checked').value, '', 'same as computer by default');
+    const dark = $('input[name="dlg-theme"][value="dark"]');
+    dark.checked = true; dark.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.strictEqual(d.documentElement.dataset.theme, 'dark', 'applies at once');
+    assert.strictEqual(w.localStorage.getItem('ft.theme'), 'dark');
+    const light = $('input[name="dlg-theme"][value="light"]');
+    light.checked = true; light.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.strictEqual(d.documentElement.dataset.theme, 'light');
+    const system = $('input[name="dlg-theme"][value=""]');
+    system.checked = true; system.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.strictEqual(d.documentElement.dataset.theme, undefined);
+    assert.strictEqual(w.localStorage.getItem('ft.theme'), null);
+    click($('#dlg-submit'));
+  });
+
+  await step('whiteboards: make two named boards, rename one, remove one with Undo', async () => {
+    click(tab('Projects'));
+    click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
+    for (const name of ['Duct route', 'Wiring']) {
+      click(await waitFor(() => $('[data-act="whiteboard.new"]'), 'new button'));
+      await waitFor(() => $('#dlg-boardname'), 'name dialog');
+      setVal($('#dlg-boardname'), name);
+      $('#dlg-boardname').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await waitFor(() => !$('.dialog') && $$('.wblist .wbname').some((b) => b.textContent === name), name + ' listed');
+      const shell = $('#wb-shell');
+      if (shell) click(shell.querySelector('[data-act="whiteboard.close"]'));
+      await waitFor(() => !$('#wb-shell'), 'whiteboard closed');
+    }
+    click($$('.wblist li').find((li) => li.textContent.includes('Wiring')).querySelector('[data-act="whiteboard.rename"]'));
+    await waitFor(() => $('#dlg-boardname'), 'rename dialog');
+    setVal($('#dlg-boardname'), 'Wiring diagram');
+    click($('#dlg-submit'));
+    await waitFor(() => $$('.wblist .wbname').some((b) => b.textContent === 'Wiring diagram'), 'renamed');
+    click($$('.wblist li').find((li) => li.textContent.includes('Duct route')).querySelector('[data-act="whiteboard.remove"]'));
+    assert.ok(!$$('.wblist .wbname').some((b) => b.textContent === 'Duct route'), 'gone at once');
+    await waitFor(() => $('#toast .toastbtn'), 'undo offer');
+    click($('#toast .toastbtn'));
+    await waitFor(() => $$('.wblist .wbname').map((b) => b.textContent).join('|') === 'Duct route|Wiring diagram', 'back after undo');
+  });
+
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {
-    const personalFolder = $('#driveLink').href;
+    const personalFolder = (await driveLinkInSettings()).href;
     assert.strictEqual(d.body.dataset.mode, 'personal');
     assert.deepStrictEqual(Array.from($('#modeSelect').options).filter((o) => !o.disabled).map((o) => o.textContent), ['Personal', 'Work', '+ New mode…']);
     setVal($('#modeSelect'), 'work', 'change');
     await waitFor(() => d.body.dataset.mode === 'work' && $('.panel .empty'), 'work loaded');
     assert.strictEqual(w.localStorage.getItem('ft.mode'), 'work');
-    assert.notStrictEqual($('#driveLink').href, personalFolder);
-    assert.ok($('#driveLink').title.includes('Work folder'));
+    const workFolder = await driveLinkInSettings();
+    assert.notStrictEqual(workFolder.href, personalFolder);
+    assert.ok(workFolder.text.includes('Work folder'));
     click(tab('Projects'));
     await waitFor(() => $('[data-act="projects.add"]'), 'work projects tab');
     assert.strictEqual($$('tr.row').length, 0);
@@ -585,7 +642,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => d.body.dataset.mode === 'side-projects' && $('#app .panel'), 'new mode open');
     assert.strictEqual(d.body.dataset.accent, '5');
     assert.strictEqual($('#modeSelect').value, 'side-projects');
-    assert.ok($('#driveLink').title.includes('Side projects folder'));
+    assert.ok((await driveLinkInSettings()).text.includes('Side projects folder'));
     click(tab('Projects'));
     await waitFor(() => $$('.catrow input').length === 1, 'starts with one category');
     assert.strictEqual($$('.catrow input')[0].value, 'General');

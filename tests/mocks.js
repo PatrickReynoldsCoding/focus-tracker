@@ -75,7 +75,7 @@ function makeDrive() {
       createFolder: (nm) => { const c = folder(nm); place(c, f); return c; },
       createFile: (nm, content, mime) => {
         const file = addFile('file-' + ++n, nm, { content, mime,
-          setContent: (c) => { file.content = c; }, getBlob: () => ({ getDataAsString: () => file.content }) });
+          setContent: (c) => { file.content = c; }, setName: (nm2) => { file.name = nm2; return file; }, getBlob: () => ({ getDataAsString: () => file.content }) });
         place(file, f);
         return file;
       },
