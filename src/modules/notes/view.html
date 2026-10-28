@@ -1,22 +1,128 @@
 <style>
 .notes-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+.notes-foot .nt-right { display: flex; gap: 12px; align-items: center; }
+.nt-copy { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.nt-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.nt-bar button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; }
+.nt-bar button:hover { background: var(--surface-2); }
+.nt-bar .sep { width: 1px; background: var(--line); margin: 2px 2px; }
+.nt-bar .dot { width: 30px; padding: 0; }
+.nt-bar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
+.nt-bar .dot.hi i { border-radius: 3px; }
+/* The corner handle resizes the editor; the panel grows with it. */
+.nt-edit { min-height: 200px; height: 320px; max-height: 90vh; resize: vertical; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
+.nt-edit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nt-edit[contenteditable="false"] { opacity: 0.6; }
+.nt-edit:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.nt-edit ul, .nt-edit ol { margin: 4px 0; padding-left: 22px; }
+.nt-edit h1, .nt-edit h2, .nt-edit h3, .nt-edit h4 { margin: 10px 0 4px; line-height: 1.25; }
+.nt-edit h1 { font-size: 1.6em; } .nt-edit h2 { font-size: 1.35em; } .nt-edit h3 { font-size: 1.15em; } .nt-edit h4 { font-size: 1em; }
+.nt-edit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.nt-edit a { overflow-wrap: anywhere; }
 </style>
 <script>
 (function () {
-  var cache = {};        // projectId -> text, once loaded
+  var HEIGHT_KEY = 'ft.notes.height';
+  var cache = {};        // projectId -> { html, md }, once loaded
   var timers = {};       // projectId -> debounce timer
   var dirty = {};        // projectId -> true while there are unsaved edits
+  var PLACEHOLDER = 'Ideas, decisions, links. Saved as a markdown file in Drive.';
+
+  // execCommand needs real colours, not CSS variables. These read well on light and dark backgrounds.
+  var TEXT_COLORS = [['#d64545', 'Red'], ['#e07b00', 'Orange'], ['#2b9a5b', 'Green'], ['#2f7fd6', 'Blue'], ['#8b5cd6', 'Purple'], ['#808080', 'Grey']];
+  var HILITES = [['#fff176', 'Yellow'], ['#a5e8b8', 'Green'], ['#a8d4ff', 'Blue'], ['#ffb3b3', 'Pink']];
+  var TOOLS = [
+    ['formatBlock', 'h2', 'H1', 'Big heading'], ['formatBlock', 'h3', 'H2', 'Heading'], ['formatBlock', 'h4', 'H3', 'Small heading'], ['formatBlock', 'div', 'Text', 'Normal text'], null,
+    ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'], ['underline', null, '<u>U</u>', 'Underline'], ['strikeThrough', null, '<s>S</s>', 'Strikethrough'], null,
+    ['insertUnorderedList', null, '• List', 'Bullet list'], ['insertOrderedList', null, '1. List', 'Numbered list'], ['formatBlock', 'blockquote', '❝', 'Quote']
+  ];
 
   function noteRow(projectId) {
     return (FT.store.notes || []).filter(function (n) { return n.project_id === projectId; })[0] || null;
   }
 
+  // ---------- storage forms ----------
+  /** A note written before the editor was rich is plain text: keep its lines, escape the rest. */
+  function plainToHtml(text) {
+    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+  }
+
+  /** Markdown for the editor's HTML, so the file in Drive stays readable by hand and by Claude. Underline and colour have no markdown form and are dropped. */
+  function htmlToMarkdown(root) {
+    function inline(node) { return Array.prototype.map.call(node.childNodes, walk).join(''); }
+    function wrap(mark, text) {
+      var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(text);
+      return m[2] ? m[1] + mark + m[2] + mark + m[3] : text;
+    }
+    function list(node, depth) {
+      var n = 0;
+      return Array.prototype.map.call(node.children, function (li) {
+        if (li.tagName !== 'LI') return '';
+        n++;
+        var nested = [], own = [];
+        Array.prototype.forEach.call(li.childNodes, function (c) {
+          if (c.nodeType === 1 && (c.tagName === 'UL' || c.tagName === 'OL')) nested.push(list(c, depth + 1)); else own.push(walk(c));
+        });
+        return new Array(depth + 1).join('  ') + (node.tagName === 'OL' ? n + '. ' : '- ') + own.join('').trim() + '\n' + nested.join('');
+      }).join('');
+    }
+    function walk(node) {
+      if (node.nodeType === 3) return node.nodeValue.replace(/ /g, ' ');
+      if (node.nodeType !== 1) return '';
+      var tag = node.tagName.toLowerCase(), text;
+      if (tag === 'br') return '\n';
+      if (tag === 'b' || tag === 'strong') return wrap('**', inline(node));
+      if (tag === 'i' || tag === 'em') return wrap('*', inline(node));
+      if (tag === 's' || tag === 'strike') return wrap('~~', inline(node));
+      if (tag === 'a') {
+        text = inline(node);
+        var href = node.getAttribute('href') || '';
+        return !href || text === href ? text : '[' + text + '](' + href + ')';
+      }
+      // the buttons make h2, h3, h4: markdown # ## ###
+      if (/^h[1-4]$/.test(tag)) return '\n\n' + new Array(Math.max(Number(tag[1]) - 1, 1) + 1).join('#') + ' ' + inline(node).trim() + '\n\n';
+      if (tag === 'ul' || tag === 'ol') return '\n' + list(node, 0) + '\n';
+      if (tag === 'blockquote') return '\n\n' + inline(node).trim().split('\n').map(function (l) { return '> ' + l; }).join('\n') + '\n\n';
+      if (tag === 'div' || tag === 'p') return inline(node) + '\n';
+      return inline(node);
+    }
+    return inline(root).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function editor() { return document.getElementById('nt-text'); }
+
+  function snapshot(el) { return { html: el.innerHTML, md: htmlToMarkdown(el) }; }
+
+  // ---------- panel ----------
+  function toolbar() {
+    return '<div class="nt-bar" role="toolbar" aria-label="Text formatting">' +
+      TOOLS.map(function (t) {
+        return t ? '<button type="button" data-act="notes.cmd" data-cmd="' + t[0] + '"' + (t[1] ? ' data-val="' + t[1] + '"' : '') + ' title="' + t[3] + '" aria-label="' + t[3] + '">' + t[2] + '</button>' : '<span class="sep"></span>';
+      }).join('') +
+      '<span class="sep"></span>' +
+      TEXT_COLORS.map(function (c) {
+        return '<button type="button" class="dot" data-act="notes.cmd" data-cmd="foreColor" data-val="' + c[0] + '" title="' + c[1] + ' text" aria-label="' + c[1] + ' text"><i style="--dot:' + c[0] + '"></i></button>';
+      }).join('') +
+      '<span class="sep"></span>' +
+      HILITES.map(function (c) {
+        return '<button type="button" class="dot hi" data-act="notes.cmd" data-cmd="hiliteColor" data-val="' + c[0] + '" title="' + c[1] + ' highlight" aria-label="' + c[1] + ' highlight"><i style="--dot:' + c[0] + '"></i></button>';
+      }).join('') +
+      '<span class="sep"></span>' +
+      '<button type="button" data-act="notes.cmd" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">Clear</button></div>';
+  }
+
+  function savedHeight() { try { return localStorage.getItem(HEIGHT_KEY) || ''; } catch (e) { return ''; } }
+
   function panel(p) {
     var row = noteRow(p.id);
     var loaded = Object.prototype.hasOwnProperty.call(cache, p.id) || !row;
-    return '<section class="panel"><div class="label">Notes</div>' +
-      '<textarea id="nt-text" aria-label="Notes" placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '"' + (loaded ? '' : ' disabled') + '>' + FT.esc(cache[p.id] || '') + '</textarea>' +
-      '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
+    var h = savedHeight();
+    return '<section class="panel"><div class="label">Notes</div>' + toolbar() +
+      '<div class="nt-edit" id="nt-text" contenteditable="' + (loaded ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes"' + (h ? ' style="height:' + FT.esc(h) + '"' : '') +
+      ' data-placeholder="' + (loaded ? PLACEHOLDER : 'Loading…') + '">' + (cache[p.id] ? cache[p.id].html : '') + '</div>' +
+      '<div class="notes-foot"><span id="nt-status"></span><span class="nt-right">' +
+      '<button type="button" class="nt-copy" data-act="notes.copy">Copy as markdown</button>' +
+      '<a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></span></div></section>';
   }
 
   function status(text) { var el = document.getElementById('nt-status'); if (el) el.textContent = text; }
@@ -25,8 +131,9 @@
     clearTimeout(timers[projectId]);
     if (!dirty[projectId]) return;
     dirty[projectId] = false;
+    var note = cache[projectId] || { html: '', md: '' };
     status('Saving…');
-    FT.rpc('notes', 'save', { projectId: projectId, text: cache[projectId] || '' }, { render: false, quiet: true })
+    FT.rpc('notes', 'save', { projectId: projectId, text: note.md, html: note.html }, { render: false, quiet: true })
       .then(function (r) {
         if (!noteRow(projectId) && r && r.url) {
           FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: new Date().toISOString() }]);
@@ -38,15 +145,55 @@
       .catch(function (e) { dirty[projectId] = true; status('Could not save: ' + e.message); });
   }
 
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    // The Apps Script frame may refuse the clipboard API; a hidden textarea and the old copy command still work.
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('copy blocked'));
+    });
+  }
+
+  FT.action('notes.copy', function () {
+    var md = snapshot(editor()).md;
+    copyText(md).then(function () { FT.toast('Notes copied as markdown'); })
+      .catch(function () { FT.toast('Could not copy. Select the text and copy it by hand.', 'error'); });
+  });
+
+  FT.action('notes.cmd', function (el) {
+    var ed = editor();
+    if (!ed) return;
+    ed.focus();
+    try { document.execCommand('styleWithCSS', false, el.dataset.cmd === 'hiliteColor'); } catch (err) {}
+    document.execCommand(el.dataset.cmd, false, el.dataset.val || null);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  // The toolbar must not take focus, or the editor's text selection is lost before the command runs.
+  document.addEventListener('mousedown', function (e) {
+    if (e.target.closest && e.target.closest('.nt-bar button')) e.preventDefault();
+  });
+  // Links open with Cmd or Ctrl + click, so a plain click still places the cursor to edit the text.
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest && e.target.closest('#nt-text a[href]');
+    if (link && (e.metaKey || e.ctrlKey)) { e.preventDefault(); window.open(link.href, '_blank', 'noopener'); }
+  });
+
   FT.module({
     id: 'notes',
     slots: { 'project.page': [{ id: 'notes', title: 'Notes', order: 20, span: 'half', render: panel }] },
     onProject: function (projectId) {
       if (!noteRow(projectId) || Object.prototype.hasOwnProperty.call(cache, projectId)) return;
       FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true }).then(function (r) {
-        cache[projectId] = r.text || '';
-        var el = document.getElementById('nt-text');
-        if (el && FT.state.projectId === projectId) { el.value = cache[projectId]; el.disabled = false; el.placeholder = 'Ideas, decisions, links. Saved as a markdown file in Drive.'; }
+        var html = r.html || plainToHtml(r.text);
+        cache[projectId] = { html: html, md: r.text || '' };
+        var el = editor();
+        if (el && FT.state.projectId === projectId) { el.innerHTML = html; el.contentEditable = 'true'; el.dataset.placeholder = PLACEHOLDER; FT.fitPanel(el); }
       }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
     }
   });
@@ -54,12 +201,26 @@
   document.addEventListener('input', function (e) {
     if (!e.target || e.target.id !== 'nt-text') return;
     var id = FT.state.projectId;
-    cache[id] = e.target.value; dirty[id] = true; status('Editing…');
+    cache[id] = snapshot(e.target); dirty[id] = true; status('Editing…');
     clearTimeout(timers[id]);
     timers[id] = setTimeout(function () { save(id); }, 1200);
   });
   document.addEventListener('focusout', function (e) {
     if (e.target && e.target.id === 'nt-text') save(FT.state.projectId);
+  });
+
+  // ---------- resize: the editor's corner handle sets its height, the panel follows and the height is remembered ----------
+  var observer = null, watched = null;
+  FT.onRender(function () {
+    var el = editor();
+    if (!el || el === watched || !window.ResizeObserver) return;
+    if (observer) observer.disconnect();
+    watched = el;
+    observer = new ResizeObserver(function () {
+      FT.fitPanel(el);
+      if (el.style.height) { try { localStorage.setItem(HEIGHT_KEY, el.style.height); } catch (e) {} }
+    });
+    observer.observe(el);
   });
 })();
 </script>

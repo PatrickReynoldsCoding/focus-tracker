@@ -116,7 +116,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.board'), 'board');
     assert.strictEqual($$('.colname').map((i) => i.value).join('|'), 'To do|Doing|Done');
     assert.strictEqual($$('.kcard').length, 3);
-    await waitFor(() => $('#nt-text') && !$('#nt-text').disabled && $('#nt-text').value.includes('100mm'), 'notes loaded');
+    await waitFor(() => $('#nt-text') && $('#nt-text').contentEditable === 'true' && $('#nt-text').textContent.includes('100mm'), 'notes loaded');
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Resources: this project'));
     assert.ok(!$('#nt-link').hidden);
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Whiteboards'), 'whiteboards panel');
@@ -210,13 +210,23 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => !$('.dialog') && $$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'link listed');
   });
 
-  await step('notes autosave to a Drive file', async () => {
-    const ta = $('#nt-text');
-    setVal(ta, 'Replacement needs to be 100mm.\nChecked the duct: 98mm.');
-    ta.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+  await step('notes: rich text autosaves a markdown file and a formatted copy, and can be copied as markdown', async () => {
+    const ed = $('#nt-text');
+    assert.ok($$('.nt-bar button').length >= 15, 'toolbar is there');
+    ed.innerHTML = '<h3>Plan</h3><div>Replacement needs to be <b>100mm</b>.</div><div><i>Checked</i> the duct: 98mm.</div><ul><li>buy</li><li>fit</li></ul>';
+    ed.dispatchEvent(new w.Event('input', { bubbles: true }));
+    ed.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
-    const file = Object.values(server.drive.files).find((f) => f.content && f.content.includes('98mm'));
-    assert.ok(file, 'file content updated');
+    const md = Object.values(server.drive.files).find((f) => f.content && f.content.includes('98mm') && f.name.endsWith('.md'));
+    assert.ok(md, 'markdown file updated');
+    assert.strictEqual(md.content, '## Plan\n\nReplacement needs to be **100mm**.\n*Checked* the duct: 98mm.\n\n- buy\n- fit');
+    const html = Object.values(server.drive.files).find((f) => f.name.endsWith('.html'));
+    assert.ok(html && html.content.includes('<h3>Plan</h3>'), 'formatted copy saved');
+    let copied = null;
+    Object.defineProperty(w.navigator, 'clipboard', { configurable: true, value: { writeText: (t) => { copied = t; return Promise.resolve(); } } });
+    click($('[data-act="notes.copy"]'));
+    await waitFor(() => copied !== null, 'copied');
+    assert.strictEqual(copied, md.content);
   });
 
   await step('a session can be started and finished from Today, and lands in the log', async () => {

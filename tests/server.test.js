@@ -242,7 +242,7 @@ test('kanban: add, move, rename and delete columns without losing tasks', () => 
 test('notes are stored as a markdown file and read back', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'My Project!', category: 'coding' }).result;
-  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { text: '', url: '' });
+  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { text: '', html: '', url: '' });
   const saved = s.call('notes', 'save', { projectId: p.id, text: '# hello' }).result;
   assert.ok(saved.url);
   s.call('notes', 'save', { projectId: p.id, text: '# hello again' });
@@ -253,6 +253,19 @@ test('notes are stored as a markdown file and read back', () => {
   assert.strictEqual(file.mime, 'text/markdown');
   assert.strictEqual(mdFiles.length, 1, 'second save updates the same file');
   assert.strictEqual(s.drive.pathOf(file), 'Focus Tracker/Personal/Notes/' + file.name);
+});
+
+test('notes keep their formatting in a cleaned HTML file beside the markdown', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Rich', category: 'coding' }).result;
+  s.call('notes', 'save', { projectId: p.id, text: '## Big', html: '<h2>Big</h2><font color="#d64545" onclick="x()">red</font><script>bad()</script>' });
+  s.call('notes', 'save', { projectId: p.id, text: '## Bigger', html: '<h2>Bigger</h2><span style="background-color: #fff176">hi</span>' });
+  const got = s.call('notes', 'get', { projectId: p.id }).result;
+  assert.strictEqual(got.text, '## Bigger');
+  assert.strictEqual(got.html, '<h2>Bigger</h2><span style="background-color: #fff176">hi</span>');
+  assert.strictEqual(Object.values(s.drive.files).filter((f) => f.name.endsWith('.html')).length, 1, 'second save updates the same html file');
+  s.call('notes', 'save', { projectId: p.id, text: 'plain only' });
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html.includes('Bigger'), true, 'a save without html leaves the formatted copy alone');
 });
 
 test('resources only accept https links and attach to a category or a project', () => {

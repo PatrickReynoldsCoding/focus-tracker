@@ -4,7 +4,7 @@
  * so the sheet stays readable by hand and by Claude.
  */
 
-var RICH_TAGS_ = { b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, strike: 1, ul: 1, ol: 1, li: 1, p: 1, div: 1, br: 1, span: 1, font: 1, h3: 1, h4: 1, blockquote: 1, a: 1 };
+var RICH_TAGS_ = { b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, strike: 1, ul: 1, ol: 1, li: 1, p: 1, div: 1, br: 1, span: 1, font: 1, h1: 1, h2: 1, h3: 1, h4: 1, blockquote: 1, a: 1 };
 var RICH_VOID_TAGS_ = { br: 1 };
 // Tags whose content is dropped too, not only the tag.
 var RICH_DROP_TAGS_ = { script: 1, style: 1, iframe: 1, object: 1, embed: 1, template: 1, svg: 1, math: 1, noscript: 1, textarea: 1, select: 1 };
@@ -13,9 +13,9 @@ var RICH_COLOR_ = /^(#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3
 var RICH_MAX_LENGTH_ = 40000;
 
 /** Clean editor HTML down to the allowed tags and styles. */
-function sanitizeRichText_(html) {
+function sanitizeRichText_(html, maxLength) {
   var source = typeof html === 'string' ? html : '';
-  assert_(source.length <= RICH_MAX_LENGTH_, 'That note is too long to save. Make it shorter or move some of it to the project notes.');
+  assert_(source.length <= (maxLength || RICH_MAX_LENGTH_), 'That note is too long to save. Make it shorter or move some of it to the project notes.');
   var tagPattern = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
   var out = [], dropDepth = 0, linkDepth = 0, last = 0, match;
   function text(segment) { return linkDepth ? escapeRichText_(segment) : linkRichText_(escapeRichText_(segment)); }
@@ -89,7 +89,7 @@ function richTextToPlain_(html) {
     })
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<li\b[^>]*>/gi, '\n- ')
-    .replace(/<\/(p|div|h3|h4|blockquote|ul|ol)>/gi, '\n')
+    .replace(/<\/(p|div|h1|h2|h3|h4|blockquote|ul|ol)>/gi, '\n')
     .replace(/<[^>]+>/g, '');
   return decodeRichEntities_(text).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
