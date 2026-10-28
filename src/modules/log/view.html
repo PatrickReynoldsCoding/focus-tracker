@@ -1,3 +1,19 @@
+<style>
+/* Phone: each log line is a card (project and date, where I stopped, next action, time) instead of a table wider than the screen. */
+@media (max-width: 760px) {
+  .scroll table.ltable { min-width: 0; }
+  .ltable, .ltable thead, .ltable tbody { display: block; }
+  .ltable thead { display: none; }
+  .ltable tbody tr.logrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "project date" "stopped stopped" "next next" "time time"; gap: 4px 10px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+  .ltable tbody tr.logrow td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+  .ltable tbody td:nth-child(1) { grid-area: date; text-align: right; white-space: nowrap; font-size: 13px; color: var(--muted); }
+  .ltable tbody td:nth-child(2) { grid-area: project; font-size: 16px; }
+  .ltable tbody td:nth-child(3) { grid-area: stopped; }
+  .ltable tbody td:nth-child(4) { grid-area: next; color: var(--muted); }
+  .ltable tbody td:nth-child(4):not(:empty)::before { content: "Next: "; font-weight: 600; }
+  .ltable tbody td:nth-child(5) { grid-area: time; font-size: 13px; color: var(--muted); }
+}
+</style>
 <script>
 (function () {
   var filter = 'all';
@@ -9,11 +25,11 @@
     }).join('');
     var rows = (FT.store.log || []).filter(function (l) { return filter === 'all' || l.project_id === filter; }).map(function (l) {
       var p = FT.project(l.project_id);
-      return '<tr><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.linkify(l.where_stopped) + '</td><td>' + FT.linkify(l.next_action) + '</td><td class="num">' + (l.minutes ? l.minutes + ' min' : '') + '</td></tr>';
+      return '<tr class="logrow"><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.linkify(l.where_stopped) + '</td><td>' + FT.linkify(l.next_action) + '</td><td class="num">' + (l.minutes ? l.minutes + ' min' : '') + '</td></tr>';
     }).join('');
     return '<section class="panel"><div class="label">Session log</div>' +
       '<label for="log-filter" class="label" style="display:block">Filter<select id="log-filter" class="auto" style="display:block;margin-top:6px" data-change="log.filter">' + opts + '</select></label>' +
-      '<div class="scroll"><table><thead><tr><th>Date</th><th>Project</th><th>Where I stopped</th><th>Next action</th><th>Time</th></tr></thead><tbody>' +
+      '<div class="scroll"><table class="ltable"><thead><tr><th>Date</th><th>Project</th><th>Where I stopped</th><th>Next action</th><th>Time</th></tr></thead><tbody>' +
       (rows || '<tr><td colspan="5" class="empty">Nothing logged yet. Finish a session on the Today tab to add a line.</td></tr>') + '</tbody></table></div></section>';
   }
 
