@@ -28,6 +28,10 @@ The Resources feature stores links to Google Drive files. Before adding, suggest
 - Rich text from the browser is cleaned on the server with `sanitizeRichText_` before it is stored. Never store or render browser HTML without it.
 - Cells are plain text. Dates are ISO strings. Numbers are listed in a table's `numeric` argument.
 
+## Deploying to Apps Script
+
+Paddy has given standing permission: after `npm test` passes and the change is committed, run `npx clasp push -f` and then `npx clasp deploy --deploymentId <id> --description "<short text>"` without asking first. Run `npx clasp deployments` to list the ids. Use the newest versioned deployment (not `@HEAD`), so the bookmarked URL keeps working. Never create a new deployment: it changes the URL. Tell Paddy what you deployed. `.clasp.json` stays git-ignored and ids stay out of the repository.
+
 ## Checks
 
 Run `npm install` once, then `npm test`. The server tests run the real server code against in-memory fakes of Sheets, Drive and Properties. The browser test loads the real page in jsdom and clicks through it. Neither runs on Google's servers, so anything that depends on Apps Script itself still needs trying after `clasp push`.
