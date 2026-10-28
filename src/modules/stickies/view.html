@@ -18,6 +18,8 @@
 .stickymenu .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
 .stickymenu .dot { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.2); padding: 0; cursor: pointer; }
 .stickymenu .dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.stickymenu .dot { position: relative; }
+.stickymenu .dot[aria-pressed="true"]::after { content: "\2713"; position: absolute; right: -6px; bottom: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
 .stickymenu input[type="range"] { width: 100%; accent-color: var(--accent); }
 .stickymenu .rangerow { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
 .sticky textarea { flex: 1 1 auto; min-height: 0; border: 0; background: transparent; color: inherit; resize: none; padding: 8px 10px; font-size: 15px; line-height: 1.45; border-radius: 0; }

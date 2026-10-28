@@ -224,4 +224,87 @@ textarea { min-height: 150px; resize: vertical; }
 .rtedit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
 .rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
 .rtedit a { overflow-wrap: anywhere; }
+
+/* ---- Theme review fixes, part 1: choices never rest on colour or a shadow alone ---- */
+/* A chosen option in a button group also gets a tick. */
+.choice label:has(input:checked)::before, .seg label:has(input:checked)::before { content: "\2713\00a0"; font-weight: 700; }
+/* E-ink: the eight card/list colours become black and white patterns, the same on the swatch, the card's left edge and a list's top edge.
+   A chosen option is filled black; keyboard focus is a dashed ring, so the two can be told apart. */
+:root[data-theme="eink"] {
+  --pat-1: linear-gradient(#000, #000);
+  --pat-2: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px);
+  --pat-3: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px);
+  --pat-4: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px);
+  --pat-5: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px;
+  --pat-6: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px;
+  --pat-7: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px);
+  --pat-8: linear-gradient(90deg, #000 50%, #fff 50%);
+}
+:root[data-theme="eink"] .swatches span[style*="var(--cat-1)"] { background: var(--pat-1); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-2)"] { background: var(--pat-2); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-3)"] { background: var(--pat-3); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-4)"] { background: var(--pat-4); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-5)"] { background: var(--pat-5); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-6)"] { background: var(--pat-6); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-7)"] { background: var(--pat-7); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-8)"] { background: var(--pat-8); }
+:root[data-theme="eink"] .swatches span { border: 3px solid #000; }
+:root[data-theme="eink"] .swatches input:checked + span { border-width: 5px; }
+:root[data-theme="eink"] .swatches input:checked + span::after, :root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"]::after { background: #000; color: #fff; }
+:root[data-theme="eink"] .kcard { position: relative; border: 2px solid #000; padding-left: 22px; }
+:root[data-theme="eink"] .kcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 11px; border-right: 2px solid #000; }
+:root[data-theme="eink"] .kcard[style*="var(--cat-1)"]::before { background: var(--pat-1); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-2)"]::before { background: var(--pat-2); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-3)"]::before { background: var(--pat-3); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-4)"]::before { background: var(--pat-4); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-5)"]::before { background: var(--pat-5); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-6)"]::before { background: var(--pat-6); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-7)"]::before { background: var(--pat-7); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-8)"]::before { background: var(--pat-8); }
+:root[data-theme="eink"] .listpanel.tinted { position: relative; border-top: 3px solid #000 !important; padding-top: 30px; }
+:root[data-theme="eink"] .listpanel.tinted::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 11px; border-bottom: 2px solid #000; }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-1)"]::before { background: var(--pat-1); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-2)"]::before { background: var(--pat-2); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-3)"]::before { background: var(--pat-3); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-4)"]::before { background: var(--pat-4); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-5)"]::before { background: var(--pat-5); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-6)"]::before { background: var(--pat-6); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-7)"]::before { background: var(--pat-7); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-8)"]::before { background: var(--pat-8); }
+:root[data-theme="eink"] .choice label:has(input:checked), :root[data-theme="eink"] .seg label:has(input:checked) { background: #000; color: #fff; border-color: #000; box-shadow: none; }
+:root[data-theme="eink"] .seg label:has(input:checked) small { color: #fff; }
+:root[data-theme="eink"] .choice label:has(input:focus-visible), :root[data-theme="eink"] .seg label:has(input:focus-visible) { outline: 4px dashed #000; outline-offset: 3px; }
+/* Sticky notes: the paper colour is shown as a pattern in the top strip and on the colour buttons. */
+:root[data-theme="eink"] .sticky[data-color="yellow"] .grip { background: #fff; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="yellow"] { background: #fff !important; }
+:root[data-theme="eink"] .sticky[data-color="sand"] .grip { background: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="sand"] { background: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px) !important; }
+:root[data-theme="eink"] .sticky[data-color="peach"] .grip { background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="peach"] { background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px) !important; }
+:root[data-theme="eink"] .sticky[data-color="orange"] .grip { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="orange"] { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="red"] .grip { background: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="red"] { background: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px !important; }
+:root[data-theme="eink"] .sticky[data-color="pink"] .grip { background: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="pink"] { background: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px !important; }
+:root[data-theme="eink"] .sticky[data-color="lavender"] .grip { background: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="lavender"] { background: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="purple"] .grip { background: linear-gradient(90deg, #000 50%, #fff 50%); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="purple"] { background: linear-gradient(90deg, #000 50%, #fff 50%) !important; }
+:root[data-theme="eink"] .sticky[data-color="blue"] .grip { background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="blue"] { background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px) !important; }
+:root[data-theme="eink"] .sticky[data-color="sky"] .grip { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 8px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="sky"] { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 8px) !important; }
+:root[data-theme="eink"] .sticky[data-color="teal"] .grip { background: repeating-linear-gradient(45deg, #000 0 4px, #fff 4px 9px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="teal"] { background: repeating-linear-gradient(45deg, #000 0 4px, #fff 4px 9px) !important; }
+:root[data-theme="eink"] .sticky[data-color="mint"] .grip { background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="mint"] { background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="green"] .grip { background: radial-gradient(#000 2.4px, #fff 3px) 0 0 / 9px 9px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="green"] { background: radial-gradient(#000 2.4px, #fff 3px) 0 0 / 9px 9px !important; }
+:root[data-theme="eink"] .sticky[data-color="lime"] .grip { background: repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 6px), repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 6px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="lime"] { background: repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 6px), repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 6px) !important; }
+:root[data-theme="eink"] .sticky[data-color="grey"] .grip { background: linear-gradient(#000, #000); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="grey"] { background: linear-gradient(#000, #000) !important; }
+:root[data-theme="eink"] .stickymenu .dot { border: 3px solid #000; width: 40px; height: 40px; }
+:root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"] { border-width: 5px; }
 </style>
