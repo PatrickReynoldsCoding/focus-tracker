@@ -53,6 +53,9 @@ Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
+### Sticky notes (done, 2026-10-28, requested by Paddy)
+- Floating sticky notes on project pages (stickies module, Stickies tab): "+ Note" and a Hide/Show button at the bottom right; while hidden the button shows how many notes there are. Drag by the top strip, resize from the corner, type directly (saves 0.8 s after the last change, and on page close). Six pastel colours; a paper slider from 40% to 100% (only the paper goes see-through, the text stays solid, so a note can never vanish). x is a percentage of the page width, y pixels from the top. New notes step past existing ones. Delete with Undo. Hide/show is per browser.
+
 ### Settings, named whiteboards (done, 2026-10-28, requested by Paddy)
 - A ⚙ Settings button in the header replaces the folder icon. It holds "Open <mode> folder in Drive" and the theme: Light, Dark or Same as computer (kept in the browser as `ft.theme`, applied in index.html before the page draws). The dark colours now apply for `data-theme="dark"`, or for the computer's dark mode unless `data-theme="light"`.
 - A project can have any number of named whiteboards (Whiteboards tab gained `name` and `created`; old rows show as "Whiteboard"). Create, open, rename (also renames the Drive file), remove with Undo (the file stays in Drive). Excalidraw always uses its light, white canvas.

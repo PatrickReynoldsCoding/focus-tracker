@@ -633,13 +633,33 @@ test('a list can show one item at a time on Today, every n seconds', () => {
   assert.strictEqual(s.call('lists', 'setDisplay', { id: l.id, display: '', seconds: 45 }).result.display, '');
 });
 
+test('sticky notes: add, move, resize, recolour, see-through within limits, delete with undo', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  assert.throws(() => s.call('stickies', 'add', { projectId: 'nope' }), /Project not found/);
+  const a = s.call('stickies', 'add', { id: 'eeee0001', projectId: p.id, x: 62, y: 90, w: 220, h: 180 }).result;
+  assert.deepStrictEqual([a.id, a.color, a.opacity, a.text], ['eeee0001', 'yellow', 1, '']);
+  const u = s.call('stickies', 'update', { id: a.id, text: 'Check the fuse first', color: 'blue', opacity: 0.55, x: 12.345, y: 400, w: 300, h: 160 }).result;
+  assert.deepStrictEqual([u.text, u.color, u.opacity, u.x, u.y, u.w, u.h], ['Check the fuse first', 'blue', 0.55, 12.35, 400, 300, 160]);
+  assert.throws(() => s.call('stickies', 'update', { id: a.id, opacity: 0.1 }), /opacity must be from 0.4 to 1/);
+  assert.throws(() => s.call('stickies', 'update', { id: a.id, color: 'black' }), /Unknown colour/);
+  assert.throws(() => s.call('stickies', 'update', { id: a.id, x: 140 }), /x must be from 0 to 100/);
+  assert.throws(() => s.call('stickies', 'update', { id: a.id, w: 20 }), /w must be from 120 to 900/);
+  assert.strictEqual(s.call('stickies', 'update', { id: a.id, text: 'x'.repeat(2500) }).result.text.length, 2000);
+  s.call('stickies', 'remove', { id: a.id });
+  assert.strictEqual(json(s.run('undo')()).undone, 'stickies.remove');
+  assert.strictEqual(json(s.run('bootstrap()')).data.stickies[0].color, 'blue');
+  s.call('projects', 'remove', { id: p.id });
+  assert.strictEqual(json(s.run('bootstrap()')).data.stickies.length, 0, 'notes go with the project');
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'today', 'whiteboard']);
-  assert.strictEqual(b.modules.length, 11);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'whiteboard']);
+  assert.strictEqual(b.modules.length, 12);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

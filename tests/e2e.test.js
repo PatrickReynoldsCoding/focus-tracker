@@ -539,6 +539,38 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => !$('.dialog') && !$('#timer'), 'session finished');
   });
 
+  await step('sticky notes: add, type, recolour, hide with a count badge, show, delete with undo', async () => {
+    click(tab('Projects'));
+    click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
+    await waitFor(() => $('[data-act="stickies.add"]'), 'note button on the project page');
+    click($('[data-act="stickies.add"]'));
+    const area = await waitFor(() => $('#stickylayer [data-sticky] textarea'), 'note shown at once');
+    assert.strictEqual(d.activeElement, area, 'ready to type');
+    setVal(area, 'Check the fuse first');
+    const id = area.closest('[data-sticky]').dataset.sticky;
+    const serverNote = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.stickies)).find((n) => n.id === id);
+    await waitFor(() => serverNote() && serverNote().text === 'Check the fuse first', 'text saved', 4000);
+    click($('#stickylayer [data-act="stickies.color"][data-color="pink"]'));
+    assert.ok($('#stickylayer [data-sticky]').classList.contains('pink'));
+    const range = $('#stickylayer input[type="range"]');
+    assert.strictEqual(range.min, '0.4', 'can never be fully see-through');
+    setVal(range, '0.6');
+    assert.strictEqual($('#stickylayer [data-sticky]').style.getPropertyValue('--paper-a'), '0.6');
+    await waitFor(() => serverNote().color === 'pink' && serverNote().opacity === 0.6, 'colour and paper saved', 4000);
+    click($('[data-act="stickies.toggle"]'));
+    assert.strictEqual($('#stickylayer'), null, 'hidden');
+    assert.strictEqual($('[data-act="stickies.toggle"] .badge').textContent, '1', 'badge counts hidden notes');
+    click($('[data-act="stickies.toggle"]'));
+    await waitFor(() => $('#stickylayer [data-sticky]'), 'shown again');
+    click($('#stickylayer [data-act="stickies.remove"]'));
+    assert.strictEqual($('#stickylayer [data-sticky]'), null);
+    await waitFor(() => $('#toast .toastbtn'), 'undo offer');
+    click($('#toast .toastbtn'));
+    await waitFor(() => $('#stickylayer [data-sticky].pink'), 'back after undo');
+    click(tab('Today'));
+    await waitFor(() => !$('#stickyfab'), 'no note buttons outside project pages');
+  });
+
   await step('Esc leaves Edit layout mode', async () => {
     w.FT.state.editLayout = true;
     w.FT.render();

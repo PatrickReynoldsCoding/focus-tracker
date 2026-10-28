@@ -1,0 +1,219 @@
+<style>
+#app { position: relative; }
+.stickylayer { position: absolute; inset: 0; pointer-events: none; z-index: 15; }
+/* Pastel paper with dark text in both themes; --paper-a is how solid the paper is (the text always stays solid). */
+.sticky { --paper: #fff3a3; --paper-a: 1; position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; max-width: 900px; max-height: 900px;
+  background: color-mix(in srgb, var(--paper) calc(var(--paper-a) * 100%), transparent); color: #2a2418; border-radius: 4px 4px 12px 4px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12); resize: both; overflow: hidden; }
+.sticky.yellow { --paper: #fff3a3; } .sticky.pink { --paper: #ffc9de; } .sticky.blue { --paper: #c4e3ff; }
+.sticky.green { --paper: #c9f2c7; } .sticky.orange { --paper: #ffd8a8; } .sticky.purple { --paper: #e3d1ff; }
+.sticky .grip { display: flex; align-items: center; gap: 6px; padding: 4px 6px; min-height: 26px; cursor: grab; touch-action: none;
+  background: color-mix(in srgb, #000 6%, transparent); user-select: none; }
+.sticky .grip:active { cursor: grabbing; }
+.sticky .tools { display: flex; align-items: center; gap: 4px; margin-left: auto; opacity: 0; transition: opacity 0.15s; }
+.sticky:hover .tools, .sticky:focus-within .tools { opacity: 1; }
+@media (hover: none) { .sticky .tools { opacity: 1; } }
+.sticky .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.25); padding: 0; cursor: pointer; }
+.sticky .dot[aria-pressed="true"] { box-shadow: 0 0 0 2px #2a2418; }
+.sticky input[type="range"] { width: 64px; accent-color: #2a2418; }
+.sticky .sdel { border: 0; background: transparent; color: #2a2418; cursor: pointer; font-size: 15px; padding: 0 4px; border-radius: 4px; }
+.sticky .sdel:hover { background: rgba(0, 0, 0, 0.1); }
+.sticky textarea { flex: 1 1 auto; min-height: 0; border: 0; background: transparent; color: inherit; resize: none; padding: 8px 10px; font-size: 15px; line-height: 1.45; border-radius: 0; }
+.sticky textarea:focus { outline: none; }
+.sticky textarea::placeholder { color: rgba(42, 36, 24, 0.55); }
+.stickyfab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); z-index: 35; display: flex; gap: 8px; }
+.stickyfab button { position: relative; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; height: 44px; padding: 0 16px;
+  font-weight: 600; cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16); display: inline-flex; align-items: center; gap: 6px; }
+.stickyfab button:hover { background: var(--surface-2); }
+.stickyfab .badge { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff;
+  font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+</style>
+<script>
+/**
+ * Sticky notes floating over a project page. Drag one by its top strip, resize it from its corner, type in it.
+ * Each has a colour and a "paper" slider from 40% to 100%: only the paper becomes see-through, never the text.
+ * The ✕/🗒 button hides or shows all notes (remembered in this browser); while hidden it shows how many there are.
+ * Everything shows at once and saves in the background.
+ */
+(function () {
+  var COLORS = [['yellow', '#fff3a3'], ['pink', '#ffc9de'], ['blue', '#c4e3ff'], ['green', '#c9f2c7'], ['orange', '#ffd8a8'], ['purple', '#e3d1ff']];
+  var MIN_OPACITY = 0.4;
+  var HIDDEN_KEY = 'ft.stickies.hidden';
+  var SAVE_DELAY_MS = 800;
+  var timers = {}, drag = null, observer = null; // timers: key -> { id: timeout, run: save now }
+
+  function hidden() { try { return localStorage.getItem(HIDDEN_KEY) === '1'; } catch (e) { return false; } }
+  function setHidden(on) { try { localStorage.setItem(HIDDEN_KEY, on ? '1' : '0'); } catch (e) {} }
+
+  function notesOf(projectId) { return (FT.store.stickies || []).filter(function (s) { return s.project_id === projectId; }); }
+  function byId(id) { return (FT.store.stickies || []).filter(function (s) { return s.id === id; })[0] || null; }
+
+  /** Save some fields of a note shortly after the last change, so typing or resizing is one save, not hundreds. */
+  function saveSoon(note, fields) {
+    var key = note.id + ':' + fields.join(',');
+    if (timers[key]) clearTimeout(timers[key].id);
+    function run() {
+      delete timers[key];
+      var args = { id: note.id };
+      fields.forEach(function (f) { args[f] = note[f]; });
+      FT.rpc('stickies', 'update', args, { render: false }).catch(FT.saveFailed);
+    }
+    timers[key] = { id: setTimeout(run, SAVE_DELAY_MS), run: run };
+  }
+
+  /** Save every change still waiting for its delay, for example when the page is closing. */
+  function saveWaiting() {
+    Object.keys(timers).forEach(function (key) { clearTimeout(timers[key].id); timers[key].run(); });
+  }
+  window.addEventListener('pagehide', saveWaiting);
+
+  /** Drop the waiting saves of a deleted note. */
+  function forget(noteId) {
+    Object.keys(timers).forEach(function (key) {
+      if (key.indexOf(noteId + ':') === 0) { clearTimeout(timers[key].id); delete timers[key]; }
+    });
+  }
+
+  function noteHtml(s) {
+    var id = FT.esc(s.id);
+    return '<div class="sticky ' + FT.esc(s.color) + '" data-sticky="' + id + '" style="left:' + s.x + '%;top:' + s.y + 'px;width:' + s.w + 'px;height:' + s.h + 'px;--paper-a:' + s.opacity + '">' +
+      '<div class="grip" title="Drag to move"><span class="tools">' +
+      COLORS.map(function (c) {
+        return '<button class="dot" style="background:' + c[1] + '" data-act="stickies.color" data-id="' + id + '" data-color="' + c[0] + '" aria-pressed="' + (s.color === c[0]) + '" aria-label="' + c[0] + '"></button>';
+      }).join('') +
+      '<input type="range" min="' + MIN_OPACITY + '" max="1" step="0.05" value="' + s.opacity + '" aria-label="How solid the paper is" title="How solid the paper is" data-input="stickies.opacity" data-id="' + id + '">' +
+      '<button class="sdel" data-act="stickies.remove" data-id="' + id + '" aria-label="Delete sticky note">×</button></span></div>' +
+      '<textarea aria-label="Sticky note" placeholder="Write a note…" data-input="stickies.text" data-id="' + id + '">' + FT.esc(s.text) + '</textarea></div>';
+  }
+
+  function fabHtml(count, isHidden) {
+    return '<div class="stickyfab">' +
+      (isHidden ? '' : '<button data-act="stickies.add" aria-label="Add a sticky note">+ Note</button>') +
+      '<button data-act="stickies.toggle" aria-pressed="' + !isHidden + '" aria-label="' + (isHidden ? 'Show ' + count + ' sticky notes' : 'Hide sticky notes') + '" title="' + (isHidden ? 'Show sticky notes' : 'Hide sticky notes') + '">' +
+      '🗒 ' + (isHidden ? 'Show' : 'Hide') + (isHidden && count ? '<span class="badge">' + count + '</span>' : '') + '</button></div>';
+  }
+
+  /** Draw the notes over the project page after every redraw, keeping the cursor if you were typing in one. */
+  function draw() {
+    var old = document.getElementById('stickylayer'), oldFab = document.getElementById('stickyfab');
+    var focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-sticky]');
+    var caret = focused && document.activeElement.tagName === 'TEXTAREA' ? [focused.dataset.sticky, document.activeElement.selectionStart] : null;
+    if (old) old.remove();
+    if (oldFab) oldFab.remove();
+    if (observer) { observer.disconnect(); observer = null; }
+    if (FT.state.view !== 'project' || !FT.project(FT.state.projectId)) return;
+    var notes = notesOf(FT.state.projectId), isHidden = hidden(), app = document.getElementById('app');
+    var fab = document.createElement('div');
+    fab.id = 'stickyfab'; fab.innerHTML = fabHtml(notes.length, isHidden);
+    document.body.appendChild(fab);
+    if (isHidden) return;
+    var layer = document.createElement('div');
+    layer.id = 'stickylayer'; layer.className = 'stickylayer';
+    layer.innerHTML = notes.map(noteHtml).join('');
+    app.appendChild(layer);
+    watchSizes(layer);
+    if (caret) {
+      var area = layer.querySelector('[data-sticky="' + caret[0] + '"] textarea');
+      if (area) { area.focus(); area.setSelectionRange(caret[1], caret[1]); }
+    }
+  }
+  FT.onRender(draw);
+
+  /** Resizing uses the browser's corner handle; a size change is saved once it settles. */
+  function watchSizes(layer) {
+    if (!window.ResizeObserver) return;
+    observer = new ResizeObserver(function (entries) {
+      entries.forEach(function (entry) {
+        var el = entry.target, note = byId(el.dataset.sticky);
+        if (!note) return;
+        var w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
+        if (Math.abs(w - note.w) < 2 && Math.abs(h - note.h) < 2) return;
+        note.w = Math.min(Math.max(w, 120), 900); note.h = Math.min(Math.max(h, 80), 900);
+        saveSoon(note, ['w', 'h']);
+      });
+    });
+    Array.prototype.forEach.call(layer.querySelectorAll('[data-sticky]'), function (el) { observer.observe(el); });
+  }
+
+  // ---------- dragging by the top strip ----------
+  document.addEventListener('pointerdown', function (e) {
+    var grip = e.target.closest && e.target.closest('.sticky .grip');
+    if (!grip || e.target.closest('button, input')) return;
+    var el = grip.closest('[data-sticky]'), app = document.getElementById('app');
+    drag = { el: el, startX: e.clientX, startY: e.clientY, left: el.offsetLeft, top: el.offsetTop, width: app.clientWidth };
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var maxLeft = Math.max(0, drag.width - drag.el.offsetWidth);
+    drag.el.style.left = Math.min(Math.max(0, drag.left + e.clientX - drag.startX), maxLeft) + 'px';
+    drag.el.style.top = Math.max(0, drag.top + e.clientY - drag.startY) + 'px';
+  });
+  document.addEventListener('pointerup', function () {
+    if (!drag) return;
+    var el = drag.el, note = byId(el.dataset.sticky), width = drag.width;
+    drag = null;
+    if (!note) return;
+    note.x = Math.round(Math.min(100, Math.max(0, el.offsetLeft / width * 100)) * 100) / 100;
+    note.y = Math.round(Math.max(0, el.offsetTop));
+    el.style.left = note.x + '%';
+    FT.rpc('stickies', 'update', { id: note.id, x: note.x, y: note.y }, { render: false }).catch(FT.saveFailed);
+  });
+
+  // ---------- actions ----------
+  /** A new note appears near the top of what you can see, on the right. */
+  FT.action('stickies.add', function () {
+    var app = document.getElementById('app'), appTop = app.getBoundingClientRect().top + window.scrollY;
+    var note = {
+      id: FT.newId(), project_id: FT.state.projectId, text: '', color: 'yellow', opacity: 1,
+      x: 62, y: Math.max(0, Math.round(window.scrollY - appTop + 90)), w: 220, h: 180, created: new Date().toISOString()
+    };
+    // Step down and left past notes already in that spot, so a new note never fully covers an earlier one.
+    var others = notesOf(note.project_id);
+    while (others.some(function (s) { return Math.abs(s.x - note.x) < 2 && Math.abs(s.y - note.y) < 20; })) { note.y += 32; note.x = Math.max(0, note.x - 2); }
+    FT.store.stickies = (FT.store.stickies || []).concat([note]);
+    draw();
+    var area = document.querySelector('[data-sticky="' + note.id + '"] textarea');
+    if (area) area.focus();
+    FT.rpc('stickies', 'add', { id: note.id, projectId: note.project_id, x: note.x, y: note.y, w: note.w, h: note.h, color: note.color, opacity: note.opacity }, { render: false })
+      .catch(FT.saveFailed);
+  });
+
+  FT.action('stickies.toggle', function () { setHidden(!hidden()); draw(); });
+
+  FT.action('stickies.color', function (el) {
+    var note = byId(el.dataset.id);
+    if (!note) return;
+    note.color = el.dataset.color;
+    draw();
+    FT.rpc('stickies', 'update', { id: note.id, color: note.color }, { render: false }).catch(FT.saveFailed);
+  });
+
+  FT.on('input', 'stickies.opacity', function (el) {
+    var note = byId(el.dataset.id);
+    if (!note) return;
+    note.opacity = Math.max(MIN_OPACITY, Math.min(1, Number(el.value)));
+    el.closest('[data-sticky]').style.setProperty('--paper-a', note.opacity);
+    saveSoon(note, ['opacity']);
+  });
+
+  FT.on('input', 'stickies.text', function (el) {
+    var note = byId(el.dataset.id);
+    if (!note) return;
+    note.text = el.value.slice(0, 2000);
+    saveSoon(note, ['text']);
+  });
+
+  FT.action('stickies.remove', function (el) {
+    var note = byId(el.dataset.id);
+    if (!note) return;
+    forget(note.id);
+    FT.store.stickies = FT.store.stickies.filter(function (s) { return s.id !== note.id; });
+    draw();
+    FT.rpc('stickies', 'remove', { id: note.id }, { render: false }).then(function () { FT.deleted('Sticky note'); }).catch(FT.saveFailed);
+  });
+
+  FT.module({ id: 'stickies' });
+})();
+</script>
