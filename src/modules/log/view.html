@@ -9,13 +9,42 @@
     }).join('');
     var rows = (FT.store.log || []).filter(function (l) { return filter === 'all' || l.project_id === filter; }).map(function (l) {
       var p = FT.project(l.project_id);
-      return '<tr><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.linkify(l.where_stopped) + '</td><td>' + FT.linkify(l.next_action) + '</td><td class="num">' + (l.minutes ? l.minutes + ' min' : '') + '</td></tr>';
+      return '<tr><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.linkify(l.where_stopped) + '</td><td>' + FT.linkify(l.next_action) + '</td><td class="num">' + (l.minutes ? l.minutes + ' min' : '') + '</td><td><button class="btn sm" data-act="log.edit" data-id="' + FT.esc(l.id) + '">Edit</button></td></tr>';
     }).join('');
     return '<section class="panel"><div class="label">Session log</div>' +
       '<label for="log-filter" class="label" style="display:block">Filter<select id="log-filter" class="auto" style="display:block;margin-top:6px" data-change="log.filter">' + opts + '</select></label>' +
-      '<div class="scroll"><table><thead><tr><th>Date</th><th>Project</th><th>Where I stopped</th><th>Next action</th><th>Time</th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="5" class="empty">Nothing logged yet. Finish a session on the Today tab to add a line.</td></tr>') + '</tbody></table></div></section>';
+      '<div class="scroll"><table><thead><tr><th>Date</th><th>Project</th><th>Where I stopped</th><th>Next action</th><th>Time</th><th></th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="6" class="empty">Nothing logged yet. Finish a session on the Today tab to add a line.</td></tr>') + '</tbody></table></div></section>';
   }
+
+  FT.action('log.edit', function (el) {
+    var l = (FT.store.log || []).filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (!l) return;
+    var p = FT.project(l.project_id), day = l.date.slice(0, 10);
+    FT.dialog({
+      title: 'Edit log line',
+      subtitle: p ? p.name : 'Deleted project',
+      fields: [
+        { id: 'date', label: 'Date (YYYY-MM-DD)', value: day },
+        { id: 'where', label: 'Where I stopped', type: 'textarea', value: l.where_stopped },
+        { id: 'next', label: 'Next action', value: l.next_action }
+      ],
+      onSubmit: function (v) {
+        if (!v.where) throw new Error('Say where you stopped.');
+        if (v.date !== day && (!/^\d{4}-\d{2}-\d{2}$/.test(v.date) || new Date(v.date + 'T00:00:00Z').toISOString().slice(0, 10) !== v.date)) throw new Error('The date must look like 2026-10-28.');
+        var args = { id: l.id, where: v.where.slice(0, 300), next: v.next.slice(0, 300) };
+        l.where_stopped = args.where;
+        if (v.date !== day) { args.date = v.date; l.date = v.date + l.date.slice(10); }
+        // Same rule as the server: the project's next action follows its newest line
+        var newest = FT.store.log.filter(function (x) { return x.project_id === l.project_id; }).sort(function (x, y) { return x.date < y.date ? 1 : -1; })[0];
+        l.next_action = args.next;
+        if (p && newest.id === l.id && args.next) p.next_action = args.next;
+        FT.store.log.sort(function (x, y) { return x.date < y.date ? 1 : -1; });
+        FT.render();
+        FT.rpc('log', 'update', args, { render: false }).catch(FT.saveFailed);
+      }
+    });
+  });
 
   FT.module({ id: 'log', tab: { title: 'Log', order: 40, render: render } });
   FT.on('change', 'log.filter', function (el) { filter = el.value; FT.render(); });

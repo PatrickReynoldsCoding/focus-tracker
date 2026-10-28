@@ -73,6 +73,10 @@ Original plan:
 - List Settings has "Display on Today": Full list, or One at a time. One at a time shows a random item as a quote card (option A of the mockups) in the list's colour, with its whole card note under it, and moves to another item every n seconds (5-3600, default 30). No progress bar and no More/Less, at Paddy's request. Order is shuffled and no item repeats until all were shown; ‹ › skip. Clicking the quote opens the item. The Lists tab keeps the full list for editing and shows a "One at a time on Today" label.
 - `FT.fitPanel(el)` re-measures a grid panel whose content changed without a redraw.
 
+### Edit a log line (done, 2026-10-28)
+- Each line on the Log tab has an Edit button. The dialog changes the date (YYYY-MM-DD, the time of day stays), "Where I stopped" (required) and "Next action". Minutes and project stay as written. Calls `log.update`, undoable. The screen updates first, the save follows.
+- If the line is the project's newest, the project's next action (shown on Today and the project page) becomes the edited next action. "Last time" already reads the newest log line.
+
 ### Links, acceptance criteria, Esc (done, 2026-10-28, requested by Paddy)
 - Web addresses in card titles and note previews, next actions, "Last time", the Log and resource notes are clickable (`FT.linkify`, new tab). A link inside a clickable card opens the link, not the card. Addresses typed into a card note become links when saved; in the editor Cmd/Ctrl + click opens them.
 - Each project page has an "Acceptance criteria" checklist above the Kanban (criteria module, Criteria tab): add with Enter, tick, click to edit, drag to reorder, delete with Undo, "Hide checked" per project (browser-local).

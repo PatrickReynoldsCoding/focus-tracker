@@ -638,6 +638,32 @@ test('acceptance criteria: add, tick, edit, reorder, delete, undo, and they go w
   assert.strictEqual(json(s.run('bootstrap()')).data.criteria.length, 0);
 });
 
+test('a log line can be edited: text, day, next action follows the newest line, and undo', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Measure' }).result;
+  s.call('log', 'add', { projectId: p.id, where: 'Old one', next: 'First', minutes: 10 });
+  const first = json(s.run('bootstrap()')).data.log[0];
+  s.call('log', 'add', { projectId: p.id, where: 'Newer one', next: 'Second', minutes: 20 });
+  const rows = json(s.run('bootstrap()')).data.log;
+  const newest = rows.find((r) => r.where_stopped === 'Newer one');
+  const r = s.call('log', 'update', { id: newest.id, where: ' Fixed text ', next: 'Third' });
+  assert.deepStrictEqual(Object.keys(r.slices).sort(), ['categories', 'log', 'projects', 'today']);
+  const edited = r.slices.log.find((x) => x.id === newest.id);
+  assert.deepStrictEqual([edited.where_stopped, edited.next_action, edited.minutes, edited.date], ['Fixed text', 'Third', 20, newest.date]);
+  assert.strictEqual(r.slices.projects[0].next_action, 'Third', 'newest line sets the project next action');
+  s.call('log', 'update', { id: first.id, next: 'Elsewhere' });
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects[0].next_action, 'Third', 'an older line leaves it alone');
+  const d = s.call('log', 'update', { id: newest.id, date: '2026-01-02' }).slices.log.find((x) => x.id === newest.id);
+  assert.strictEqual(d.date.slice(0, 10), '2026-01-02');
+  assert.strictEqual(d.date.slice(10), newest.date.slice(10));
+  assert.throws(() => s.call('log', 'update', { id: newest.id, date: '2026-02-31' }), /must look like/);
+  assert.throws(() => s.call('log', 'update', { id: newest.id, date: 'soon' }), /must look like/);
+  assert.throws(() => s.call('log', 'update', { id: 'nope', where: 'x' }), /not found/);
+  assert.throws(() => s.call('log', 'update', { id: newest.id, where: '  ' }), /Say where/);
+  assert.strictEqual(json(s.run('undo')()).undone, 'log.update');
+  assert.strictEqual(json(s.run('bootstrap()')).data.log.find((x) => x.id === newest.id).date, newest.date);
+});
+
 test('a list can show one item at a time on Today, every n seconds', () => {
   const s = fresh();
   const l = s.call('lists', 'create', { name: 'Life lessons' }).result;

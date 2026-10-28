@@ -306,6 +306,33 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $$('tbody tr').length >= 1 && $('tbody').textContent.includes('Rewrote the opening line'), 'log row');
   });
 
+  await step('a log line can be edited from the Log tab, and Today shows the edited text', async () => {
+    click(tab('Log'));
+    const row = await waitFor(() => $$('tbody tr').find((r) => r.textContent.includes('Rewrote the opening line')), 'log row');
+    click(row.querySelector('[data-act="log.edit"]'));
+    await waitFor(() => $('#dlg-where'), 'edit dialog');
+    assert.strictEqual($('#dlg-where').value, 'Rewrote the opening line');
+    assert.strictEqual($('#dlg-next').value, 'Send to a friend for feedback');
+    setVal($('#dlg-where'), 'Rewrote the intro <b>twice</b> https://example.com/draft');
+    setVal($('#dlg-next'), 'Send to two friends');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'dialog closed');
+    const shown = $$('tbody tr').find((r) => r.textContent.includes('Rewrote the intro'));
+    assert.ok(shown && shown.textContent.includes('Send to two friends'), 'new text shown at once');
+    assert.ok(shown.textContent.includes('<b>twice</b>') && !shown.children[2].querySelector('b'), 'text is escaped');
+    assert.ok(shown.querySelector('a[href="https://example.com/draft"]'), 'link still works');
+    const saved = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.log)).some((l) => l.next_action === 'Send to two friends');
+    await waitFor(saved, 'saved to the sheet', 4000);
+    click($('[data-act="log.edit"]'));
+    await waitFor(() => $('#dlg-where'), 'edit dialog again');
+    setVal($('#dlg-where'), '');
+    click($('#dlg-submit'));
+    await waitFor(() => $('#dlg-err').textContent.includes('Say where'), 'empty text refused');
+    click($('#dlg-cancel'));
+    click(tab('Today'));
+    await waitFor(() => $('.next') && $('.next').textContent.includes('Send to two friends') && $('.lastnote').textContent.includes('Rewrote the intro'), 'Today follows the edit');
+  });
+
   await step('swap focus lets you pick the project and a reminder, and the skip shows on the project', async () => {
     click(tab('Today'));
     const before = await waitFor(() => $('.focus-name') && $('.focus-name').textContent, 'focus');
