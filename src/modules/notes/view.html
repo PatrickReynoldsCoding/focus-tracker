@@ -21,6 +21,7 @@
   var timers = {};       // projectId -> debounce timer
   var dirty = {};        // projectId -> true while there are unsaved edits
   var fullOpen = false;  // the phone's full screen editor is open
+  var fullEntry = false; // ...and it added a browser history entry, so the phone's back button closes it
   var narrow = window.matchMedia('(max-width: 760px)');
 
   // The toolbar edits what the markdown file can hold: bold, italic, headings, lists and quotes.
@@ -90,7 +91,7 @@
   // The editor is rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
   FT.onRender(function () {
     var el = editor();
-    if (!el) fullOpen = false;
+    if (!el) { fullOpen = false; if (fullEntry) { fullEntry = false; FT.popHistory(); } }
     if (el && !el.dataset.md) { el.dataset.md = '1'; FT.richShortcuts(el); }
     if (el && fullOpen && narrow.matches) fitToScreen();
   });
@@ -133,14 +134,26 @@
     var p = document.getElementById('nt-panel');
     if (e.target && e.target.id === 'nt-text' && narrow.matches && p && !fullOpen) {
       fullOpen = true; p.classList.add('full'); fitToScreen(); window.scrollTo(0, 0);
+      fullEntry = FT.pushHistory();
     }
   });
-  FT.action('notes.done', function () {
+  function closeFull() {
     fullOpen = false;
     var p = document.getElementById('nt-panel');
     if (p) p.classList.remove('full');
     if (editor()) editor().blur();
     save(FT.state.projectId);
+  }
+  FT.action('notes.done', function () {
+    closeFull();
+    if (fullEntry) { fullEntry = false; FT.popHistory(); }
+  });
+  // The phone's back button closes the full screen editor instead of leaving the page.
+  FT.onBack(function () {
+    if (!fullOpen) return false;
+    fullEntry = false;
+    closeFull();
+    return true;
   });
 })();
 </script>

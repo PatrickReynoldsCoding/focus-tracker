@@ -61,14 +61,23 @@ function ping() {
 /** Undo the last change made in this mode. Returns fresh data for every module, like bootstrap. */
 function undo(modeId) {
   startRequest_(modeId);
-  var undone = undoLast_();
+  return { undone: undoLast_(), data: snapshotAll_() };
+}
+
+/** Do again the change that was last undone. Same reply as undo(): { redone, data }. */
+function redo(modeId) {
+  startRequest_(modeId);
+  return { redone: redoLast_(), data: snapshotAll_() };
+}
+
+function snapshotAll_() {
   var mods = loadModules_();
   var ctx = makeCtx_(mods);
   var data = {};
   Object.keys(mods).forEach(function (id) {
     if (typeof mods[id].snapshot === 'function') data[id] = mods[id].snapshot(ctx);
   });
-  return { undone: undone, data: data };
+  return data;
 }
 
 /** Make a new mode from the mode menu. Returns { id, label, accent }; the browser then opens it. */

@@ -207,6 +207,31 @@ var FT = (function () {
     return done;
   };
 
+  /** Do again the change that was just undone (after any changes still being saved). */
+  FT.redo = function () {
+    var mode = FT.state.mode;
+    waiting++;
+    var done = queue.then(function () {
+      setPending(1);
+      return new Promise(function (resolve) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            setPending(-1); waiting--;
+            if (mode !== FT.state.mode) { resolve(); return; }
+            if (!res.redone) { FT.toast('Nothing to redo.'); resolve(); return; }
+            FT.store = res.data;
+            FT.render();
+            FT.toast('Redone: ' + FT.undoWords(res.redone));
+            resolve();
+          })
+          .withFailureHandler(function (err) { setPending(-1); waiting--; FT.toast(FT.errorText(err), 'error'); resolve(); })
+          .redo(mode);
+      });
+    });
+    queue = done;
+    return done;
+  };
+
   FT.reload = function () {
     return new Promise(function (resolve) {
       google.script.run.withSuccessHandler(function (b) {
@@ -304,7 +329,35 @@ var FT = (function () {
   function keepBack() { try { localStorage.setItem(BACK_KEY + FT.state.mode, JSON.stringify(backPages())); } catch (e) {} }
   function showBackButton() { var b = $('backBtn'); if (b) b.hidden = !FT.ready || backPages().length === 0; }
 
+  // The phone's own back button: each in-app step also adds a browser history entry (this page load only), and going back through
+  // one of them takes the same step as the Back button. A panel that is open on top of a page (the full screen notes) can add an
+  // entry too and handle the back press itself with FT.onBack.
+  var pushedEntries = 0, quietBacks = 0, backHandlers = [];
+  FT.pushHistory = function () {
+    try { history.pushState({ ft: 1 }, ''); pushedEntries++; return true; } catch (e) { return false; }
+  };
+  /** Drop the newest entry without taking a step (a panel closed by its own button). */
+  FT.popHistory = function () {
+    if (pushedEntries < 1) return;
+    quietBacks++;
+    try { history.back(); } catch (e) { quietBacks--; pushedEntries--; }
+  };
+  /** fn() runs on a back press; return true if it handled it (closed something), so the page does not change. */
+  FT.onBack = function (fn) { backHandlers.push(fn); };
+  window.addEventListener('popstate', function () {
+    if (pushedEntries > 0) pushedEntries--;
+    if (quietBacks > 0) { quietBacks--; return; }
+    for (var i = 0; i < backHandlers.length; i++) { if (backHandlers[i]()) return; }
+    previousPage();
+  });
+
+  /** The Back button: through the browser history when this page load added entries, so it matches the phone's back button. */
   FT.back = function () {
+    if (pushedEntries > 0) { try { history.back(); return; } catch (e) {} }
+    previousPage();
+  };
+
+  function previousPage() {
     var pages = backPages();
     while (pages.length) {
       var page = pages.pop();
@@ -321,7 +374,7 @@ var FT = (function () {
   FT.go = function (view, opts) {
     if (!going && FT.ready && FT.state.view) {
       var from = pageNow(), to = { view: view, projectId: view === 'project' ? opts.id : '' };
-      if (!samePage(from, to)) { var pages = backPages(); pages.push(from); if (pages.length > BACK_MAX) pages.shift(); keepBack(); }
+      if (!samePage(from, to)) { var pages = backPages(); pages.push(from); if (pages.length > BACK_MAX) pages.shift(); keepBack(); FT.pushHistory(); }
     }
     FT.state.view = view;
     if (view === 'project') {
@@ -987,6 +1040,7 @@ var FT = (function () {
   });
   FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
   FT.action('core.undo', function () { FT.undo(); });
+  FT.action('core.redo', function () { FT.redo(); });
   FT.action('core.settings', function () { settingsDialog(); });
   FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
   FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });
@@ -1040,9 +1094,10 @@ var FT = (function () {
     }
     // Enter saves an inline name field (column, list, category): it commits the change by leaving the field.
     if (e.key === 'Enter' && e.target.matches && e.target.matches('input[type="text"][data-change]')) { e.preventDefault(); e.target.blur(); return; }
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !isTyping(e.target) && !$('dialogRoot').innerHTML) {
-      e.preventDefault();
-      FT.undo();
+    if ((e.metaKey || e.ctrlKey) && !isTyping(e.target) && !$('dialogRoot').innerHTML) {
+      var key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) { e.preventDefault(); FT.undo(); }
+      else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); FT.redo(); }
     }
   });
 

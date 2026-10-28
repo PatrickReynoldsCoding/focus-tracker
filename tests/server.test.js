@@ -143,6 +143,43 @@ test('doGet only uses meta tags that Apps Script allows', () => {
   names.forEach((n) => assert.ok(['viewport', 'mobile-web-app-capable', 'apple-mobile-web-app-capable'].includes(n), 'Apps Script rejects the meta tag: ' + n));
 });
 
+test('redo puts back what undo took away, and a new change ends the redo list', () => {
+  const s = fresh();
+  const a = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
+  s.call('projects', 'update', { id: a.id, name: 'A2' });
+  s.call('projects', 'update', { id: a.id, name: 'A3' });
+  const names = () => json(s.run('bootstrap()')).data.projects.map((p) => p.name);
+  const undo = () => json(s.run('undo')()), redo = () => json(s.run('redo')());
+  assert.strictEqual(redo().redone, null, 'nothing to redo yet');
+  assert.strictEqual(undo().undone, 'projects.update');
+  assert.deepStrictEqual(names(), ['A2']);
+  assert.strictEqual(undo().undone, 'projects.update');
+  assert.deepStrictEqual(names(), ['A']);
+  assert.strictEqual(redo().redone, 'projects.update');
+  assert.deepStrictEqual(names(), ['A2'], 'the older undo comes back first');
+  assert.strictEqual(redo().redone, 'projects.update');
+  assert.deepStrictEqual(names(), ['A3']);
+  assert.strictEqual(redo().redone, null);
+  // redone changes can be undone again
+  assert.strictEqual(undo().undone, 'projects.update');
+  assert.deepStrictEqual(names(), ['A2']);
+  // a new change throws the redo list away
+  s.call('projects', 'update', { id: a.id, name: 'B' });
+  assert.strictEqual(redo().redone, null);
+  // undo and redo work for inserts and deletes too
+  const b = s.call('projects', 'create', { name: 'C', category: 'house' }).result;
+  assert.strictEqual(undo().undone, 'projects.create');
+  assert.ok(!names().includes('C'));
+  assert.strictEqual(redo().redone, 'projects.create');
+  assert.ok(names().includes('C'));
+  s.call('projects', 'remove', { id: b.id });
+  assert.ok(!names().includes('C'));
+  assert.strictEqual(undo().undone, 'projects.remove');
+  assert.ok(names().includes('C'), 'deleted project is back');
+  assert.strictEqual(redo().redone, 'projects.remove');
+  assert.ok(!names().includes('C'), 'and gone again');
+});
+
 test('a locked project leaves the focus pick, cannot start a session, and lifting the lock early needs confirmation', () => {
   const s = fresh();
   s.mock.weekday = 7;
