@@ -608,6 +608,18 @@ test('acceptance criteria: add, tick, edit, reorder, delete, undo, and they go w
   assert.strictEqual(json(s.run('bootstrap()')).data.criteria.length, 0);
 });
 
+test('a list can show one item at a time on Today, every n seconds', () => {
+  const s = fresh();
+  const l = s.call('lists', 'create', { name: 'Life lessons' }).result;
+  assert.strictEqual(l.display, '');
+  const r = s.call('lists', 'setDisplay', { id: l.id, display: 'one', seconds: 45 });
+  assert.deepStrictEqual([r.result.display, r.result.seconds], ['one', 45]);
+  assert.throws(() => s.call('lists', 'setDisplay', { id: l.id, display: 'grid', seconds: 30 }), /Unknown display/);
+  assert.throws(() => s.call('lists', 'setDisplay', { id: l.id, display: 'one', seconds: 2 }), /5 to 3600 seconds/);
+  assert.throws(() => s.call('lists', 'setDisplay', { id: l.id, display: 'one', seconds: 7.5 }), /5 to 3600 seconds/);
+  assert.strictEqual(s.call('lists', 'setDisplay', { id: l.id, display: '', seconds: 45 }).result.display, '');
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);

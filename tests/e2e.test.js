@@ -422,6 +422,56 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => { const l = JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0]; return l.color === '6' && l.name === 'How I work'; }, 'saved');
   });
 
+  await step('a list can show one item at a time on Today, as a quote with its full description', async () => {
+    click(tab('Lists'));
+    await waitFor(() => $('.listpanel .coladd input'), 'list');
+    for (const t of ['Done is better than perfect', 'Sleep on big decisions']) {
+      const input = $('.listpanel .coladd input');
+      setVal(input, t); input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+    const card = $$('.listpanel .kcard').find((c) => c.textContent.includes('Sleep on big decisions'));
+    click(card.querySelector('[data-act="kanban.open-card"]'));
+    await waitFor(() => $('#dlg-note'), 'card dialog');
+    $('#dlg-note').innerHTML = 'Wait one night. <b>Then</b> decide, see https://example.com/sleep';
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'saved note');
+    click($('.listpanel [data-act="lists.settings"]'));
+    await waitFor(() => $('#dlg-secsrow'), 'settings');
+    assert.ok($('#dlg-secsrow').hidden, 'seconds only for one at a time');
+    const one = $('input[name="dlg-display"][value="one"]');
+    one.checked = true; one.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok(!$('#dlg-secsrow').hidden);
+    setVal($('#dlg-seconds'), '2');
+    click($('#dlg-submit'));
+    await waitFor(() => $('#dlg-err').textContent.includes('5 to 3600'), 'too short refused');
+    setVal($('#dlg-seconds'), '20');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('.listpanel .modebadge'), 'badge on the Lists tab');
+    assert.ok($('.listpanel .board'), 'the Lists tab still shows the full list for editing');
+    click(tab('Today'));
+    const quote = await waitFor(() => $('#app .rotq'), 'quote card on Today');
+    assert.strictEqual(quote.querySelector('.rotbar'), null, 'no progress bar');
+    const items = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban.tasks)).filter((t) => t.project_id === quote.dataset.rotate).length;
+    assert.strictEqual(quote.querySelector('[data-pos]').textContent, '1 / ' + items);
+    const first = quote.querySelector('.rq').textContent;
+    click(quote.querySelector('[data-act="lists.rotate"][data-d="1"]'));
+    await waitFor(() => $('#app .rotq .rq') && $('#app .rotq .rq').textContent !== first, 'next item', 1500);
+    assert.strictEqual($('#app .rotq [data-pos]').textContent, '2 / ' + items);
+    while (!$('#app .rotq .rq').textContent.includes('Sleep on big decisions')) {
+      const before = $('#app .rotq .rq').textContent;
+      click($('#app .rotq [data-act="lists.rotate"][data-d="1"]'));
+      await waitFor(() => $('#app .rotq .rq').textContent !== before, 'rotating', 1500);
+    }
+    const desc = $('#app .rotq .rotdesc');
+    assert.ok(desc.textContent.includes('Wait one night. Then decide'), 'the whole description shows');
+    assert.strictEqual($('#app .rotq .more'), null, 'no More / Less');
+    assert.strictEqual(desc.querySelector('a').getAttribute('href'), 'https://example.com/sleep');
+    click($('#app .rotq .rq'));
+    await waitFor(() => $('#dlg-cardtitle') && $('#dlg-cardtitle').value === 'Sleep on big decisions', 'clicking the quote opens the item');
+    assert.strictEqual($('label[for="dlg-cardcolumn"]').textContent, 'Group');
+    click($('#dlg-cancel'));
+  });
+
   await step('acceptance criteria sit above the Kanban: add with Enter, tick, hide checked, edit', async () => {
     click(tab('Projects'));
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));

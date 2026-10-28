@@ -15,9 +15,41 @@
 .listgear { flex: none; }
 .listpreview { margin-top: 6px; padding: 14px; pointer-events: none; }
 .listpreview .kcard { margin-bottom: 6px; }
+.modebadge { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
+/* Display choice in the settings dialog */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dialog .seg label { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 14px; position: relative; }
+.seg label small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.secs { display: flex; gap: 8px; align-items: center; }
+.dialog .secs input { width: 90px; }
+/* One item at a time on Today: a quote card in the list's colour (the accent when it has none). */
+.rotq { --rot-c: var(--accent); position: relative; border-color: color-mix(in srgb, var(--rot-c) 55%, var(--line));
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--rot-c) 26%, var(--surface)) 0%, var(--surface) 70%); }
+.rotq .rothead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rotq .rothead .label { margin: 0; color: color-mix(in srgb, var(--rot-c) 75%, var(--ink)); font-weight: 600; }
+.rotq .pos { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.rotq .rotbody { text-align: center; margin: 16px 6px 12px; min-height: 4em; display: flex; flex-direction: column; justify-content: center; gap: 10px; transition: opacity 0.3s ease; }
+.rotq .rotbody.out { opacity: 0; }
+.rotq blockquote { margin: 0; font-family: var(--font-display); font-size: clamp(20px, 2.2vw, 25px); line-height: 1.25; cursor: pointer; overflow-wrap: anywhere; }
+.rotq blockquote:hover .rq { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.rotq blockquote .rq::before, .rotq blockquote .rq::after { color: var(--rot-c); font-size: 1.5em; line-height: 0; position: relative; top: 0.22em; }
+.rotq blockquote .rq::before { content: "\201C"; margin-right: 4px; }
+.rotq blockquote .rq::after { content: "\201D"; margin-left: 4px; }
+.rotq .rotdesc { color: var(--muted); font-size: 14.5px; line-height: 1.5; max-width: 52ch; margin: 0 auto; overflow-wrap: anywhere; }
+/* Lists stay left-aligned in a centred block, so text after them starts on its own line. */
+.rotq .rotdesc ul, .rotq .rotdesc ol { text-align: left; display: table; margin: 4px auto; padding-left: 22px; }
+.rotq .rotdesc a { color: color-mix(in srgb, var(--rot-c) 80%, var(--ink)); }
+.rotq .arrows { display: inline-flex; gap: 4px; }
+.rotq .arrows button { border: 1px solid color-mix(in srgb, var(--rot-c) 40%, var(--line)); background: transparent; color: inherit; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+.rotq .arrows button:hover { background: color-mix(in srgb, var(--rot-c) 18%, transparent); }
+@media (prefers-reduced-motion: reduce) { .rotq .rotbody { transition: none; } }
 </style>
 <script>
 (function () {
+  var DEFAULT_SECONDS = 30;
   var COLORS = [['', 'No colour'], ['1', 'Teal'], ['2', 'Amber'], ['3', 'Blue'], ['4', 'Red'], ['5', 'Purple'], ['6', 'Green'], ['7', 'Grey'], ['8', 'Orange']];
 
   function lists() { return FT.store.lists || []; }
@@ -27,6 +59,82 @@
     return l.color ? '<section class="panel listpanel tinted" style="--list-c: var(--cat-' + FT.esc(l.color) + ')">' : '<section class="panel listpanel">';
   }
 
+  // ---------- one item at a time (Today) ----------
+  // Per list: the shuffled order of its item ids, where we are in it, and when that item came up.
+  // Kept in memory, so a redraw keeps the same item; a new shuffle starts once every item has been shown.
+  var rotations = {};
+
+  function itemsOf(l) {
+    var k = FT.store.kanban || { columns: [], tasks: [] };
+    return k.tasks.filter(function (t) { return t.project_id === l.id; });
+  }
+
+  function shuffle(ids) {
+    var out = ids.slice();
+    for (var i = out.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = out[i]; out[i] = out[j]; out[j] = t; }
+    return out;
+  }
+
+  /** The list's rotation, brought up to date with its items (added items join, removed ones leave). */
+  function rotationOf(l) {
+    var ids = itemsOf(l).map(function (t) { return t.id; });
+    var r = rotations[l.id];
+    if (!r) r = rotations[l.id] = { order: shuffle(ids), at: 0, since: Date.now() };
+    var current = r.order[r.at];
+    r.order = r.order.filter(function (id) { return ids.indexOf(id) !== -1; })
+      .concat(shuffle(ids.filter(function (id) { return r.order.indexOf(id) === -1; })));
+    var still = r.order.indexOf(current);
+    r.at = still !== -1 ? still : Math.min(r.at, Math.max(r.order.length - 1, 0));
+    return r;
+  }
+
+  function secondsOf(l) { return l.seconds >= 5 ? l.seconds : DEFAULT_SECONDS; }
+
+  function quoteBodyHtml(l, r) {
+    var task = (FT.store.kanban.tasks || []).filter(function (t) { return t.id === r.order[r.at]; })[0];
+    if (!task) return '<p class="empty" style="padding:0">No items yet. Add some on the Lists tab.</p>';
+    return '<blockquote role="button" tabindex="0" data-act="kanban.open-card" data-id="' + FT.esc(task.id) + '" title="Open this item"><span class="rq">' + FT.linkify(task.title) + '</span></blockquote>' +
+      (task.note_html ? '<div class="rotdesc">' + task.note_html + '</div>' : '');
+  }
+
+  function quotePanelHtml(l) {
+    var r = rotationOf(l), count = r.order.length;
+    var style = l.color ? ' style="--rot-c: var(--cat-' + FT.esc(l.color) + ')"' : '';
+    return '<section class="panel rotq" data-owner="' + FT.esc(l.id) + '" data-word="group" data-rotate="' + FT.esc(l.id) + '"' + style + '>' +
+      '<div class="rothead"><div class="label">✦ ' + FT.esc(l.name) + '</div><span><span class="pos" data-pos>' + (count ? (r.at + 1) + ' / ' + count : '') + '</span> ' + gearButton(l) + '</span></div>' +
+      '<div class="rotbody" data-rotbody>' + quoteBodyHtml(l, r) + '</div>' +
+      (count > 1 ? '<span class="arrows"><button data-act="lists.rotate" data-id="' + FT.esc(l.id) + '" data-d="-1" aria-label="Previous item">‹</button>' +
+        '<button data-act="lists.rotate" data-id="' + FT.esc(l.id) + '" data-d="1" aria-label="Next item">›</button></span>' : '') + '</section>';
+  }
+
+  /** Move a list's quote card on by d items, fading the text, without redrawing the rest of the page. */
+  function rotate(l, d) {
+    var r = rotationOf(l), count = r.order.length;
+    if (count < 2) return;
+    r.at += d;
+    if (r.at >= count) { r.order = shuffle(r.order); r.at = 0; }
+    if (r.at < 0) r.at = count - 1;
+    r.since = Date.now();
+    var panel = document.querySelector('[data-rotate="' + l.id + '"]');
+    if (!panel) return;
+    var body = panel.querySelector('[data-rotbody]');
+    body.classList.add('out');
+    setTimeout(function () {
+      body.innerHTML = quoteBodyHtml(l, r);
+      panel.querySelector('[data-pos]').textContent = (r.at + 1) + ' / ' + count;
+      body.classList.remove('out');
+      FT.fitPanel(panel);
+    }, 300);
+  }
+
+  setInterval(function () {
+    if (FT.state.dragging || document.querySelector('.dialog')) return;
+    Array.prototype.forEach.call(document.querySelectorAll('#app [data-rotate]'), function (panel) {
+      var l = lists().filter(function (x) { return x.id === panel.dataset.rotate; })[0];
+      if (l && Date.now() - rotationOf(l).since >= secondsOf(l) * 1000) rotate(l, 1);
+    });
+  }, 1000);
+
   function gearButton(l) {
     return '<button class="btn sm listgear" data-act="lists.settings" data-id="' + FT.esc(l.id) + '" aria-label="Settings for ' + FT.esc(l.name) + '">⚙ Settings</button>';
   }
@@ -35,6 +143,7 @@
     var id = FT.esc(l.id);
     return panelOpen(l) + '<div class="listhead">' +
       '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="List name" data-change="lists.rename" data-id="' + id + '">' +
+      (l.display === 'one' && l.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '') +
       gearButton(l) +
       '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete list ' + FT.esc(l.name) + '">Delete</button></div>' +
       FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
@@ -53,6 +162,7 @@
   /** On Today, each list shows as its own panel, without the list controls. */
   function todayPanels() {
     return lists().filter(function (l) { return l.show_today; }).map(function (l) {
+      if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, w: 5, html: quotePanelHtml(l) };
       return {
         id: 'list-' + l.id, title: l.name, w: 6,
         html: panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' + gearButton(l) + '</div>' +
@@ -68,6 +178,10 @@
   });
 
   FT.action('lists.open', function () { FT.go('lists'); });
+  FT.action('lists.rotate', function (el) {
+    var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (l) rotate(l, Number(el.dataset.d));
+  });
 
   FT.action('lists.add', function () {
     FT.dialog({
@@ -90,6 +204,14 @@
       return '<label title="' + c[1] + '"><input type="radio" name="dlg-listcolor" value="' + c[0] + '"' + ((current || '') === c[0] ? ' checked' : '') + ' aria-label="' + c[1] + '">' +
         '<span class="' + (c[0] ? '' : 'none') + '"' + (c[0] ? ' style="--c: var(--cat-' + c[0] + ')"' : '') + '></span></label>';
     }).join('') + '</div>';
+  }
+
+  function displayHtml(l) {
+    var one = l.display === 'one';
+    return '<label>Display on Today</label><div class="seg" role="radiogroup" aria-label="Display on Today">' +
+      '<label><input type="radio" name="dlg-display" value=""' + (one ? '' : ' checked') + '> Full list<small>All groups and items.</small></label>' +
+      '<label><input type="radio" name="dlg-display" value="one"' + (one ? ' checked' : '') + '> One at a time<small>A random item as a quote, changing by itself.</small></label></div>' +
+      '<div id="dlg-secsrow"><label for="dlg-seconds">Show each item for</label><div class="secs"><input type="text" inputmode="numeric" id="dlg-seconds" value="' + secondsOf(l) + '"> <span style="color:var(--muted)">seconds</span></div></div>';
   }
 
   /** A small copy of the list as it will look, with its real first items. */
@@ -117,13 +239,17 @@
       title: 'List settings',
       wide: true,
       fields: [{ id: 'listname', label: 'Name', value: l.name }],
-      after: swatchesHtml(l.color) + previewHtml(l) +
+      after: displayHtml(l) + swatchesHtml(l.color) + previewHtml(l) +
         '<label class="toggle"><input type="checkbox" id="dlg-showtoday"' + (l.show_today ? ' checked' : '') + '> Show this list on Today</label>',
       onOpen: function () {
         showPreview(l.color || '');
         Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-listcolor"]'), function (radio) {
           radio.addEventListener('change', function () { showPreview(radio.value); });
         });
+        var secs = document.getElementById('dlg-secsrow');
+        function syncDisplay() { secs.hidden = !document.querySelector('input[name="dlg-display"][value="one"]').checked; }
+        Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-display"]'), function (radio) { radio.addEventListener('change', syncDisplay); });
+        syncDisplay();
         document.getElementById('dlg-listname').addEventListener('input', function (e) {
           document.getElementById('dlg-previewname').textContent = e.target.value;
         });
@@ -132,12 +258,18 @@
         if (!v.listname) throw new Error('A list needs a name.');
         var picked = document.querySelector('input[name="dlg-listcolor"]:checked');
         var color = picked ? picked.value : '', showToday = document.getElementById('dlg-showtoday').checked;
+        var display = document.querySelector('input[name="dlg-display"]:checked').value;
+        var seconds = Number(document.getElementById('dlg-seconds').value);
+        if (display === 'one' && !(Math.floor(seconds) === seconds && seconds >= 5 && seconds <= 3600)) throw new Error('Show each item for 5 to 3600 seconds.');
+        if (display !== 'one') seconds = secondsOf(l);
         var changes = [];
+        if (display !== (l.display || '') || seconds !== secondsOf(l)) changes.push(['setDisplay', { id: l.id, display: display, seconds: seconds }]);
         if (v.listname !== l.name) changes.push(['rename', { id: l.id, name: v.listname }]);
         if (color !== (l.color || '')) changes.push(['setColor', { id: l.id, color: color }]);
         if (showToday !== !!l.show_today) changes.push(['showToday', { id: l.id, on: showToday }]);
         // Shown at once, saved in the background.
         l.name = v.listname.slice(0, 80); l.color = color; l.show_today = showToday ? 'yes' : '';
+        l.display = display; l.seconds = seconds;
         FT.render();
         changes.forEach(function (c) { FT.rpc('lists', c[0], c[1], { render: false }).catch(FT.saveFailed); });
       }

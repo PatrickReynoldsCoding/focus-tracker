@@ -1,11 +1,13 @@
 /**
  * Lists module: named lists, such as "Keep in mind" or "Read and watch", that are not projects.
  * Each list's groups and items are a Kanban board owned by the list, so they are edited the same way.
- * A list can be shown as a panel on Today.
+ * A list can be shown as a panel on Today, either in full or one item at a time (display 'one'): a random item that
+ * changes every `seconds` seconds.
  */
 
 function listsModule() {
-  var T = new Table('Lists', ['id', 'name', 'order', 'show_today', 'created', 'color'], ['order']);
+  var T = new Table('Lists', ['id', 'name', 'order', 'show_today', 'created', 'color', 'display', 'seconds'], ['order', 'seconds']);
+  var DISPLAYS = ['', 'one'];
   var COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var FIRST_GROUP = 'Items';
 
@@ -48,6 +50,16 @@ function listsModule() {
       setColor: function (a, ctx) {
         assert_(COLORS.indexOf(String(a.color)) !== -1, 'Unknown colour: ' + a.color);
         var row = T.update(a.id, { color: String(a.color) });
+        ctx.refresh('lists');
+        return row;
+      },
+
+      /** How the list shows on Today: a.display '' (full list) or 'one' (one item at a time, every a.seconds seconds). */
+      setDisplay: function (a, ctx) {
+        assert_(DISPLAYS.indexOf(String(a.display)) !== -1, 'Unknown display: ' + a.display);
+        var seconds = Number(a.seconds);
+        assert_(Math.floor(seconds) === seconds && seconds >= 5 && seconds <= 3600, 'Show each item for 5 to 3600 seconds.');
+        var row = T.update(a.id, { display: String(a.display), seconds: seconds });
         ctx.refresh('lists');
         return row;
       },

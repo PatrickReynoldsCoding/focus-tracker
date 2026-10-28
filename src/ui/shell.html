@@ -371,6 +371,16 @@ var FT = (function () {
     });
   }
 
+  /**
+   * A panel whose content changed without a redraw (for example a rotating quote) calls this so its grid cell
+   * grows or shrinks to fit. Heights are otherwise measured when the page draws.
+   */
+  FT.fitPanel = function (el) {
+    var item = el && el.closest('.grid-stack-item');
+    if (!item) return;
+    grids.forEach(function (grid) { if (grid.el.contains(item) && grid.resizeToContent) grid.resizeToContent(item); });
+  };
+
   function renderLayoutButton() {
     var btn = $('layoutBtn');
     if (!btn) return;
