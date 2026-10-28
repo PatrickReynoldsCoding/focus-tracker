@@ -1,0 +1,102 @@
+<style>
+.tophead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.tophead .label { margin: 0; }
+.status-paused, .status-done, .status-archived { color: var(--muted); }
+.phead { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.phead h2 { font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
+</style>
+<script>
+(function () {
+  var ORDER = { active: 0, paused: 1, done: 2, archived: 3 };
+
+  function tabHtml() {
+    var list = (FT.store.projects || []).slice().sort(function (a, b) {
+      return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
+    });
+    var rows = list.map(function (p) {
+      var n = FT.daysSince(p.last_touched);
+      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
+        '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.esc(p.next_action) +
+        '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
+    }).join('');
+    var table = list.length
+      ? '<div class="scroll"><table><thead><tr><th>Project</th><th>Category</th><th>Status</th><th>Next action</th><th>Last touched</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<p class="empty">No projects yet. Add the first one.</p>';
+    var extra = FT.slots('projects.tab').map(function (s) { return s.render(FT); }).join('');
+    return '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' + table + '</section>' + extra;
+  }
+
+  function headerHtml(p) {
+    var n = FT.daysSince(p.last_touched);
+    var inactive = p.status !== 'active';
+    return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + FT.pill(p.category) +
+      '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span></div></div></div>' +
+      '<div class="next"><small>Next action</small>' + FT.esc(p.next_action) + '</div>' +
+      '<div class="actions" style="margin-top:0"><button class="btn sm" data-act="projects.edit">Edit</button>' +
+      (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
+      (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
+      (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
+      '<button class="btn sm" data-act="projects.delete">Delete</button></div></section>';
+  }
+
+  function categoryOptions() {
+    return FT.config.categories.map(function (c) { return { value: c.id, label: c.label }; });
+  }
+
+  FT.module({
+    id: 'projects',
+    tab: { title: 'Projects', order: 20, render: tabHtml },
+    slots: { 'project.page': [{ order: 0, span: 'full', render: headerHtml }] }
+  });
+
+  FT.action('projects.open', function (el) { FT.go('project', { id: el.dataset.id }); });
+
+  FT.action('projects.add', function () {
+    FT.dialog({
+      title: 'Add project',
+      submit: 'Add project',
+      fields: [
+        { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes' },
+        { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: FT.config.categories[0].id },
+        { id: 'next', label: 'Next action', placeholder: 'The first small step' }
+      ],
+      onSubmit: function (v) {
+        return FT.rpc('projects', 'create', { name: v.name, category: v.category, next_action: v.next }, { quiet: true })
+          .then(function (row) { FT.go('project', { id: row.id }); });
+      }
+    });
+  });
+
+  FT.action('projects.edit', function () {
+    var p = FT.project(FT.state.projectId);
+    FT.dialog({
+      title: 'Edit project',
+      fields: [
+        { id: 'name', label: 'Name', value: p.name },
+        { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: p.category },
+        { id: 'next', label: 'Next action', value: p.next_action }
+      ],
+      onSubmit: function (v) {
+        return FT.rpc('projects', 'update', { id: p.id, name: v.name, category: v.category, next_action: v.next }, { quiet: true });
+      }
+    });
+  });
+
+  FT.action('projects.status', function (el) {
+    FT.rpc('projects', 'update', { id: FT.state.projectId, status: el.dataset.status }).catch(function () {});
+  });
+
+  FT.action('projects.delete', function () {
+    var p = FT.project(FT.state.projectId);
+    FT.dialog({
+      title: 'Delete project',
+      body: '<p>This removes "' + FT.esc(p.name) + '" with its Kanban board, resource links and log lines from the tracker. The notes file stays in Drive. To keep the project but hide it, use Mark done instead.</p>',
+      submit: 'Delete project',
+      danger: true,
+      onSubmit: function () {
+        return FT.rpc('projects', 'remove', { id: p.id }, { quiet: true }).then(function () { FT.go('projects'); });
+      }
+    });
+  });
+})();
+</script>

@@ -1,0 +1,248 @@
+<script>
+/**
+ * Client core. Modules plug in with FT.module({...}); see AGENTS.md for the contract.
+ *
+ *   FT.module({
+ *     id: 'log',
+ *     tab:   { title: 'Log', order: 40, render: function (FT) { return '<html string>'; } },   // optional top-level tab
+ *     slots: { 'project.page': [{ order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],
+ *              'projects.tab': [{ order: 10, render: function (FT) { return html; } }] },        // optional extension points
+ *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
+ *   });
+ * Interactions use data attributes handled by delegation:
+ *   data-act="module.name"     click   -> FT.action('module.name', function (el, event) {})
+ *   data-change="module.name"  change  -> FT.on('change', 'module.name', fn)
+ *   data-enter="module.name"   Enter key in an input
+ */
+var FT = (function () {
+  var modules = {}, renderHooks = [], handlers = { act: {}, change: {}, enter: {} }, pending = 0, syncTimer = null;
+  var FT = { store: {}, config: { categories: [], staleDays: 5 }, state: { view: null, projectId: null }, ready: false };
+
+  function $(id) { return document.getElementById(id); }
+
+  // ---------- helpers ----------
+  FT.esc = function (s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+  FT.daysSince = function (iso) {
+    var t = iso ? new Date(iso).getTime() : NaN;
+    return isNaN(t) ? 9999 : Math.max(0, Math.floor((Date.now() - t) / 86400000));
+  };
+  FT.ageLabel = function (n) { return n >= 9999 ? 'never' : n === 0 ? 'today' : n === 1 ? 'yesterday' : n + ' days ago'; };
+  FT.ageClass = function (n) { return n >= FT.config.staleDays ? 'age-stale' : n >= 3 ? 'age-soon' : 'age-fresh'; };
+  FT.fmtDate = function (iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+  FT.category = function (id) {
+    var list = FT.config.categories || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return { id: id, label: id };
+  };
+  FT.pill = function (id) { return '<span class="pill ' + FT.esc(id) + '">' + FT.esc(FT.category(id).label) + '</span>'; };
+  FT.project = function (id) {
+    var list = FT.store.projects || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  };
+  FT.errorText = function (err) {
+    var m = err && err.message ? err.message : String(err || 'Something went wrong.');
+    return m.replace(/^(Error:\s*)+/, '');
+  };
+
+  // ---------- module registry ----------
+  FT.module = function (def) { modules[def.id] = def; };
+  FT.slots = function (name) {
+    var out = [];
+    Object.keys(modules).forEach(function (id) {
+      var s = modules[id].slots && modules[id].slots[name];
+      if (s) (Array.isArray(s) ? s : [s]).forEach(function (x) { out.push(x); });
+    });
+    return out.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+  };
+  FT.onRender = function (fn) { renderHooks.push(fn); };
+  FT.action = function (name, fn) { handlers.act[name] = fn; };
+  FT.on = function (kind, name, fn) { handlers[kind][name] = fn; };
+
+  // ---------- server calls ----------
+  function setPending(delta) {
+    pending += delta;
+    var el = $('sync');
+    clearTimeout(syncTimer);
+    if (pending > 0) { el.textContent = 'Saving…'; return; }
+    el.textContent = 'Saved';
+    syncTimer = setTimeout(function () { el.textContent = ''; }, 1500);
+  }
+
+  /** Call a module's server api. Merges any refreshed slices into the store and re-renders unless opts.render === false. */
+  FT.rpc = function (moduleId, fn, args, opts) {
+    opts = opts || {};
+    setPending(1);
+    return new Promise(function (resolve, reject) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          setPending(-1);
+          var slices = (res && res.slices) || {};
+          Object.keys(slices).forEach(function (k) { FT.store[k] = slices[k]; });
+          if (opts.render !== false) FT.render();
+          resolve(res ? res.result : null);
+        })
+        .withFailureHandler(function (err) {
+          setPending(-1);
+          var msg = FT.errorText(err);
+          if (!opts.quiet) FT.toast(msg, 'error');
+          reject(new Error(msg));
+        })
+        .rpc(moduleId, fn, args || {});
+    });
+  };
+
+  FT.reload = function () {
+    return new Promise(function (resolve) {
+      google.script.run.withSuccessHandler(function (b) {
+        FT.store = b.data; FT.render(); resolve();
+      }).withFailureHandler(function (e) { FT.toast(FT.errorText(e), 'error'); resolve(); }).bootstrap();
+    });
+  };
+
+  // ---------- toast ----------
+  var toastTimer = null;
+  FT.toast = function (msg, kind) {
+    var el = $('toast');
+    el.textContent = msg; el.className = 'toast' + (kind ? ' ' + kind : ''); el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.hidden = true; }, 4500);
+  };
+
+  // ---------- dialog ----------
+  FT.closeDialog = function () { $('dialogRoot').innerHTML = ''; };
+  /**
+   * opts: { title, subtitle, body (html), hint (text), fields: [{id,label,type,value,placeholder,options}], submit, danger, onSubmit(values) }
+   * onSubmit may return a promise; a thrown error or rejection is shown inside the dialog.
+   */
+  FT.dialog = function (opts) {
+    var fields = (opts.fields || []).map(function (f) {
+      var id = 'dlg-' + f.id, ctl;
+      if (f.type === 'textarea') ctl = '<textarea id="' + id + '" placeholder="' + FT.esc(f.placeholder || '') + '" style="min-height:84px">' + FT.esc(f.value || '') + '</textarea>';
+      else if (f.type === 'select') ctl = '<select id="' + id + '">' + f.options.map(function (o) {
+        return '<option value="' + FT.esc(o.value) + '"' + (o.value === f.value ? ' selected' : '') + '>' + FT.esc(o.label) + '</option>';
+      }).join('') + '</select>';
+      else ctl = '<input type="text" id="' + id + '" value="' + FT.esc(f.value || '') + '" placeholder="' + FT.esc(f.placeholder || '') + '">';
+      return '<label for="' + id + '">' + FT.esc(f.label) + '</label>' + ctl;
+    }).join('');
+    $('dialogRoot').innerHTML = '<div class="scrim" id="dlg-scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">' +
+      '<h2 id="dlg-title">' + FT.esc(opts.title) + '</h2>' +
+      (opts.subtitle ? '<div class="meta">' + FT.esc(opts.subtitle) + '</div>' : '') +
+      (opts.body || '') + fields +
+      '<div class="err" id="dlg-err" role="alert"></div>' +
+      (opts.hint ? '<div class="hint">' + FT.esc(opts.hint) + '</div>' : '') +
+      '<div class="actions"><button class="btn ' + (opts.danger ? 'danger' : 'primary') + '" id="dlg-submit">' + FT.esc(opts.submit || 'Save') + '</button>' +
+      '<button class="btn" id="dlg-cancel">Cancel</button></div></div></div>';
+
+    function values() {
+      var v = {};
+      (opts.fields || []).forEach(function (f) { v[f.id] = $('dlg-' + f.id).value.trim(); });
+      return v;
+    }
+    function submit() {
+      var btn = $('dlg-submit'); btn.disabled = true; $('dlg-err').textContent = '';
+      Promise.resolve().then(function () { return opts.onSubmit(values()); })
+        .then(function () { FT.closeDialog(); })
+        .catch(function (e) { btn.disabled = false; $('dlg-err').textContent = FT.errorText(e); });
+    }
+    $('dlg-submit').onclick = submit;
+    $('dlg-cancel').onclick = FT.closeDialog;
+    $('dlg-scrim').onclick = function (e) { if (e.target.id === 'dlg-scrim') FT.closeDialog(); };
+    $('dialogRoot').onkeydown = function (e) {
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submit(); }
+    };
+    var first = $('dialogRoot').querySelector('input, textarea, select');
+    if (first) first.focus(); else $('dlg-submit').focus();
+  };
+
+  // ---------- navigation and rendering ----------
+  function tabs() {
+    return Object.keys(modules).map(function (id) { return modules[id]; })
+      .filter(function (m) { return m.tab; })
+      .sort(function (a, b) { return (a.tab.order || 0) - (b.tab.order || 0); });
+  }
+
+  FT.go = function (view, opts) {
+    FT.state.view = view;
+    if (view === 'project') {
+      FT.state.projectId = opts.id;
+      Object.keys(modules).forEach(function (id) { if (modules[id].onProject) modules[id].onProject(opts.id); });
+    }
+    FT.render();
+    window.scrollTo(0, 0);
+  };
+
+  function renderTabs() {
+    var current = FT.state.view === 'project' ? 'projects' : FT.state.view;
+    $('tabs').innerHTML = tabs().map(function (m) {
+      return '<button class="tab" data-act="core.tab" data-view="' + FT.esc(m.id) + '"' + (m.id === current ? ' aria-current="page"' : '') + '>' + FT.esc(m.tab.title) + '</button>';
+    }).join('');
+  }
+
+  function projectPage(id) {
+    var project = FT.project(id);
+    if (!project) return '<p class="empty">That project no longer exists.</p><button class="btn" data-act="core.tab" data-view="projects">Back to projects</button>';
+    var cells = FT.slots('project.page').map(function (s) {
+      var html = s.render(project, FT);
+      return html ? '<div class="pcell ' + (s.span === 'full' ? 'full' : 'half') + '">' + html + '</div>' : '';
+    }).join('');
+    return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div><div class="pgrid">' + cells + '</div>';
+  }
+
+  FT.render = function () {
+    if (!FT.ready) return;
+    renderTabs();
+    var html = '';
+    if (FT.state.view === 'project') html = projectPage(FT.state.projectId);
+    else if (modules[FT.state.view] && modules[FT.state.view].tab) html = modules[FT.state.view].tab.render(FT);
+    var y = window.scrollY;
+    $('app').innerHTML = html;
+    window.scrollTo(0, y);
+    renderHooks.forEach(function (fn) { fn(); });
+  };
+
+  FT.boot = function () {
+    google.script.run
+      .withSuccessHandler(function (b) {
+        FT.config = b.config; FT.store = b.data; FT.ready = true;
+        document.title = b.config.appName || document.title;
+        var first = tabs()[0];
+        FT.state.view = first ? first.id : null;
+        FT.render();
+      })
+      .withFailureHandler(function (err) {
+        $('app').innerHTML = '<div class="panel"><div class="label">Could not load</div><p>' + FT.esc(FT.errorText(err)) +
+          '</p><button class="btn" data-act="core.reload">Try again</button></div>';
+      })
+      .bootstrap();
+  };
+
+  // ---------- event delegation ----------
+  FT.action('core.tab', function (el) { FT.go(el.dataset.view); });
+  FT.action('core.reload', function () { location.reload(); });
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!el || el.disabled) return;
+    var fn = handlers.act[el.dataset.act];
+    if (fn) fn(el, e);
+  });
+  document.addEventListener('change', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-change]') : null;
+    if (el && handlers.change[el.dataset.change]) handlers.change[el.dataset.change](el, e);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') FT.closeDialog();
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-enter]')) {
+      var fn = handlers.enter[e.target.dataset.enter];
+      if (fn) { e.preventDefault(); fn(e.target, e); }
+    }
+  });
+
+  return FT;
+})();
+</script>

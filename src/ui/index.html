@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<?!= include('ui/styles') ?>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand">Focus Tracker</div>
+    <nav class="tabs" id="tabs" aria-label="Views"></nav>
+    <span class="sync" id="sync" aria-live="polite"></span>
+  </header>
+  <main id="app"><p class="empty">Loading your projects…</p></main>
+</div>
+<div id="dialogRoot"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<?!= include('ui/shell') ?>
+<? for (var i = 0; i < moduleIds.length; i++) { ?>
+<?!= include('modules/' + moduleIds[i] + '/view') ?>
+<? } ?>
+<script>FT.boot();</script>
+</body>
+</html>

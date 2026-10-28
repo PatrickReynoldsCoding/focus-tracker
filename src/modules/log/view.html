@@ -1,0 +1,23 @@
+<script>
+(function () {
+  var filter = 'all';
+
+  function render() {
+    var projects = FT.store.projects || [];
+    var opts = '<option value="all">All projects</option>' + projects.map(function (p) {
+      return '<option value="' + FT.esc(p.id) + '"' + (p.id === filter ? ' selected' : '') + '>' + FT.esc(p.name) + '</option>';
+    }).join('');
+    var rows = (FT.store.log || []).filter(function (l) { return filter === 'all' || l.project_id === filter; }).map(function (l) {
+      var p = FT.project(l.project_id);
+      return '<tr><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.esc(l.where_stopped) + '</td><td>' + FT.esc(l.next_action) + '</td></tr>';
+    }).join('');
+    return '<section class="panel"><div class="label">Session log</div>' +
+      '<label for="log-filter" class="label" style="display:block">Filter<select id="log-filter" class="auto" style="display:block;margin-top:6px" data-change="log.filter">' + opts + '</select></label>' +
+      '<div class="scroll"><table><thead><tr><th>Date</th><th>Project</th><th>Where I stopped</th><th>Next action</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="4" class="empty">Nothing logged yet. Finish a session on the Today tab to add a line.</td></tr>') + '</tbody></table></div></section>';
+  }
+
+  FT.module({ id: 'log', tab: { title: 'Log', order: 40, render: render } });
+  FT.on('change', 'log.filter', function (el) { filter = el.value; FT.render(); });
+})();
+</script>

@@ -1,0 +1,132 @@
+<style>
+.kbhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.kbhead .label { margin: 0; }
+.board { display: flex; gap: 10px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
+.board.vertical { flex-direction: column; align-items: stretch; overflow-x: visible; }
+.col { flex: 0 0 240px; background: var(--surface-2); border-radius: 8px; padding: 10px; min-height: 120px; }
+.board.vertical .col { flex: 0 0 auto; width: 100%; }
+.colhead { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.colname { flex: 1 1 auto; min-width: 0; width: auto; padding: 5px 8px; font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; background: transparent !important; border-color: transparent !important; color: var(--ink); }
+.colname:hover, .colname:focus { background: var(--surface) !important; border-color: var(--line) !important; }
+.count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.rm { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; flex: none; }
+.rm:hover { background: var(--surface); color: var(--bad); }
+.rm[disabled] { opacity: 0.3; cursor: default; }
+.kcard { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; font-size: 14px; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; overflow-wrap: anywhere; }
+.kcard .mv { display: flex; gap: 2px; flex: none; }
+.mvb { border: 1px solid var(--line); background: transparent; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.mvb:hover { background: var(--surface-2); color: var(--ink); }
+.mvb[disabled] { opacity: 0.3; cursor: default; }
+.addcol { border: 1.5px dashed var(--line); background: transparent; color: var(--muted); cursor: pointer; min-height: 56px; font-weight: 500; border-radius: 8px; }
+.addcol:hover { background: var(--surface-2); color: var(--ink); }
+.addrow { display: flex; gap: 8px; margin-top: 14px; }
+</style>
+<script>
+(function () {
+  var userDir = null;
+  try { userDir = localStorage.getItem('ft.kanban.dir'); } catch (e) {}
+  var phone = window.matchMedia('(max-width: 640px)');
+  function dir() { return userDir || (phone.matches ? 'vertical' : 'horizontal'); }
+  function onPhoneChange() { if (!userDir && FT.state.view === 'project') FT.render(); }
+  if (phone.addEventListener) phone.addEventListener('change', onPhoneChange);
+
+  function board(projectId) {
+    var k = FT.store.kanban || { columns: [], tasks: [] };
+    return {
+      cols: k.columns.filter(function (c) { return c.project_id === projectId; }),
+      tasks: k.tasks.filter(function (t) { return t.project_id === projectId; })
+    };
+  }
+
+  function panel(p) {
+    var b = board(p.id), vertical = dir() === 'vertical';
+    var cols = b.cols.map(function (c, ci) {
+      var mine = b.tasks.filter(function (t) { return t.column_id === c.id; });
+      var cards = mine.map(function (t) {
+        return '<div class="kcard"><span>' + FT.esc(t.title) + '</span><span class="mv">' +
+          '<button class="mvb" data-act="kanban.move" data-id="' + FT.esc(t.id) + '" data-d="-1" aria-label="Move left"' + (ci === 0 ? ' disabled' : '') + '>‹</button>' +
+          '<button class="mvb" data-act="kanban.move" data-id="' + FT.esc(t.id) + '" data-d="1" aria-label="Move right"' + (ci === b.cols.length - 1 ? ' disabled' : '') + '>›</button>' +
+          '<button class="mvb" data-act="kanban.del-task" data-id="' + FT.esc(t.id) + '" aria-label="Remove task">×</button></span></div>';
+      }).join('');
+      return '<div class="col"><div class="colhead"><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + FT.esc(c.name) + '" aria-label="Column name">' +
+        '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete column ' + FT.esc(c.name) + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' + cards + '</div>';
+    }).join('');
+    return '<section class="panel"><div class="kbhead"><div class="label">Kanban</div>' +
+      '<button class="btn sm" data-act="kanban.dir">' + (vertical ? 'Switch to horizontal' : 'Switch to vertical') + '</button></div>' +
+      '<div class="board' + (vertical ? ' vertical' : '') + '">' + cols + '<button class="col addcol" data-act="kanban.add-col">+ Add column</button></div>' +
+      (b.cols.length ? '<div class="addrow"><input type="text" id="kb-new" placeholder="New task (goes in the first column)" aria-label="New task" data-enter="kanban.add-task"><button class="btn primary" data-act="kanban.add-task">Add</button></div>' : '') +
+      '</section>';
+  }
+
+  FT.module({ id: 'kanban', slots: { 'project.page': [{ order: 10, span: 'full', render: panel }] } });
+
+  FT.action('kanban.dir', function () {
+    userDir = dir() === 'vertical' ? 'horizontal' : 'vertical';
+    try { localStorage.setItem('ft.kanban.dir', userDir); } catch (e) {}
+    FT.render();
+  });
+
+  function addTask() {
+    var input = document.getElementById('kb-new'), title = input ? input.value.trim() : '';
+    if (!title) { if (input) input.focus(); return; }
+    FT.rpc('kanban', 'addTask', { projectId: FT.state.projectId, title: title }).then(function () {
+      var again = document.getElementById('kb-new'); if (again) again.focus();
+    }).catch(function () {});
+  }
+  FT.action('kanban.add-task', addTask);
+  FT.on('enter', 'kanban.add-task', addTask);
+
+  FT.action('kanban.add-col', function () {
+    FT.rpc('kanban', 'addColumn', { projectId: FT.state.projectId, name: 'New column' }).then(function () {
+      var inputs = document.querySelectorAll('.colname');
+      var last = inputs[inputs.length - 1];
+      if (last) { last.focus(); last.select(); }
+    }).catch(function () {});
+  });
+
+  FT.on('change', 'kanban.rename-col', function (el) {
+    var name = el.value.trim() || 'Untitled';
+    var col = FT.store.kanban.columns.filter(function (c) { return c.id === el.dataset.id; })[0];
+    if (!col) return;
+    col.name = name; el.value = name;
+    FT.rpc('kanban', 'renameColumn', { id: col.id, name: name }, { render: false }).catch(function () { FT.reload(); });
+  });
+
+  FT.action('kanban.del-col', function (el) {
+    var b = board(FT.state.projectId);
+    var i = b.cols.map(function (c) { return c.id; }).indexOf(el.dataset.id);
+    if (i < 0 || b.cols.length < 2) return;
+    var col = b.cols[i], target = b.cols[i > 0 ? i - 1 : 1];
+    var count = b.tasks.filter(function (t) { return t.column_id === col.id; }).length;
+    FT.dialog({
+      title: 'Delete column',
+      body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count ? count + (count === 1 ? ' card moves' : ' cards move') + ' to "' + FT.esc(target.name) + '".' : 'It has no cards.') + '</p>',
+      submit: 'Delete column', danger: true,
+      onSubmit: function () { return FT.rpc('kanban', 'deleteColumn', { id: col.id }, { quiet: true }); }
+    });
+  });
+
+  FT.action('kanban.del-task', function (el) {
+    var t = FT.store.kanban.tasks.filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (!t) return;
+    FT.dialog({
+      title: 'Remove task', body: '<p>Remove "' + FT.esc(t.title) + '" from the board?</p>', submit: 'Remove', danger: true,
+      onSubmit: function () { return FT.rpc('kanban', 'deleteTask', { id: t.id }, { quiet: true }); }
+    });
+  });
+
+  /** Moves update the screen straight away, then save in the background. */
+  FT.action('kanban.move', function (el) {
+    var b = board(FT.state.projectId);
+    var t = FT.store.kanban.tasks.filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (!t) return;
+    var i = b.cols.map(function (c) { return c.id; }).indexOf(t.column_id) + Number(el.dataset.d);
+    if (i < 0 || i >= b.cols.length) return;
+    var target = b.cols[i];
+    var maxOrder = b.tasks.filter(function (x) { return x.column_id === target.id; }).reduce(function (m, x) { return Math.max(m, x.order); }, 0);
+    t.column_id = target.id; t.order = maxOrder + 1;
+    FT.render();
+    FT.rpc('kanban', 'moveTask', { id: t.id, columnId: target.id }, { render: false }).catch(function () { FT.reload(); });
+  });
+})();
+</script>

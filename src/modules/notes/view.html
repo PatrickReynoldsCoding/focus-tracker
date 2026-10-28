@@ -1,0 +1,65 @@
+<style>
+.notes-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+</style>
+<script>
+(function () {
+  var cache = {};        // projectId -> text, once loaded
+  var timers = {};       // projectId -> debounce timer
+  var dirty = {};        // projectId -> true while there are unsaved edits
+
+  function noteRow(projectId) {
+    return (FT.store.notes || []).filter(function (n) { return n.project_id === projectId; })[0] || null;
+  }
+
+  function panel(p) {
+    var row = noteRow(p.id);
+    var loaded = Object.prototype.hasOwnProperty.call(cache, p.id) || !row;
+    return '<section class="panel"><div class="label">Notes</div>' +
+      '<textarea id="nt-text" aria-label="Notes" placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '"' + (loaded ? '' : ' disabled') + '>' + FT.esc(cache[p.id] || '') + '</textarea>' +
+      '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
+  }
+
+  function status(text) { var el = document.getElementById('nt-status'); if (el) el.textContent = text; }
+
+  function save(projectId) {
+    clearTimeout(timers[projectId]);
+    if (!dirty[projectId]) return;
+    dirty[projectId] = false;
+    status('Saving…');
+    FT.rpc('notes', 'save', { projectId: projectId, text: cache[projectId] || '' }, { render: false, quiet: true })
+      .then(function (r) {
+        if (!noteRow(projectId) && r && r.url) {
+          FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: new Date().toISOString() }]);
+          var link = document.getElementById('nt-link');
+          if (link && FT.state.projectId === projectId) { link.href = r.url; link.hidden = false; }
+        }
+        if (FT.state.projectId === projectId) status('Saved');
+      })
+      .catch(function (e) { dirty[projectId] = true; status('Could not save: ' + e.message); });
+  }
+
+  FT.module({
+    id: 'notes',
+    slots: { 'project.page': [{ order: 20, span: 'half', render: panel }] },
+    onProject: function (projectId) {
+      if (!noteRow(projectId) || Object.prototype.hasOwnProperty.call(cache, projectId)) return;
+      FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true }).then(function (r) {
+        cache[projectId] = r.text || '';
+        var el = document.getElementById('nt-text');
+        if (el && FT.state.projectId === projectId) { el.value = cache[projectId]; el.disabled = false; el.placeholder = 'Ideas, decisions, links. Saved as a markdown file in Drive.'; }
+      }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
+    }
+  });
+
+  document.addEventListener('input', function (e) {
+    if (!e.target || e.target.id !== 'nt-text') return;
+    var id = FT.state.projectId;
+    cache[id] = e.target.value; dirty[id] = true; status('Editing…');
+    clearTimeout(timers[id]);
+    timers[id] = setTimeout(function () { save(id); }, 1200);
+  });
+  document.addEventListener('focusout', function (e) {
+    if (e.target && e.target.id === 'nt-text') save(FT.state.projectId);
+  });
+})();
+</script>

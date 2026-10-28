@@ -1,0 +1,71 @@
+<style>
+.reslist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.reslist li { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.reslist li:last-child { border-bottom: 0; }
+.reslist a { font-weight: 500; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.reslist .rnote { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.rrm { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; flex: none; }
+.rrm:hover { background: var(--surface-2); color: var(--bad); }
+.resfoot { margin-top: 10px; }
+.cats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+</style>
+<script>
+(function () {
+  var HINT = 'Only link files you have checked. Leave out anything with bank or card details, passwords, ID numbers or health records.';
+
+  function list(category, projectId) {
+    var items = (FT.store.resources || []).filter(function (r) {
+      return r.category === category && (projectId ? r.project_id === projectId : !r.project_id);
+    });
+    if (!items.length) return '<p class="empty">No links yet.</p>';
+    return '<ul class="reslist">' + items.map(function (r) {
+      return '<li><span><a href="' + FT.esc(r.url) + '" target="_blank" rel="noopener noreferrer">' + FT.esc(r.title) + '</a>' +
+        (r.note ? '<span class="rnote">' + FT.esc(r.note) + '</span>' : '') + '</span>' +
+        '<button class="rrm" data-act="resources.remove" data-id="' + FT.esc(r.id) + '" aria-label="Remove link to ' + FT.esc(r.title) + '">Remove</button></li>';
+    }).join('') + '</ul>';
+  }
+
+  function section(label, category, projectId) {
+    return '<section class="panel"><div class="label">' + FT.esc(label) + '</div>' + list(category, projectId) +
+      '<div class="resfoot"><button class="btn sm" data-act="resources.add" data-category="' + FT.esc(category) + '"' + (projectId ? ' data-project="' + FT.esc(projectId) + '"' : '') + '>+ Add link</button></div></section>';
+  }
+
+  FT.module({
+    id: 'resources',
+    slots: {
+      'project.page': [
+        { order: 30, span: 'half', render: function (p) { return section('Resources: this project', p.category, p.id); } },
+        { order: 31, span: 'half', render: function (p) { return section('Resources: ' + FT.category(p.category).label + ' (shared)', p.category, null); } }
+      ],
+      'projects.tab': [
+        { order: 10, render: function () {
+          return '<div class="cats">' + FT.config.categories.map(function (c) { return section('Resources: ' + c.label, c.id, null); }).join('') + '</div>';
+        } }
+      ]
+    }
+  });
+
+  FT.action('resources.add', function (el) {
+    var category = el.dataset.category, projectId = el.dataset.project || '';
+    var p = projectId ? FT.project(projectId) : null;
+    FT.dialog({
+      title: 'Add resource',
+      subtitle: p ? 'Project: ' + p.name : 'Category: ' + FT.category(category).label,
+      submit: 'Add link',
+      hint: HINT,
+      fields: [
+        { id: 'title', label: 'Title', placeholder: 'e.g. Heat pump research' },
+        { id: 'url', label: 'Link (Drive or web)', placeholder: 'https://docs.google.com/...' },
+        { id: 'note', label: 'Short note (optional)', placeholder: 'What it is for' }
+      ],
+      onSubmit: function (v) {
+        return FT.rpc('resources', 'add', { category: category, projectId: projectId, title: v.title, url: v.url, note: v.note }, { quiet: true });
+      }
+    });
+  });
+
+  FT.action('resources.remove', function (el) {
+    FT.rpc('resources', 'remove', { id: el.dataset.id }).catch(function () {});
+  });
+})();
+</script>
