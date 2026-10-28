@@ -226,6 +226,7 @@
 
   /** Returns false when the sound could not play (no click yet), so the caller can try again. */
   function playSound(sound) {
+    if (document.documentElement.dataset.theme === 'eink') return true; // e-ink: no sound
     if (!audio) return false;
     try {
       if (audio.resume) audio.resume();

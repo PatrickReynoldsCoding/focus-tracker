@@ -545,10 +545,10 @@ var FT = (function () {
 
   // ---------- settings (⚙): Drive folder and theme ----------
   var THEME_KEY = 'ft.theme';
-  var THEMES = [['light', 'Light'], ['dark', 'Dark'], ['', 'Same as computer']];
+  var THEMES = [['light', 'Light'], ['dark', 'Dark'], ['eink', 'E-ink'], ['', 'Same as computer']];
 
   function savedTheme() {
-    try { var t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' ? t : ''; } catch (e) { return ''; }
+    try { var t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' || t === 'eink' ? t : ''; } catch (e) { return ''; }
   }
 
   /** '' follows the computer's setting. The choice is kept in this browser. */

@@ -12,7 +12,7 @@
 }
 /* Dark colours: when the theme is Dark, or "Same as computer" and the computer is in dark mode (Settings, ⚙). */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) {
     --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
@@ -29,12 +29,47 @@
 }
 /* Work mode uses a blue accent so it is always clear which mode's data is on screen. */
 body[data-mode="work"] { --accent: #2f5aa8; --accent-soft: #dfe7f6; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
 :root[data-theme="dark"] body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; }
 /* Modes made in the app pick an accent from the category palette (body style --mode-accent). */
 body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in srgb, var(--mode-accent) 16%, var(--surface)); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body[data-accent] { --accent-ink: #0d1413; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) body[data-accent] { --accent-ink: #0d1413; } }
 :root[data-theme="dark"] body[data-accent] { --accent-ink: #0d1413; }
+/* E-ink (Hisense A9 and similar): white paper, black ink, thick black borders, no colour tints, shadows or motion, big tap targets. */
+:root[data-theme="eink"] {
+  --bg: #fff; --surface: #fff; --surface-2: #fff; --ink: #000; --muted: #222; --line: #000;
+  --accent: #000; --accent-ink: #fff; --accent-soft: #fff;
+  --warn: #000; --warn-soft: #fff; --bad: #000; --bad-soft: #fff; --ok: #000; --ok-soft: #fff;
+  --cat-1: #000; --cat-2: #333; --cat-3: #000; --cat-4: #333; --cat-5: #000; --cat-6: #333; --cat-7: #000; --cat-8: #333;
+  color-scheme: light;
+}
+:root[data-theme="eink"] body[data-mode="work"], :root[data-theme="eink"] body[data-accent] { --accent: #000; --accent-ink: #fff; --accent-soft: #fff; }
+:root[data-theme="eink"] *, :root[data-theme="eink"] *::before, :root[data-theme="eink"] *::after {
+  transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; scroll-behavior: auto !important;
+}
+:root[data-theme="eink"] body { font-size: 17px; line-height: 1.55; background: #fff; }
+:root[data-theme="eink"] .panel, :root[data-theme="eink"] .dialog, :root[data-theme="eink"] .col, :root[data-theme="eink"] .next,
+:root[data-theme="eink"] .lockbox, :root[data-theme="eink"] .rotq, :root[data-theme="eink"] .sticky, :root[data-theme="eink"] .stickymenu,
+:root[data-theme="eink"] .rtedit, :root[data-theme="eink"] .toast { border: 3px solid #000 !important; background: #fff !important; color: #000 !important; }
+:root[data-theme="eink"] .bar { border-bottom: 3px solid #000; }
+:root[data-theme="eink"] .btn, :root[data-theme="eink"] .iconbtn, :root[data-theme="eink"] input:not([type="radio"]):not([type="checkbox"]),
+:root[data-theme="eink"] select, :root[data-theme="eink"] textarea, :root[data-theme="eink"] .modeselect { border: 2px solid #000; background: #fff; color: #000; min-height: 44px; border-radius: 6px; }
+:root[data-theme="eink"] .iconbtn { min-width: 44px; height: 44px; }
+:root[data-theme="eink"] .btn.primary, :root[data-theme="eink"] .btn.danger { background: #000; color: #fff; border-color: #000; }
+:root[data-theme="eink"] .btn:hover, :root[data-theme="eink"] .tab:hover, :root[data-theme="eink"] .iconbtn:hover { background: #fff; color: #000; }
+:root[data-theme="eink"] .btn.primary:hover, :root[data-theme="eink"] .btn.danger:hover { background: #000; color: #fff; filter: none; }
+:root[data-theme="eink"] .tab { border: 2px solid transparent; font-weight: 600; color: #000; padding: 10px 14px; }
+:root[data-theme="eink"] .tab[aria-current="page"] { background: #000; color: #fff; }
+:root[data-theme="eink"] a, :root[data-theme="eink"] .modeselect { color: #000; text-decoration: underline; text-underline-offset: 3px; }
+:root[data-theme="eink"] .pill { border: 2px solid #000; background: #fff; }
+:root[data-theme="eink"] .pill::before { background: #000; }
+:root[data-theme="eink"] .age-fresh, :root[data-theme="eink"] .age-soon, :root[data-theme="eink"] .age-stale { color: #000; }
+:root[data-theme="eink"] .age-stale { text-decoration: underline; }
+:root[data-theme="eink"] .scrim { background: #fff; }
+:root[data-theme="eink"] .rotq .rotbody { transition: none !important; }
+:root[data-theme="eink"] :focus-visible { outline: 4px solid #000; outline-offset: 2px; }
+:root[data-theme="eink"] .sticky { --paper: #fff; --paper-a: 1; }
+:root[data-theme="eink"] .swatches span { border: 2px solid #000; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }

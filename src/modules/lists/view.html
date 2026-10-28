@@ -128,7 +128,7 @@
   }
 
   setInterval(function () {
-    if (FT.state.dragging || document.querySelector('.dialog')) return;
+    if (FT.state.dragging || document.querySelector('.dialog') || document.documentElement.dataset.theme === 'eink') return; // e-ink: no self-changing screen; use ‹ ›
     Array.prototype.forEach.call(document.querySelectorAll('#app [data-rotate]'), function (panel) {
       var l = lists().filter(function (x) { return x.id === panel.dataset.rotate; })[0];
       if (l && Date.now() - rotationOf(l).since >= secondsOf(l) * 1000) rotate(l, 1);
