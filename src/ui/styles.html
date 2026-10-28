@@ -72,7 +72,8 @@ body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in sr
 :root[data-theme="eink"] .swatches span { border: 2px solid #000; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-x: none; }
+body { overscroll-behavior-x: none; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
   padding: 0 max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
 .wrap { max-width: 1080px; margin: 0 auto; }
@@ -114,6 +115,19 @@ a.iconbtn[hidden] { display: none; }
   body.menuopen #settingsBtn { display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 14px; font-size: 16px; color: var(--ink); }
   body.menuopen .menulabel { display: inline; }
 }
+
+/* Phone: a strip under the bar shows the current view and its neighbours, which is also where a sideways swipe goes. */
+.pager { display: none; }
+@media (max-width: 760px) {
+  .pager { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 4px; padding-top: 4px; font-size: 13px; }
+  .pager[hidden] { display: none; }
+  .pager .pg-side { border: 0; background: none; color: var(--muted); padding: 8px 4px; min-height: 36px; font-size: 13px; cursor: pointer; }
+  .pager .pg-prev { text-align: left; } .pager .pg-next { text-align: right; }
+  .pager .pg-now { display: grid; justify-items: center; gap: 3px; font-weight: 600; color: var(--ink); }
+  .pager .dots { display: flex; gap: 5px; } .pager .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+  .pager .dots i.on { width: 16px; border-radius: 3px; background: var(--accent); }
+}
+:root[data-theme="eink"] .pager .dots i { background: #fff; border: 1px solid #000; } :root[data-theme="eink"] .pager .dots i.on { background: #000; }
 
 main { padding-top: 16px; display: grid; gap: 16px; }
 .grid2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }

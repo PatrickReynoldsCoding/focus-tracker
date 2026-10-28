@@ -16,7 +16,9 @@ function bootstrap(modeId) {
       staleDays: STALE_DAYS,
       mode: mode.id,
       modes: allModes_().map(function (m) { return { id: m.id, label: m.label, accent: m.accent || '' }; }),
-      folderUrl: getModeFolder_().getUrl()
+      folderUrl: getModeFolder_().getUrl(),
+      wrapperUrl: WRAPPER_URL,
+      execUrl: webAppUrl_()
     },
     modules: modeModules_().map(function (id) { return { id: id, title: mods[id].title || id }; }),
     data: data
@@ -55,4 +57,9 @@ function undo(modeId) {
 function createMode(label) {
   startRequest_();
   return addMode_(label);
+}
+
+/** This web app's own address, for Settings to copy. An empty string if Apps Script will not say; nothing else depends on it. */
+function webAppUrl_() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
 }

@@ -1,4 +1,19 @@
 <style>
+/* Phone: each project is a card (name and age, next action, category and status) instead of a table wider than the screen. The header becomes a row of sort buttons. */
+@media (max-width: 760px) {
+  .scroll table.ptable { min-width: 0; }
+  .ptable, .ptable thead, .ptable tbody { display: block; }
+  .ptable thead tr { display: flex; flex-wrap: wrap; gap: 2px 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .ptable th { padding: 2px 0; border: 0; }
+  .ptable .sortbtn { min-height: 36px; padding: 0 6px; }
+  .ptable tbody tr.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name age" "next next" "cat status"; gap: 4px 10px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+  .ptable tbody td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; }
+  .ptable tbody td:nth-child(1) { grid-area: name; font-size: 16px; overflow-wrap: anywhere; }
+  .ptable tbody td:nth-child(2) { grid-area: cat; }
+  .ptable tbody td:nth-child(3) { grid-area: status; justify-self: end; align-self: center; }
+  .ptable tbody td:nth-child(4) { grid-area: next; color: var(--muted); overflow-wrap: anywhere; }
+  .ptable tbody td:nth-child(5) { grid-area: age; text-align: right; white-space: nowrap; font-size: 13px; }
+}
 .lockbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; gap: 4px; }
 .lockbox span { color: var(--ink); font-size: 14px; }
 .tophead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
@@ -86,7 +101,7 @@
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
     var table = list.length
-      ? '<div class="scroll"><table><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+      ? '<div class="scroll"><table class="ptable"><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
       : '<p class="empty">' + (all.length ? 'No projects match these filters.' : 'No projects yet. Add the first one.') + '</p>';
     var main = '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
       (all.length ? filtersHtml() : '') + table + '</section>';

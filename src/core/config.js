@@ -7,6 +7,8 @@
  *   view.html   registering the client side with FT.module({ id: '<id>', ... })
  */
 var APP_NAME = 'Focus Tracker';
+/** The public wrapper page (GitHub Pages, docs/banner-and-hosting.md). Settings links to it. */
+var WRAPPER_URL = 'https://patrickreynoldscoding.github.io/focus-tracker/';
 
 var MODULES = ['today', 'projects', 'categories', 'lists', 'criteria', 'kanban', 'notes', 'whiteboard', 'stickies', 'resources', 'log', 'layout'];
 
