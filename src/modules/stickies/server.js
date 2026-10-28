@@ -6,7 +6,8 @@
 
 function stickiesModule() {
   var T = new Table('Stickies', ['id', 'project_id', 'text', 'color', 'opacity', 'x', 'y', 'w', 'h', 'created'], ['opacity', 'x', 'y', 'w', 'h']);
-  var COLORS = ['yellow', 'pink', 'blue', 'green', 'orange', 'purple'];
+  // The browser holds the shades (stickies/view.html); keep the two lists in step.
+  var COLORS = ['yellow', 'sand', 'peach', 'orange', 'red', 'pink', 'lavender', 'purple', 'blue', 'sky', 'teal', 'mint', 'green', 'lime', 'grey'];
   var LIMITS = { opacity: [0.4, 1], x: [0, 100], y: [0, 20000], w: [120, 900], h: [80, 900] };
 
   function number_(key, value) {

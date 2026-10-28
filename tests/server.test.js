@@ -643,6 +643,8 @@ test('sticky notes: add, move, resize, recolour, see-through within limits, dele
   assert.deepStrictEqual([u.text, u.color, u.opacity, u.x, u.y, u.w, u.h], ['Check the fuse first', 'blue', 0.55, 12.35, 400, 300, 160]);
   assert.throws(() => s.call('stickies', 'update', { id: a.id, opacity: 0.1 }), /opacity must be from 0.4 to 1/);
   assert.throws(() => s.call('stickies', 'update', { id: a.id, color: 'black' }), /Unknown colour/);
+  assert.strictEqual(s.call('stickies', 'update', { id: a.id, color: 'lavender' }).result.color, 'lavender', 'the new colours are accepted');
+  s.call('stickies', 'update', { id: a.id, color: 'blue' });
   assert.throws(() => s.call('stickies', 'update', { id: a.id, x: 140 }), /x must be from 0 to 100/);
   assert.throws(() => s.call('stickies', 'update', { id: a.id, w: 20 }), /w must be from 120 to 900/);
   assert.strictEqual(s.call('stickies', 'update', { id: a.id, text: 'x'.repeat(2500) }).result.text.length, 2000);
