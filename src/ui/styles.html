@@ -408,4 +408,12 @@ font[color="#c27a00" i] { color: #a86800; }
 :root[data-theme="dark"] .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
 :root[data-theme="dark"] .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
 :root[data-theme="dark"] .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
+
+/* ---- Theme review fixes, part 4: reduced motion ---- */
+/* Sortable animates the cards and checklist rows it moves with an inline 150ms transition, and GridStack animates panels while arranging them.
+   With "reduce motion" on, things jump into place instead. */
+@media (prefers-reduced-motion: reduce) {
+  .cards > *, .crit > *, .board > *, .lists > *, .grid-stack-animate, .grid-stack-animate > .grid-stack-item { transition: none !important; animation: none !important; }
+  html { scroll-behavior: auto; }
+}
 </style>
