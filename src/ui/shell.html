@@ -479,7 +479,8 @@ var FT = (function () {
         (FT.config.folderUrl ? '<a class="btn" id="dlg-drive" href="' + FT.esc(FT.config.folderUrl) + '" target="_blank" rel="noopener noreferrer">Open ' + FT.esc(mode.label) + ' folder in Drive</a>' : '') + '</div>' +
         '<label>Theme</label><div class="choice" role="radiogroup" aria-label="Theme">' + THEMES.map(function (t) {
           return '<label><input type="radio" name="dlg-theme" value="' + t[0] + '"' + (t[0] === theme ? ' checked' : '') + '>' + t[1] + '</label>';
-        }).join('') + '</div>',
+        }).join('') + '</div>' +
+        '<div style="margin-top:12px;color:var(--muted);font-size:12px">Build 2026-10-28</div>',
       onOpen: function () {
         // The theme changes as soon as it is picked, so you can see it before closing.
         Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-theme"]'), function (radio) {
