@@ -1,9 +1,14 @@
 /**
  * Today module: picks the day's focus project and tracks the working session.
  *
- * Rule: the category that leads today (the mode's rotation) gets a 100 day head start, then the project
- * untouched for longest wins. "Swap focus" skips to the next candidate for the rest of the day.
- * Session state is per user and per mode and lives in user properties, so it follows you across devices.
+ * Rule: the category that leads today gets a 100 day head start, then the project untouched for longest wins.
+ * "Swap focus" moves to a project you pick (or the next candidate). The project swapped away from is skipped for the
+ * day, never counted as worked on, so it keeps its neglect and comes back. Every skip is logged in the Skips tab,
+ * and "remind me" adds a row to the Reminders tab that shows as a banner when due.
+ *
+ * The weekly rotation (a lead category, "any", or away for each weekday) is the mode's default until edited.
+ * "This week" changes are saved with the week's Monday and stop applying when a new week starts.
+ * Session, rotation and week state are per user and per mode and live in user properties, so they follow you across devices.
  *
  * A session is { projectId, start, pausedMs, pausedAt, pomodoro }. Worked time is wall time minus pauses.
  * pomodoro is null when off, else { phase: 'work' | 'break', phaseStartMs, lengthMin } where phaseStartMs is the
@@ -16,13 +21,40 @@ function todayModule() {
   var POMODORO_KEY = 'today.pomodoro';
   var POMODORO_DEFAULTS = { work: 25, break: 5 };
   var NEXT_PHASE = { work: 'break', break: 'work' };
+  var ROTATION_KEY = modeKey_('today.rotation');
+  var WEEK_KEY = modeKey_('today.week');
   var ANY_LABEL = 'Any category';
+  var AWAY = 'away';
+  var AWAY_LABEL = 'Away';
   var WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
+  var REMIND_DAYS = [0, 1, 3, 7];
+  var DAY_MS = 86400000;
+  var SKIPS = new Table('Skips', ['id', 'project_id', 'to_project_id', 'date']);
+  var REMINDERS = new Table('Reminders', ['id', 'project_id', 'due', 'created', 'done']);
 
+  /** Today's date key, ISO weekday and the date of this week's Monday, in the script's time zone. */
   function dayInfo_() {
     var tz = Session.getScriptTimeZone();
     var now = new Date();
-    return { key: Utilities.formatDate(now, tz, 'yyyy-MM-dd'), weekday: Number(Utilities.formatDate(now, tz, 'u')) };
+    var weekday = Number(Utilities.formatDate(now, tz, 'u'));
+    return {
+      key: Utilities.formatDate(now, tz, 'yyyy-MM-dd'),
+      weekday: weekday,
+      weekKey: Utilities.formatDate(new Date(now.getTime() - (weekday - 1) * DAY_MS), tz, 'yyyy-MM-dd')
+    };
+  }
+
+  function dateInDays_(days) {
+    return Utilities.formatDate(new Date(Date.now() + days * DAY_MS), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+
+  function readJson_(key) {
+    var raw = PropertiesService.getUserProperties().getProperty(key);
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  function writeJson_(key, value) {
+    PropertiesService.getUserProperties().setProperty(key, JSON.stringify(value));
   }
 
   function load_(dayKey) {
@@ -71,30 +103,70 @@ function todayModule() {
     return s.session;
   }
 
-  /** Lead category per ISO weekday, leaving out categories that no longer exist. */
-  function rotation_(categories) {
-    var ids = categories.map(function (c) { return c.id; });
-    var rotation = {};
-    WEEKDAYS.forEach(function (day) {
-      var lead = activeMode_().rotation[day];
-      rotation[day] = ids.indexOf(lead) !== -1 ? lead : null;
-    });
-    return rotation;
+  /** A saved day plan as it applies now: a category id, AWAY, or null (any). A deleted category counts as any. */
+  function dayPlan_(value, ids) {
+    return value === AWAY || ids.indexOf(value) !== -1 ? value : null;
   }
 
-  function labels_(rotation, categories) {
+  /** A day plan sent from the browser: '' means any category. Throws on an unknown category. */
+  function planFromInput_(value, ids) {
+    if (value === '' || value === null || value === undefined) return null;
+    if (value === AWAY) return AWAY;
+    assert_(ids.indexOf(value) !== -1, 'Unknown category: ' + value);
+    return value;
+  }
+
+  /** The usual rotation: the user's own once saved, else the mode's default. */
+  function usual_(ids) {
+    var saved = readJson_(ROTATION_KEY);
+    var days = saved && saved.days ? saved.days : activeMode_().rotation;
+    var usual = {};
+    WEEKDAYS.forEach(function (day) { usual[day] = dayPlan_(days[day], ids); });
+    return usual;
+  }
+
+  /** This week's changes by weekday. Empty once the saved week is over, so they reset on Monday. */
+  function weekChanges_(weekKey, ids) {
+    var saved = readJson_(WEEK_KEY);
+    var changes = {};
+    if (!saved || saved.week !== weekKey) return changes;
+    Object.keys(saved.days || {}).forEach(function (day) { changes[day] = dayPlan_(saved.days[day], ids); });
+    return changes;
+  }
+
+  function plan_(usual, week) {
+    var plan = {};
+    WEEKDAYS.forEach(function (day) { plan[day] = Object.prototype.hasOwnProperty.call(week, day) ? week[day] : usual[day]; });
+    return plan;
+  }
+
+  function labels_(plan, categories) {
     var labels = {};
     WEEKDAYS.forEach(function (day) {
-      var category = categories.filter(function (c) { return c.id === rotation[day]; })[0];
-      labels[day] = category ? category.label : ANY_LABEL;
+      var category = categories.filter(function (c) { return c.id === plan[day]; })[0];
+      labels[day] = plan[day] === AWAY ? AWAY_LABEL : category ? category.label : ANY_LABEL;
     });
     return labels;
   }
 
-  /** The daily-minimum category, or null when the mode has none or it was deleted. */
-  function dailyMinimum_(categories) {
-    var id = activeMode_().dailyMinimum;
-    return categories.some(function (c) { return c.id === id; }) ? id : null;
+  /** The daily-minimum category: the user's choice once saved, else the mode's. null when none or deleted. */
+  function dailyMinimum_(ids) {
+    var saved = readJson_(ROTATION_KEY);
+    var id = saved && Object.prototype.hasOwnProperty.call(saved, 'dailyMinimum') ? saved.dailyMinimum : activeMode_().dailyMinimum;
+    return ids.indexOf(id) !== -1 ? id : null;
+  }
+
+  function skipCounts_() {
+    var counts = {};
+    SKIPS.all().forEach(function (r) { counts[r.project_id] = (counts[r.project_id] || 0) + 1; });
+    return counts;
+  }
+
+  function dueReminders_(dayKey) {
+    return REMINDERS.all()
+      .filter(function (r) { return !r.done && r.due <= dayKey; })
+      .sort(function (a, b) { return a.due < b.due ? -1 : 1; })
+      .map(function (r) { return { id: r.id, project_id: r.project_id, due: r.due, created: r.created }; });
   }
 
   function ranked_(ctx, lead) {
@@ -110,31 +182,97 @@ function todayModule() {
   function compute_(ctx) {
     var d = dayInfo_(), s = load_(d.key);
     var categories = ctx.call('categories', 'list');
-    var rotation = rotation_(categories), lead = rotation[d.weekday];
+    var ids = categories.map(function (c) { return c.id; });
+    var usual = usual_(ids), week = weekChanges_(d.weekKey, ids), plan = plan_(usual, week);
+    var lead = plan[d.weekday] === AWAY ? null : plan[d.weekday];
     var ranked = ranked_(ctx, lead);
     var pool = ranked.filter(function (id) { return s.skipped.indexOf(id) === -1; });
     if (!pool.length) pool = ranked;
-    var focusId = s.session ? s.session.projectId : (pool[0] || null);
-    return { day: d.key, weekday: d.weekday, lead: lead, labels: labels_(rotation, categories), focusId: focusId,
-      dailyMinimum: dailyMinimum_(categories), jobDone: s.jobDone, session: s.session, pomodoroSettings: pomodoroSettings_() };
+    var picked = s.focusPick && ranked.indexOf(s.focusPick) !== -1 ? s.focusPick : null;
+    var focusId = s.session ? s.session.projectId : (picked || pool[0] || null);
+    return {
+      day: d.key, weekday: d.weekday, lead: lead, away: plan[d.weekday] === AWAY, usual: usual, week: week,
+      labels: labels_(plan, categories), focusId: focusId, ranked: ranked, dailyMinimum: dailyMinimum_(ids), jobDone: s.jobDone,
+      session: s.session, pomodoroSettings: pomodoroSettings_(), skipCounts: skipCounts_(), reminders: dueReminders_(d.key)
+    };
   }
 
   return {
     title: 'Today',
+    tables: [SKIPS, REMINDERS],
     snapshot: compute_,
     api: {
       state: function (a, ctx) { return compute_(ctx); },
 
+      /**
+       * Skip today's focus. a.toId: the project to switch to (optional; the next candidate if left out).
+       * a.remindDays: 0 (no reminder), 1, 3 or 7 days until a reminder about the skipped project.
+       */
       swap: function (a, ctx) {
         var d = dayInfo_(), s = load_(d.key);
         assert_(!s.session, 'Finish the current session before swapping focus.');
-        var snap = compute_(ctx);
-        if (snap.focusId) s.skipped.push(snap.focusId);
-        var ranked = ranked_(ctx, snap.lead);
-        var everyoneSkipped = ranked.every(function (id) { return s.skipped.indexOf(id) !== -1; });
-        if (everyoneSkipped) s.skipped = snap.focusId ? [snap.focusId] : [];
+        var remindDays = Number(a.remindDays || 0);
+        assert_(REMIND_DAYS.indexOf(remindDays) !== -1, 'Unknown reminder: ' + a.remindDays);
+        var snap = compute_(ctx), fromId = snap.focusId;
+        if (a.toId) {
+          assert_(snap.ranked.indexOf(a.toId) !== -1, 'Pick an active project to switch to.');
+          assert_(a.toId !== fromId, 'That project is already today\'s focus.');
+        }
+        if (fromId) {
+          s.skipped.push(fromId);
+          SKIPS.insert({ project_id: fromId, to_project_id: a.toId || '', date: nowIso_() });
+          if (remindDays) REMINDERS.insert({ project_id: fromId, due: dateInDays_(remindDays), created: nowIso_(), done: '' });
+        }
+        s.focusPick = a.toId || null;
+        var everyoneSkipped = snap.ranked.every(function (id) { return s.skipped.indexOf(id) !== -1; });
+        if (!a.toId && everyoneSkipped) s.skipped = fromId ? [fromId] : [];
         save_(s);
         ctx.refresh('today');
+        return true;
+      },
+
+      /** Make a reminded project today's focus and close the reminder. */
+      focusReminder: function (a, ctx) {
+        var reminder = REMINDERS.get(a.id);
+        assert_(reminder, 'Reminder not found.');
+        var d = dayInfo_(), s = load_(d.key);
+        assert_(!s.session, 'Finish the current session first.');
+        assert_(compute_(ctx).ranked.indexOf(reminder.project_id) !== -1, 'That project is not active any more.');
+        s.focusPick = reminder.project_id;
+        save_(s);
+        REMINDERS.update(a.id, { done: nowIso_() });
+        ctx.refresh('today');
+        return true;
+      },
+
+      dismissReminder: function (a, ctx) {
+        REMINDERS.update(a.id, { done: nowIso_() });
+        ctx.refresh('today');
+        return true;
+      },
+
+      /**
+       * Save the rotation. a.usual: { weekday: categoryId | 'away' | '' } for every day; a.week: the same for days
+       * that differ this week only; a.dailyMinimum: a category id or '' for none.
+       */
+      saveRotation: function (a, ctx) {
+        var ids = ctx.call('categories', 'ids'), d = dayInfo_();
+        var days = {}, week = {};
+        WEEKDAYS.forEach(function (day) { days[day] = planFromInput_((a.usual || {})[day], ids); });
+        Object.keys(a.week || {}).forEach(function (day) {
+          assert_(WEEKDAYS.indexOf(Number(day)) !== -1, 'Unknown weekday: ' + day);
+          week[day] = planFromInput_(a.week[day], ids);
+        });
+        assert_(!a.dailyMinimum || ids.indexOf(a.dailyMinimum) !== -1, 'Unknown category: ' + a.dailyMinimum);
+        writeJson_(ROTATION_KEY, { days: days, dailyMinimum: a.dailyMinimum || null });
+        writeJson_(WEEK_KEY, { week: d.weekKey, days: week });
+        ctx.refresh('today');
+        return true;
+      },
+
+      removeProject: function (a) {
+        SKIPS.removeWhere(function (r) { return r.project_id === a.projectId || r.to_project_id === a.projectId; });
+        REMINDERS.removeWhere(function (r) { return r.project_id === a.projectId; });
         return true;
       },
 

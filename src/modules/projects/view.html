@@ -106,13 +106,21 @@
     var n = FT.daysSince(p.last_touched);
     var inactive = p.status !== 'active';
     return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + FT.pill(p.category) +
-      '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span></div></div></div>' +
+      '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
+      skippedHtml(p) + '</div></div></div>' +
       '<div class="next"><small>Next action</small>' + FT.esc(p.next_action) + '</div>' +
       '<div class="actions" style="margin-top:0"><button class="btn sm" data-act="projects.edit">Edit</button>' +
       (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
       (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
       (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
       '<button class="btn sm" data-act="projects.delete">Delete</button></div></section>';
+  }
+
+  /** Today's skip count for this project, if the Today module is installed and it was ever skipped. */
+  function skippedHtml(p) {
+    var counts = (FT.store.today && FT.store.today.skipCounts) || {};
+    var n = counts[p.id] || 0;
+    return n ? '<span>Skipped ' + n + (n === 1 ? ' time' : ' times') + '</span>' : '';
   }
 
   function categoryOptions() {

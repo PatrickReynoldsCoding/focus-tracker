@@ -31,7 +31,12 @@ Original requests:
 - Kanban: remove the single "new task" bar. Each column has its own add-task control.
 - Today: when a session is started, allow pause, and a simple pomodoro timer (work/break lengths configurable, default 25/5). Session time excludes pauses. State is stored server side so it survives switching devices. Alert with sound and tab title, because browsers may block notifications inside Apps Script pages.
 
-### Batch 2: Today behaviour
+### Batch 2: Today behaviour (done, 2026-10-28)
+- Swap focus opens a dialog: pick the project (ranked as Today ranks them) and an optional reminder (tomorrow, 3 days, next week). Each skip is a row in the Skips tab; the project page shows "Skipped N times". Due reminders are banners on Today ("Make it today's focus" or "Dismiss"), rows in the Reminders tab.
+- The rotation's Edit button: usual lead per weekday (a category, any, or Away) plus "this week" changes, saved with the week's Monday so they stop applying the next week. The daily-minimum category is chosen there too. An Away day shows a calm panel with "Show my focus anyway".
+- Paddy chose no morning email and no Google Calendar, so no new permissions were added.
+
+Original plan:
 - Swap focus: let him choose which project to switch to. The project swapped away from is remembered as skipped, not worked on. Design agreed in principle:
   - Skipping never counts as work, so it keeps its neglect and naturally resurfaces.
   - On swap, optional "remind me" (tomorrow, in 3 days, next week, none). A due reminder shows as a banner on Today. Optional morning email via a time-driven trigger.

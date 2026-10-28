@@ -9,6 +9,14 @@
 .pomo.over { background: var(--warn-soft); border: 1px solid var(--warn); }
 .rot td:first-child { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; width: 38%; }
 .rot tr.todayrow td { background: var(--accent-soft); font-weight: 600; color: var(--ink); }
+.rot .tag { font-family: var(--font-mono); font-size: 11px; color: var(--warn); margin-left: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+.rot td.away { color: var(--muted); font-style: italic; }
+.reminders { display: grid; gap: 8px; }
+.reminder { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.rotedit th, .rotedit td { padding: 6px 6px; border-bottom: 1px solid var(--line); }
+.rotedit td:first-child { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+.rotedit select { padding: 6px 8px; }
+.away-panel h2 { font-size: 26px; margin-bottom: 6px; }
 </style>
 <script>
 (function () {
@@ -17,7 +25,10 @@
   var PHASE_DONE_TEXT = { work: 'Work period done. Time for a break.', break: 'Break over. Back to work.' };
   var NEXT_PHASE_BUTTON = { work: 'Start break', break: 'Start work' };
   var ALERT_TITLE = { work: '⏰ Break time', break: '⏰ Back to work' };
+  var REMIND_OPTIONS = [['0', 'No reminder'], ['1', 'Tomorrow'], ['3', 'In 3 days'], ['7', 'Next week']];
+  var AWAY = 'away';
   var timer = null, alertedPhaseKey = null, audio = null;
+  var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
 
   function activeProjects() { return (FT.store.projects || []).filter(function (p) { return p.status === 'active'; }); }
 
@@ -90,11 +101,32 @@
   }
 
   function rotationHtml(t) {
+    var week = t.week || {};
     var rows = DAYS.map(function (d) {
-      var isToday = d[0] === t.weekday;
-      return '<tr class="' + (isToday ? 'todayrow' : '') + '"><td>' + d[1] + (isToday ? ' (today)' : '') + '</td><td>' + FT.esc((t.labels || {})[d[0]] || '') + '</td></tr>';
+      var day = d[0], isToday = day === t.weekday, changed = Object.prototype.hasOwnProperty.call(week, day);
+      var plan = changed ? week[day] : (t.usual || {})[day];
+      return '<tr class="' + (isToday ? 'todayrow' : '') + '"><td>' + d[1] + (isToday ? ' (today)' : '') + '</td>' +
+        '<td class="' + (plan === AWAY ? 'away' : '') + '">' + FT.esc((t.labels || {})[day] || '') + (changed ? '<span class="tag">this week</span>' : '') + '</td></tr>';
     }).join('');
-    return '<section class="panel"><div class="label">Weekly rotation</div><table class="rot"><tbody>' + rows + '</tbody></table></section>';
+    return '<section class="panel"><div class="tophead"><div class="label">Weekly rotation</div>' +
+      '<button class="btn sm" data-act="today.rotation">Edit</button></div><table class="rot"><tbody>' + rows + '</tbody></table></section>';
+  }
+
+  function remindersHtml(t) {
+    var due = (t.reminders || []).filter(function (r) { return FT.project(r.project_id); });
+    if (!due.length) return '';
+    return '<div class="reminders">' + due.map(function (r) {
+      var p = FT.project(r.project_id), id = FT.esc(r.id);
+      return '<div class="banner reminder" role="status"><span><b>Reminder:</b> ' + FT.esc(p.name) + ' (you skipped it on ' + FT.fmtDate(r.created) + ')</span>' +
+        '<span class="actions" style="margin:0">' + (t.session ? '' : '<button class="btn sm" data-act="today.focusReminder" data-id="' + id + '">Make it today\'s focus</button>') +
+        '<button class="btn sm" data-act="today.dismissReminder" data-id="' + id + '">Dismiss</button></span></div>';
+    }).join('') + '</div>';
+  }
+
+  function awayHtml(t) {
+    return '<section class="panel away-panel"><div class="label">Today</div><h2>Away today</h2>' +
+      '<p style="margin:0;color:var(--muted)">You marked ' + DAYS[t.weekday - 1][1] + ' as a day off in the rotation. Enjoy it.</p>' +
+      '<div class="actions"><button class="btn" data-act="today.showAnyway">Show my focus anyway</button></div></section>';
   }
 
   function staleBanner(f) {
@@ -109,9 +141,11 @@
     var f = t.focusId ? FT.project(t.focusId) : null;
     var minimum = t.dailyMinimum;
     var minimumProject = f && minimum ? (activeProjects().filter(function (p) { return p.category === minimum && p.id !== f.id; })[0] || (f.category === minimum ? f : null)) : null;
-    var focus = f ? focusHtml(t, f)
-                  : '<section class="panel"><p class="empty">No active projects yet. Add one on the Projects tab to get a focus for the day.</p></section>';
-    return (f ? staleBanner(f) : '') + FT.layout('today', [
+    var resting = t.away && !t.session && showFocusOnAwayDay !== t.day;
+    var focus = resting ? awayHtml(t)
+      : f ? focusHtml(t, f)
+      : '<section class="panel"><p class="empty">No active projects yet. Add one on the Projects tab to get a focus for the day.</p></section>';
+    return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [
       { id: 'focus', html: focus, w: 7 },
       { id: 'minimum', html: f && minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '', w: 5 },
       { id: 'rotation', html: f ? rotationHtml(t) : '', w: 5 }
@@ -192,7 +226,70 @@
 
   FT.action('today.open', function (el) { FT.go('project', { id: el.dataset.id }); });
   FT.action('today.start', function () { call('start', { projectId: FT.store.today.focusId }); });
-  FT.action('today.swap', function () { call('swap'); });
+  FT.action('today.showAnyway', function () { showFocusOnAwayDay = FT.store.today.day; FT.render(); });
+  FT.action('today.focusReminder', function (el) { call('focusReminder', { id: el.dataset.id }); });
+  FT.action('today.dismissReminder', function (el) { call('dismissReminder', { id: el.dataset.id }); });
+
+  /** Pick the project to switch to (most neglected first, as Today ranks them) and maybe a reminder about this one. */
+  FT.action('today.swap', function () {
+    var t = FT.store.today, current = FT.project(t.focusId);
+    var options = (t.ranked || []).filter(function (id) { return id !== t.focusId; }).map(FT.project).filter(Boolean).map(function (p) {
+      return { value: p.id, label: p.name + ' (' + FT.category(p.category).label + ', ' + FT.ageLabel(FT.daysSince(p.last_touched)) + ')' };
+    });
+    if (!options.length) { FT.toast('There is no other active project to switch to.'); return; }
+    FT.dialog({
+      title: 'Swap focus',
+      subtitle: current ? 'Skipping ' + current.name + ' for today. A skip never counts as work, so it will come back.' : '',
+      submit: 'Swap',
+      fields: [
+        { id: 'to', label: 'Switch to', type: 'select', options: options, value: options[0].value },
+        { id: 'remind', label: current ? 'Remind me about ' + current.name : 'Reminder', type: 'select', value: '0',
+          options: REMIND_OPTIONS.map(function (o) { return { value: o[0], label: o[1] }; }) }
+      ],
+      onSubmit: function (v) { unlockAudio(); return FT.rpc('today', 'swap', { toId: v.to, remindDays: Number(v.remind) }, { quiet: true }); }
+    });
+  });
+
+  // ---------- rotation editor ----------
+  function planOptions(selected, firstLabel, firstValue) {
+    var options = [[firstValue, firstLabel]];
+    if (firstValue !== '') options.push(['', 'Any category']);
+    options = options.concat(FT.categories().map(function (c) { return [c.id, c.label]; })).concat([[AWAY, 'Away (day off)']]);
+    return options.map(function (o) {
+      return '<option value="' + FT.esc(o[0]) + '"' + (o[0] === selected ? ' selected' : '') + '>' + FT.esc(o[1]) + '</option>';
+    }).join('');
+  }
+
+  function rotationTableHtml(t) {
+    var week = t.week || {};
+    return '<table class="rotedit"><thead><tr><th>Day</th><th>Usually</th><th>This week</th></tr></thead><tbody>' + DAYS.map(function (d) {
+      var day = d[0], usual = (t.usual || {})[day], changed = Object.prototype.hasOwnProperty.call(week, day);
+      return '<tr><td>' + d[1] + '</td>' +
+        '<td><select id="rot-usual-' + day + '" aria-label="' + d[1] + ' usually">' + planOptions(usual === null ? '' : usual, 'Any category', '') + '</select></td>' +
+        '<td><select id="rot-week-' + day + '" aria-label="' + d[1] + ' this week">' + planOptions(changed ? (week[day] === null ? '' : week[day]) : 'same', 'Same as usual', 'same') + '</select></td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+
+  FT.action('today.rotation', function () {
+    var t = FT.store.today;
+    FT.dialog({
+      title: 'Weekly rotation',
+      subtitle: 'The lead category gets a head start each day. "This week" changes end on Sunday night.',
+      wide: true,
+      body: rotationTableHtml(t),
+      fields: [{ id: 'minimum', label: 'Daily minimum panel', type: 'select', value: t.dailyMinimum || '',
+        options: [{ value: '', label: 'None' }].concat(FT.categories().map(function (c) { return { value: c.id, label: c.label }; })) }],
+      onSubmit: function (v) {
+        var usual = {}, week = {};
+        DAYS.forEach(function (d) {
+          usual[d[0]] = document.getElementById('rot-usual-' + d[0]).value;
+          var thisWeek = document.getElementById('rot-week-' + d[0]).value;
+          if (thisWeek !== 'same') week[d[0]] = thisWeek;
+        });
+        return FT.rpc('today', 'saveRotation', { usual: usual, week: week, dailyMinimum: v.minimum }, { quiet: true });
+      }
+    });
+  });
   FT.action('today.job', function () { call('toggleJob'); });
   FT.action('today.pause', function () { call('pause'); });
   FT.action('today.resume', function () { call('resume'); });

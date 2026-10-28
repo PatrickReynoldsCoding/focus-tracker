@@ -231,13 +231,47 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $$('tbody tr').length >= 1 && $('tbody').textContent.includes('Rewrote the opening line'), 'log row');
   });
 
-  await step('swap focus moves to another project, and the job minimum toggles', async () => {
+  await step('swap focus lets you pick the project and a reminder, and the skip shows on the project', async () => {
     click(tab('Today'));
     const before = await waitFor(() => $('.focus-name') && $('.focus-name').textContent, 'focus');
     click($('[data-act="today.swap"]'));
-    await waitFor(() => $('.focus-name').textContent !== before, 'focus changed');
+    await waitFor(() => $('#dlg-to'), 'swap dialog');
+    const fan = Array.from($('#dlg-to').options).find((o) => o.textContent.startsWith('Bathroom extractor fan'));
+    assert.ok(fan, 'other projects are offered');
+    assert.ok(!Array.from($('#dlg-to').options).some((o) => o.textContent.startsWith(before)), 'not the current focus');
+    setVal($('#dlg-to'), fan.value, 'change');
+    setVal($('#dlg-remind'), '1', 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('.focus-name').textContent === 'Bathroom extractor fan', 'picked project is the focus');
     click($('[data-act="today.job"]'));
     await waitFor(() => $('[data-act="today.job"]').textContent === 'Done for today', 'job done');
+    const skipped = JSON.parse(JSON.stringify(server.run('bootstrap()').data.projects)).find((p) => p.name === before);
+    click(tab('Projects'));
+    click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes(before)), 'row'));
+    await waitFor(() => $('.phead') && $('.phead').textContent.includes('Skipped 1 time'), 'skip count on the project');
+    assert.ok(skipped);
+  });
+
+  await step('the weekly rotation can be edited, with a this-week change and an away day', async () => {
+    click(tab('Today'));
+    click(await waitFor(() => $('[data-act="today.rotation"]'), 'edit button'));
+    await waitFor(() => $('#rot-usual-1'), 'rotation dialog');
+    assert.strictEqual($('#rot-usual-1').value, 'coding');
+    assert.strictEqual($('#rot-week-3').value, 'same');
+    assert.strictEqual($('#dlg-minimum').value, 'job');
+    setVal($('#rot-usual-7'), 'house', 'change');
+    setVal($('#rot-week-3'), 'away', 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('.away-panel'), 'Wednesday is away this week');
+    assert.ok($$('.rot tr')[2].textContent.includes('Away') && $$('.rot tr')[2].textContent.includes('this week'));
+    assert.ok($$('.rot tr')[6].textContent.includes('House'));
+    click($('[data-act="today.showAnyway"]'));
+    await waitFor(() => $('.focus-name'), 'focus shown anyway');
+    click($('[data-act="today.rotation"]'));
+    await waitFor(() => $('#rot-week-3'), 'dialog again');
+    setVal($('#rot-week-3'), 'same', 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && !$$('.rot .tag').length, 'back to usual');
   });
 
   await step('deleting a project from its page removes it everywhere', async () => {

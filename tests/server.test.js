@@ -133,6 +133,67 @@ test('a session saved before pauses existed still works', () => {
   assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 12);
 });
 
+test('swap to a chosen project logs the skip, sets a reminder, and keeps the skipped project neglected', () => {
+  const s = fresh();
+  s.mock.weekday = 7;
+  const a = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
+  const b = s.call('projects', 'create', { name: 'B', category: 'house' }).result;
+  const c = s.call('projects', 'create', { name: 'C', category: 'job' }).result;
+  s.run(`new Table('Projects',['id']).update('${a.id}', { last_touched: '${new Date(Date.now() - 9 * 86400000).toISOString()}' })`);
+  assert.strictEqual(s.call('today', 'state').result.focusId, a.id);
+  assert.throws(() => s.call('today', 'swap', { toId: a.id }), /already today/);
+  assert.throws(() => s.call('today', 'swap', { toId: 'nope' }), /active project/);
+  assert.throws(() => s.call('today', 'swap', { toId: c.id, remindDays: 2 }), /Unknown reminder/);
+  const t = s.call('today', 'swap', { toId: c.id, remindDays: 1 }).slices.today;
+  assert.strictEqual(t.focusId, c.id);
+  assert.deepStrictEqual(t.skipCounts, { [a.id]: 1 });
+  assert.deepStrictEqual(t.reminders, [], 'not due until tomorrow');
+  const reminder = s.ss.sheets.Reminders.rows[1];
+  assert.strictEqual(reminder[1], a.id);
+  assert.strictEqual(reminder[2], new Date(Date.now() + 86400000).toISOString().slice(0, 10));
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects.find((p) => p.id === a.id).last_touched.slice(0, 10),
+    new Date(Date.now() - 9 * 86400000).toISOString().slice(0, 10), 'a skip is not work');
+  // The reminder comes due: it can become the focus, which closes it
+  s.ss.sheets.Reminders.rows[1][2] = '2000-01-01';
+  const due = s.call('today', 'state').result.reminders;
+  assert.strictEqual(due.length, 1);
+  const after = s.call('today', 'focusReminder', { id: due[0].id }).slices.today;
+  assert.strictEqual(after.focusId, a.id);
+  assert.deepStrictEqual(after.reminders, []);
+  s.call('today', 'swap', { toId: b.id, remindDays: 7 });
+  s.ss.sheets.Reminders.rows[2][2] = '2000-01-01';
+  assert.strictEqual(s.call('today', 'dismissReminder', { id: s.call('today', 'state').result.reminders[0].id }).slices.today.reminders.length, 0);
+  assert.strictEqual(s.call('today', 'state').result.skipCounts[a.id], 2);
+  s.call('projects', 'remove', { id: a.id });
+  assert.deepStrictEqual(s.call('today', 'state').result.skipCounts, {}, 'skips go with the project');
+  assert.strictEqual(s.ss.sheets.Reminders.rows.length, 1);
+});
+
+test('the rotation can be edited; this-week changes and away days apply only this week', () => {
+  const s = fresh();
+  s.mock.weekday = 3;
+  let t = s.call('today', 'state').result;
+  assert.strictEqual(t.lead, 'job');
+  assert.deepStrictEqual(t.week, {});
+  const usual = { 1: 'house', 2: 'coding', 3: 'coding', 4: '', 5: 'house', 6: 'away', 7: 'away' };
+  assert.throws(() => s.call('today', 'saveRotation', { usual: Object.assign({}, usual, { 1: 'nope' }) }), /Unknown category/);
+  assert.throws(() => s.call('today', 'saveRotation', { usual, week: { 9: 'away' } }), /Unknown weekday/);
+  t = s.call('today', 'saveRotation', { usual, week: { 3: 'away', 4: 'job' }, dailyMinimum: '' }).slices.today;
+  assert.strictEqual(t.away, true);
+  assert.strictEqual(t.lead, null);
+  assert.deepStrictEqual([t.labels[1], t.labels[3], t.labels[4], t.labels[6]], ['House', 'Away', 'Job search', 'Away']);
+  assert.strictEqual(t.usual[4], null);
+  assert.strictEqual(t.dailyMinimum, null, 'daily minimum switched off');
+  // A new week: the saved week no longer matches, so only the usual rotation applies
+  const props = s.user._m;
+  props['today.week'] = JSON.stringify(Object.assign(JSON.parse(props['today.week']), { week: '1999-01-04' }));
+  t = s.call('today', 'state').result;
+  assert.strictEqual(t.away, false);
+  assert.strictEqual(t.lead, 'coding');
+  assert.deepStrictEqual(t.week, {});
+  assert.strictEqual(json(s.run("bootstrap('work')")).data.today.lead, null, 'work mode has its own rotation');
+});
+
 test('finishing a session writes the log, touches the project and clears the session', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Measure' }).result;
