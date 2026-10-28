@@ -1,7 +1,7 @@
 <style>
 /* Shared look: tokens, layout and generic components. Module-specific styles live in each module's view.html. */
 :root {
-  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #5a6b68; --line: #d3dcd9;
+  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #4d5d5a; --line: #d3dcd9;
   --accent: #0e6b62; --accent-ink: #ffffff; --accent-soft: #d9efeb;
   --warn: #a35d00; --warn-soft: #fbeed8; --bad: #b3322f; --bad-soft: #f9e0df; --ok: #2b7a4b; --ok-soft: #dcf0e4;
   --cat-1: #0e6b62; --cat-2: #a35d00; --cat-3: #4a5fa8; --cat-4: #b3322f; --cat-5: #7a4fa8; --cat-6: #2b7a4b; --cat-7: #5a6b68; --cat-8: #c2561b;
@@ -13,7 +13,7 @@
 /* Dark colours: when the theme is Dark, or "Same as computer" and the computer is in dark mode (Settings, ⚙). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="eink"]) {
-    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #a6b9b5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
     --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
@@ -21,7 +21,7 @@
   }
 }
 :root[data-theme="dark"] {
-    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #a6b9b5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
     --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
@@ -163,10 +163,10 @@ body.editing-layout .grid-stack-item-content > * { pointer-events: none; }
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { filter: brightness(1.08); }
-.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: var(--on-bad); }
 .btn.done { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
 .btn.sm { padding: 5px 10px; font-size: 13px; }
-.btn[disabled] { opacity: 0.45; cursor: default; }
+.btn[disabled] { opacity: 1; cursor: default; background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; font-family: var(--font-mono); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); }
@@ -204,7 +204,7 @@ textarea { min-height: 150px; resize: vertical; }
 .hint { font-size: 13px; color: var(--muted); background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 14px; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; max-width: min(92vw, 520px); font-size: 14px; }
-.toast.error { background: var(--bad); color: #fff; }
+.toast.error { background: var(--bad); color: var(--on-bad); }
 .toastbtn { margin-left: 12px; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
 .hidebtn { position: absolute; top: 14px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -360,4 +360,52 @@ textarea { min-height: 150px; resize: vertical; }
 :root[data-theme="eink"] .sticky .sbtn { min-height: 44px; }
 :root[data-theme="eink"] .wbmeta { min-width: 44px; justify-content: center; }
 :root[data-theme="eink"] .notes-panel.full .notes-top .rtbar button { min-width: 44px; height: 44px; }
+
+/* ---- Theme review fixes, part 3: contrast in Light and Dark ---- */
+/* Tokens. --line-strong is for the edges of controls (3:1 against the page); --line stays for quiet dividers.
+   --placeholder is ink faded towards the field, always above 4.5:1. --on-bad is the text colour on --bad. */
+:root { --line-strong: #6a7b78; --placeholder: color-mix(in srgb, var(--ink) 78%, var(--surface)); --on-bad: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) { --line-strong: #73918b; --on-bad: #2a0907; } }
+:root[data-theme="dark"] { --line-strong: #73918b; --on-bad: #2a0907; }
+:root[data-theme="eink"] { --line-strong: #000; --placeholder: #333; --on-bad: #fff; }
+/* Control edges you can see: buttons, fields, editors, choices and small buttons. The chosen state keeps its own colour. */
+:root .btn:not(.primary):not(.danger):not(.done):not([disabled]), :root .iconbtn, :root select:not(.modeselect), :root input[type="text"], :root input[type="date"], :root input[type="time"],
+:root textarea, :root .rtbar button, :root .rtedit, :root .mvb, :root .coladd input, :root .addcol, :root .toastbtn, :root .modebadge, :root .dialog,
+:root .dialog .choice label:not(:has(input:checked)), :root .dialog .seg label:not(:has(input:checked)) { border-color: var(--line-strong); }
+:root .tab[aria-current="page"] { border-color: transparent; }
+/* Placeholders: the browser's default grey fails on dark and on coloured lists. */
+input::placeholder, textarea::placeholder { color: var(--placeholder); opacity: 1; }
+.rtedit:empty::before { color: var(--placeholder); }
+font[color="#d64545" i] { color: #c53030; }
+font[color="#2f7fd6" i] { color: #1f6bc0; }
+font[color="#2b9a5b" i] { color: #1f8049; }
+font[color="#c27a00" i] { color: #a86800; }
+/* Dark: the current tab uses the accent instead of a bright white pill, and a coloured list's tint stays calm. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 17%, var(--surface)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#d64545" i] { color: #ff8f8a; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#2f7fd6" i] { color: #7db5ff; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#2b9a5b" i] { color: #5fd392; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#c27a00" i] { color: #f0b85a; }
+}
+:root[data-theme="dark"] .tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+:root[data-theme="dark"] .listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); }
+:root[data-theme="dark"] .listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 17%, var(--surface)); }
+/* The four text colours of the note editor, lightened for a dark page (the stored note keeps the original colour). */
+:root[data-theme="dark"] font[color="#d64545" i] { color: #ff8f8a; }
+:root[data-theme="dark"] font[color="#2f7fd6" i] { color: #7db5ff; }
+:root[data-theme="dark"] font[color="#2b9a5b" i] { color: #5fd392; }
+:root[data-theme="dark"] font[color="#c27a00" i] { color: #f0b85a; }
+/* Dark sticky notes: near-black ink, and the paper never thinner than 60% (below that no paper colour keeps 4.5:1 over a dark page;
+   Light keeps the full 40% to 100% range). The saved see-through value is not changed. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
+}
+:root[data-theme="dark"] .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
+:root[data-theme="dark"] .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
+:root[data-theme="dark"] .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
 </style>
