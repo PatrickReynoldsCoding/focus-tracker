@@ -284,6 +284,7 @@ var FT = (function () {
       FT.state.projectId = opts.id;
       Object.keys(modules).forEach(function (id) { if (modules[id].onProject) modules[id].onProject(opts.id); });
     }
+    document.body.classList.remove('menuopen');
     FT.render();
     window.scrollTo(0, 0);
   };
@@ -575,8 +576,42 @@ var FT = (function () {
   try { wideSaved = localStorage.getItem(WIDE_KEY) === '1'; } catch (e) {}
   applyWide(wideSaved);
 
+  // ---------- swipe between views (phone) ----------
+  // A sideways swipe moves to the next or previous tab. It is ignored where a sideways gesture already means something:
+  // boards (drag and drop, sideways scroll), sticky notes, whiteboards, editors, dialogs and anything that scrolls sideways.
+  var swipeStart = null;
+  function swipeBlocked(el) {
+    for (; el && el !== document.body; el = el.parentElement) {
+      if (el.matches && el.matches('.board, .sticky, .stickymenu, .wbfull, input, textarea, select, [contenteditable], .scrim, .tabs, [data-noswipe]')) return true;
+      if (el.scrollWidth > el.clientWidth + 2) {
+        var ox = getComputedStyle(el).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return true;
+      }
+    }
+    return false;
+  }
+  document.addEventListener('touchstart', function (e) {
+    swipeStart = narrow.matches && e.touches.length === 1 && !swipeBlocked(e.target)
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() } : null;
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    var s = swipeStart; swipeStart = null;
+    if (!s || !e.changedTouches.length || FT.state.editLayout) return;
+    var dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6 || Date.now() - s.t > 700) return;
+    var ids = tabs().map(function (m) { return m.id; });
+    var at = ids.indexOf(FT.state.view === 'project' ? 'projects' : FT.state.view);
+    var next = at + (dx < 0 ? 1 : -1);
+    if (at < 0 || next < 0 || next >= ids.length) return;
+    FT.go(ids[next]);
+  }, { passive: true });
+
   // ---------- event delegation ----------
   FT.action('core.tab', function (el) { FT.go(el.dataset.view); });
+  FT.action('core.menu', function () {
+    var open = document.body.classList.toggle('menuopen');
+    $('menuBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
   FT.action('core.reload', function () { location.reload(); });
   FT.on('change', 'core.mode', function (el) {
     if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
