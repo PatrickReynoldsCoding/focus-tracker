@@ -66,6 +66,73 @@ test('today favours the leading category, then the most neglected project, and s
   assert.strictEqual(t.focusId, a.id);
 });
 
+/** Rewrite the saved session as if it had happened earlier. change(session, minutesAgoIso) edits it in place. */
+function rewindSession(s, change) {
+  const state = JSON.parse(s.user._m['today.state']);
+  change(state.session, (minutes) => new Date(Date.now() - minutes * 60000).toISOString());
+  s.user._m['today.state'] = JSON.stringify(state);
+}
+
+test('pauses are left out of session time, and finishing logs the worked minutes', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  assert.throws(() => s.call('today', 'pause'), /No session/);
+  s.call('today', 'start', { projectId: p.id });
+  // Started 60 minutes ago, with a finished 15 minute pause and a pause open for the last 5 minutes
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(60); session.pausedMs = 15 * 60000; session.pausedAt = minutesAgo(5); });
+  s.call('today', 'pause'); // pausing twice keeps the first pause start
+  const resumed = s.call('today', 'resume').result;
+  assert.strictEqual(resumed.pausedAt, '');
+  assert.ok(Math.abs(resumed.pausedMs - 20 * 60000) < 2000, 'open pause added to the total');
+  const log = s.call('today', 'finish', { where: 'Done', next: 'Next' }).slices.log;
+  assert.strictEqual(log[0].minutes, 40);
+});
+
+test('finishing without a running session logs zero minutes', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  assert.strictEqual(s.call('today', 'finish', { projectId: p.id, where: 'w' }).slices.log[0].minutes, 0);
+});
+
+test('pomodoro starts in work, moves to break on request, and pauses with the session', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  s.call('today', 'start', { projectId: p.id });
+  assert.strictEqual(s.call('today', 'state').result.session.pomodoro, null, 'off by default');
+  assert.throws(() => s.call('today', 'nextPhase'), /pomodoro is off/);
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(30); session.pausedMs = 10 * 60000; });
+  let pomodoro = s.call('today', 'pomodoro', { on: true }).result.pomodoro;
+  assert.strictEqual(pomodoro.phase, 'work');
+  assert.strictEqual(pomodoro.lengthMin, 25);
+  assert.ok(Math.abs(pomodoro.phaseStartMs - 20 * 60000) < 2000, 'phase starts at the worked time, not wall time');
+  pomodoro = s.call('today', 'nextPhase').result.pomodoro;
+  assert.deepStrictEqual([pomodoro.phase, pomodoro.lengthMin], ['break', 5]);
+  assert.strictEqual(s.call('today', 'nextPhase').result.pomodoro.phase, 'work');
+  assert.strictEqual(s.call('today', 'pomodoro', { on: false }).result.pomodoro, null);
+});
+
+test('pomodoro lengths are validated, remembered, and used from the next period', () => {
+  const s = fresh();
+  assert.deepStrictEqual(s.call('today', 'state').result.pomodoroSettings, { work: 25, break: 5 });
+  assert.throws(() => s.call('today', 'pomodoroSettings', { work: '0', break: '5' }), /Work length/);
+  assert.throws(() => s.call('today', 'pomodoroSettings', { work: '25', break: '2.5' }), /Break length/);
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  s.call('today', 'start', { projectId: p.id });
+  s.call('today', 'pomodoro', { on: true });
+  const r = s.call('today', 'pomodoroSettings', { work: '50', break: '10' });
+  assert.deepStrictEqual(r.slices.today.pomodoroSettings, { work: 50, break: 10 });
+  assert.strictEqual(r.slices.today.session.pomodoro.lengthMin, 25, 'the running period keeps its length');
+  assert.strictEqual(s.call('today', 'nextPhase').result.pomodoro.lengthMin, 10);
+});
+
+test('a session saved before pauses existed still works', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Old', category: 'house' }).result;
+  s.call('today', 'start', { projectId: p.id });
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(12); delete session.pausedMs; delete session.pausedAt; delete session.pomodoro; });
+  assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 12);
+});
+
 test('finishing a session writes the log, touches the project and clears the session', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Measure' }).result;
@@ -85,6 +152,11 @@ test('kanban: add, move, rename and delete columns without losing tasks', () => 
   const cols = k.columns.filter((c) => c.project_id === p.id);
   const task = k.tasks[0];
   assert.strictEqual(task.column_id, cols[0].id);
+  const inLast = s.call('kanban', 'addTask', { projectId: p.id, columnId: cols[2].id, title: 'straight to done' }).result;
+  assert.strictEqual(inLast.column_id, cols[2].id);
+  s.call('kanban', 'deleteTask', { id: inLast.id });
+  const other = s.call('projects', 'create', { name: 'Other', category: 'coding' }).result;
+  assert.throws(() => s.call('kanban', 'addTask', { projectId: other.id, columnId: cols[0].id, title: 'x' }), /not on this board/);
   s.call('kanban', 'moveTask', { id: task.id, columnId: cols[1].id });
   s.call('kanban', 'renameColumn', { id: cols[1].id, name: 'In progress' });
   k = s.call('kanban', 'addColumn', { projectId: p.id, name: 'Review' }).slices.kanban;

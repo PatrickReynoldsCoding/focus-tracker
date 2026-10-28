@@ -2,16 +2,67 @@
 .focus-name { font-size: clamp(24px, 5vw, 34px); line-height: 1.1; font-weight: 700; margin-bottom: 8px; }
 .lastnote { color: var(--muted); padding: 2px 2px 0; }
 .lastnote b { font-weight: 600; color: var(--ink); }
-.timer { font-family: var(--font-mono); font-size: 30px; font-weight: 500; margin: 14px 0 0; font-variant-numeric: tabular-nums; }
+.timer { font-family: var(--font-mono); font-size: 30px; font-weight: 500; margin: 14px 0 0; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.timer .state { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--warn); }
+.pomo { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.pomo .left { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pomo.over { background: var(--warn-soft); border: 1px solid var(--warn); }
 .rot td:first-child { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; width: 38%; }
 .rot tr.todayrow td { background: var(--accent-soft); font-weight: 600; color: var(--ink); }
 </style>
 <script>
 (function () {
   var DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']];
-  var timer = null;
+  var PHASE_LABEL = { work: 'Work', break: 'Break' };
+  var PHASE_DONE_TEXT = { work: 'Work period done. Time for a break.', break: 'Break over. Back to work.' };
+  var NEXT_PHASE_BUTTON = { work: 'Start break', break: 'Start work' };
+  var ALERT_TITLE = { work: '⏰ Break time', break: '⏰ Back to work' };
+  var timer = null, alertedPhaseKey = null, audio = null;
 
   function activeProjects() { return (FT.store.projects || []).filter(function (p) { return p.status === 'active'; }); }
+
+  /** Same rule as workedMs_ on the server: wall time minus pauses. */
+  function workedMs(session, nowMs) {
+    var openPauseMs = session.pausedAt ? nowMs - new Date(session.pausedAt).getTime() : 0;
+    return Math.max(0, nowMs - new Date(session.start).getTime() - (session.pausedMs || 0) - openPauseMs);
+  }
+
+  /** Where the pomodoro is now: { phase, leftMs, over } or null when it is off. */
+  function pomodoroNow(session, nowMs) {
+    if (!session.pomodoro) return null;
+    var phase = session.pomodoro.phase;
+    var lengthMs = session.pomodoro.lengthMin * 60000;
+    var leftMs = lengthMs - (workedMs(session, nowMs) - session.pomodoro.phaseStartMs);
+    return { phase: phase, leftMs: leftMs, over: leftMs <= 0 };
+  }
+
+  function clock(ms) {
+    var sec = Math.floor(Math.abs(ms) / 1000);
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return (h ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+  }
+
+  function pomodoroHtml(t) {
+    var p = pomodoroNow(t.session, Date.now());
+    if (!p) return '';
+    var body = p.over
+      ? '<span>' + PHASE_DONE_TEXT[p.phase] + '</span><button class="btn sm primary" data-act="today.nextPhase">' + NEXT_PHASE_BUTTON[p.phase] + '</button>'
+      : '<span><b>' + PHASE_LABEL[p.phase] + '</b> <span class="left" id="pomo-left">' + clock(p.leftMs) + '</span> left</span>' +
+        '<button class="btn sm" data-act="today.nextPhase">' + NEXT_PHASE_BUTTON[p.phase] + ' now</button>';
+    return '<div class="pomo' + (p.over ? ' over' : '') + '" id="pomo" data-over="' + (p.over ? '1' : '0') + '" role="status">' + body + '</div>';
+  }
+
+  function sessionHtml(t) {
+    var s = t.session, paused = !!s.pausedAt;
+    return '<div class="timer"><span id="timer">' + clock(workedMs(s, Date.now())) + '</span>' + (paused ? '<span class="state">Paused</span>' : '') + '</div>' +
+      pomodoroHtml(t) +
+      '<div class="actions">' +
+      '<button class="btn primary" data-act="today.finish">Finish session</button>' +
+      (paused ? '<button class="btn" data-act="today.resume">Resume</button>' : '<button class="btn" data-act="today.pause">Pause</button>') +
+      '<button class="btn" data-act="today.pomodoro" aria-pressed="' + (s.pomodoro ? 'true' : 'false') + '">' + (s.pomodoro ? 'Pomodoro off' : 'Pomodoro on') + '</button>' +
+      '<button class="btn" data-act="today.pomodoroSettings" title="Pomodoro lengths" aria-label="Pomodoro lengths">' +
+      t.pomodoroSettings.work + '/' + t.pomodoroSettings.break + '</button>';
+  }
 
   function render() {
     var t = FT.store.today || {};
@@ -33,10 +84,8 @@
       '<div class="meta">' + FT.pill(f.category) + '<span class="' + FT.ageClass(n) + '">Last touched ' + FT.ageLabel(n) + '</span></div>' +
       '<div class="next"><small>Next action</small>' + FT.esc(f.next_action) + '</div>' +
       '<div class="lastnote">' + (lastLog ? '<b>Last time:</b> ' + FT.esc(lastLog.where_stopped) : 'No notes yet for this project.') + '</div>' +
-      (running ? '<div class="timer" id="timer">00:00</div>' : '') +
-      '<div class="actions">' +
-      (running ? '<button class="btn primary" data-act="today.finish">Finish session</button>'
-               : '<button class="btn primary" data-act="today.start">Start session</button><button class="btn" data-act="today.swap">Swap focus</button>') +
+      (running ? sessionHtml(t)
+               : '<div class="actions"><button class="btn primary" data-act="today.start">Start session</button><button class="btn" data-act="today.swap">Swap focus</button>') +
       '<button class="btn" data-act="today.open" data-id="' + FT.esc(f.id) + '">Open project</button></div></section></div>' +
       '<div class="stack"><section class="panel"><div class="label">Daily minimum: job search</div>' +
       (jobP ? '<p style="margin:0 0 4px"><b>' + FT.esc(jobP.name) + '</b></p><p style="margin:0 0 12px;color:var(--muted)">' + FT.esc(jobP.next_action) + '</p>'
@@ -45,25 +94,99 @@
       '<section class="panel"><div class="label">Weekly rotation</div><table class="rot"><tbody>' + rot + '</tbody></table></section></div></div>';
   }
 
+  // ---------- alerts ----------
+  // Browsers often block notifications inside Apps Script pages, so a finished period is announced with a sound and the tab title.
+
+  /** Browsers only allow sound after a click, so the audio context is made during one. */
+  function unlockAudio() {
+    if (audio) return;
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
+  }
+
+  function chime() {
+    if (!audio) return;
+    try {
+      if (audio.resume) audio.resume();
+      [0, 0.25, 0.5].forEach(function (offset) {
+        var osc = audio.createOscillator(), gain = audio.createGain(), at = audio.currentTime + offset;
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.2, at);
+        gain.gain.exponentialRampToValueAtTime(0.001, at + 0.2);
+        osc.connect(gain); gain.connect(audio.destination);
+        osc.start(at); osc.stop(at + 0.2);
+      });
+    } catch (e) {}
+  }
+
+  function baseTitle() { return FT.config.appName || 'Focus Tracker'; }
+
+  /** While a period is over, the tab title blinks between the alert and the app name. */
+  function showAlertTitle(p) {
+    var alertText = ALERT_TITLE[p.phase] + ' · ' + baseTitle();
+    document.title = document.title === alertText ? baseTitle() : alertText;
+  }
+
+  function alertOnce(session, p) {
+    var key = p.phase + ':' + session.pomodoro.phaseStartMs;
+    if (alertedPhaseKey === key) return;
+    alertedPhaseKey = key;
+    chime();
+  }
+
+  // ---------- ticking clock ----------
+  // Ticks on every page while a session runs, so a finished period is announced even from a project page.
+  function tick() {
+    var t = FT.store.today, s = t && t.session;
+    if (!s) { document.title = baseTitle(); return; }
+    var nowMs = Date.now();
+    var timerEl = document.getElementById('timer');
+    if (timerEl) timerEl.textContent = clock(workedMs(s, nowMs));
+    var p = pomodoroNow(s, nowMs);
+    if (!p) { document.title = baseTitle(); return; }
+    var pomoEl = document.getElementById('pomo');
+    if (pomoEl && (pomoEl.dataset.over === '1') !== p.over) { FT.render(); return; }
+    if (!p.over) {
+      var leftEl = document.getElementById('pomo-left');
+      if (leftEl) leftEl.textContent = clock(p.leftMs);
+      document.title = baseTitle();
+      return;
+    }
+    alertOnce(s, p);
+    showAlertTitle(p);
+  }
+
   FT.module({ id: 'today', tab: { title: 'Today', order: 10, render: render } });
 
   FT.onRender(function () {
     clearInterval(timer);
-    var s = FT.store.today && FT.store.today.session;
-    if (!s || !document.getElementById('timer')) return;
-    function tick() {
-      var el = document.getElementById('timer'); if (!el) return;
-      var sec = Math.max(0, Math.floor((Date.now() - new Date(s.start).getTime()) / 1000));
-      var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-      el.textContent = (h ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
-    }
-    tick(); timer = setInterval(tick, 1000);
+    tick();
+    if (FT.store.today && FT.store.today.session) timer = setInterval(tick, 1000);
   });
 
+  // ---------- actions ----------
+  function call(fn, args) { unlockAudio(); FT.rpc('today', fn, args).catch(function () {}); }
+
   FT.action('today.open', function (el) { FT.go('project', { id: el.dataset.id }); });
-  FT.action('today.start', function () { FT.rpc('today', 'start', { projectId: FT.store.today.focusId }).catch(function () {}); });
-  FT.action('today.swap', function () { FT.rpc('today', 'swap').catch(function () {}); });
-  FT.action('today.job', function () { FT.rpc('today', 'toggleJob').catch(function () {}); });
+  FT.action('today.start', function () { call('start', { projectId: FT.store.today.focusId }); });
+  FT.action('today.swap', function () { call('swap'); });
+  FT.action('today.job', function () { call('toggleJob'); });
+  FT.action('today.pause', function () { call('pause'); });
+  FT.action('today.resume', function () { call('resume'); });
+  FT.action('today.pomodoro', function () { call('pomodoro', { on: !FT.store.today.session.pomodoro }); });
+  FT.action('today.nextPhase', function () { call('nextPhase'); });
+  FT.action('today.pomodoroSettings', function () {
+    var settings = FT.store.today.pomodoroSettings;
+    FT.dialog({
+      title: 'Pomodoro lengths',
+      submit: 'Save',
+      fields: [
+        { id: 'work', label: 'Work (minutes)', value: String(settings.work) },
+        { id: 'break', label: 'Break (minutes)', value: String(settings.break) }
+      ],
+      hint: 'A new length applies from the next period you start.',
+      onSubmit: function (v) { return FT.rpc('today', 'pomodoroSettings', { work: v.work, break: v.break }, { quiet: true }); }
+    });
+  });
   FT.action('today.finish', function () {
     var t = FT.store.today, p = FT.project(t.session ? t.session.projectId : t.focusId);
     FT.dialog({

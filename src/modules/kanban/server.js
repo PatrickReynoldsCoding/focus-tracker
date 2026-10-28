@@ -68,6 +68,7 @@ function kanbanModule() {
         initProject_(a.projectId);
         var cols = columnsOf_(a.projectId);
         var colId = a.columnId || cols[0].id;
+        assert_(cols.some(function (c) { return c.id === colId; }), 'That column is not on this board. Reload and try again.');
         var inCol = TASKS.all().filter(function (t) { return t.column_id === colId; });
         var row = TASKS.insert({ project_id: a.projectId, column_id: colId, title: title, order: nextOrder_(inCol), created: nowIso_() });
         ctx.refresh('kanban');

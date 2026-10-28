@@ -2,7 +2,7 @@
 
 A daily focus picker and project tracker that runs for free on Google Sheets and Apps Script. Open the web app on any device, see one project to work on, and park it with one line when you stop.
 
-Features: Today (focus pick, session timer, daily job-search minimum), Projects, per-project Kanban (rename, add and delete columns, horizontal or vertical), notes saved as markdown files in Drive, Resources (links to Drive files per category or project) and a session Log.
+Features: Today (focus pick, session timer with pause and an optional pomodoro, daily job-search minimum), Projects (sortable and filterable), per-project Kanban (rename, add and delete columns, add tasks in any column, horizontal or vertical), notes saved as markdown files in Drive, Resources (links to Drive files per category or project) and a session Log with minutes worked. On desktop, the icon at the top right stretches the page to full width.
 
 Data lives in your own spreadsheet, one tab per table, readable and editable by hand. Notes are plain `.md` files in a Drive folder.
 

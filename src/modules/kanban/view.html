@@ -19,7 +19,9 @@
 .mvb[disabled] { opacity: 0.3; cursor: default; }
 .addcol { border: 1.5px dashed var(--line); background: transparent; color: var(--muted); cursor: pointer; min-height: 56px; font-weight: 500; border-radius: 8px; }
 .addcol:hover { background: var(--surface-2); color: var(--ink); }
-.addrow { display: flex; gap: 8px; margin-top: 14px; }
+.coladd { display: flex; gap: 4px; align-items: center; }
+.coladd input { padding: 6px 9px; font-size: 14px; background: transparent; border-style: dashed; }
+.coladd input:focus { background: var(--surface); border-style: solid; }
 </style>
 <script>
 (function () {
@@ -49,13 +51,19 @@
           '<button class="mvb" data-act="kanban.del-task" data-id="' + FT.esc(t.id) + '" aria-label="Remove task">×</button></span></div>';
       }).join('');
       return '<div class="col"><div class="colhead"><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + FT.esc(c.name) + '" aria-label="Column name">' +
-        '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete column ' + FT.esc(c.name) + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' + cards + '</div>';
+        '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete column ' + FT.esc(c.name) + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' + cards +
+        addTaskHtml(c) + '</div>';
     }).join('');
     return '<section class="panel"><div class="kbhead"><div class="label">Kanban</div>' +
       '<button class="btn sm" data-act="kanban.dir">' + (vertical ? 'Switch to horizontal' : 'Switch to vertical') + '</button></div>' +
       '<div class="board' + (vertical ? ' vertical' : '') + '">' + cols + '<button class="col addcol" data-act="kanban.add-col">+ Add column</button></div>' +
-      (b.cols.length ? '<div class="addrow"><input type="text" id="kb-new" placeholder="New task (goes in the first column)" aria-label="New task" data-enter="kanban.add-task"><button class="btn primary" data-act="kanban.add-task">Add</button></div>' : '') +
       '</section>';
+  }
+
+  function addTaskHtml(col) {
+    var id = FT.esc(col.id);
+    return '<div class="coladd"><input type="text" id="kb-new-' + id + '" placeholder="+ Add task" aria-label="New task in ' + FT.esc(col.name) + '" data-enter="kanban.add-task" data-col="' + id + '">' +
+      '<button class="mvb" data-act="kanban.add-task" data-col="' + id + '" aria-label="Add task to ' + FT.esc(col.name) + '">+</button></div>';
   }
 
   FT.module({ id: 'kanban', slots: { 'project.page': [{ order: 10, span: 'full', render: panel }] } });
@@ -66,11 +74,12 @@
     FT.render();
   });
 
-  function addTask() {
-    var input = document.getElementById('kb-new'), title = input ? input.value.trim() : '';
+  function addTask(el) {
+    var columnId = el.dataset.col, inputId = 'kb-new-' + columnId;
+    var input = document.getElementById(inputId), title = input ? input.value.trim() : '';
     if (!title) { if (input) input.focus(); return; }
-    FT.rpc('kanban', 'addTask', { projectId: FT.state.projectId, title: title }).then(function () {
-      var again = document.getElementById('kb-new'); if (again) again.focus();
+    FT.rpc('kanban', 'addTask', { projectId: FT.state.projectId, columnId: columnId, title: title }).then(function () {
+      var again = document.getElementById(inputId); if (again) again.focus();
     }).catch(function () {});
   }
   FT.action('kanban.add-task', addTask);

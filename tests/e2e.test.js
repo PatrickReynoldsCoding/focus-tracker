@@ -68,10 +68,47 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('.timer') === null);
   });
 
+  await step('full-width icon stretches the page and is remembered', async () => {
+    assert.ok(!d.body.classList.contains('wide'));
+    click($('#wideBtn'));
+    assert.ok(d.body.classList.contains('wide'));
+    assert.strictEqual($('#wideBtn').getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(w.localStorage.getItem('ft.wide'), '1');
+    click($('#wideBtn'));
+    assert.ok(!d.body.classList.contains('wide'));
+    assert.strictEqual(w.localStorage.getItem('ft.wide'), '0');
+  });
+
   await step('projects tab lists every project and category resources', async () => {
     click(tab('Projects'));
     await waitFor(() => $$('tr.row').length === 7, '7 rows');
     assert.strictEqual($$('.cats .panel').length, 3);
+  });
+
+  await step('projects table sorts by column and filters by category, status and text', async () => {
+    const names = () => $$('tr.row').map((r) => r.querySelector('b').textContent);
+    const sortBy = (key) => click($(`[data-act="projects.sort"][data-key="${key}"]`));
+    sortBy('name');
+    assert.deepStrictEqual(names(), names().slice().sort((a, b) => a.localeCompare(b)));
+    sortBy('name');
+    assert.deepStrictEqual(names(), names().slice().sort((a, b) => b.localeCompare(a)));
+    assert.ok($('th[aria-sort="descending"]').textContent.startsWith('Project'));
+    sortBy('name');
+    assert.strictEqual($$('th[aria-sort="none"]').length, 5, 'third click goes back to the default order');
+
+    setVal($('#pj-category'), 'house', 'change');
+    assert.deepStrictEqual(names().sort(), ['Bathroom extractor fan', 'Garden fence repair']);
+    setVal($('#pj-status'), 'paused', 'change');
+    assert.deepStrictEqual(names(), ['Garden fence repair']);
+    setVal($('#pj-status'), '', 'change');
+    $('#pj-text').focus();
+    setVal($('#pj-text'), 'duct');
+    assert.deepStrictEqual(names(), ['Bathroom extractor fan'], 'text matches the next action too');
+    assert.strictEqual(d.activeElement.id, 'pj-text', 'search box keeps focus while typing');
+    setVal($('#pj-text'), 'nothing like this');
+    assert.ok($('.panel .empty').textContent.includes('No projects match'));
+    click($('[data-act="projects.clear"]'));
+    assert.strictEqual($$('tr.row').length, 7);
   });
 
   await step('opening a project shows header, kanban, notes and resources', async () => {
@@ -84,11 +121,19 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!$('#nt-link').hidden);
   });
 
-  await step('adding a task puts it in the first column', async () => {
-    setVal($('#kb-new'), 'Buy duct tape');
-    click($('[data-act="kanban.add-task"]'));
+  await step('each column has its own add-task control', async () => {
+    assert.strictEqual($('#kb-new'), null, 'the single new-task bar is gone');
+    assert.strictEqual($$('.col .coladd input').length, 3);
+    setVal($$('.col .coladd input')[0], 'Buy duct tape');
+    click($$('.col')[0].querySelector('[data-act="kanban.add-task"]'));
     await waitFor(() => $$('.kcard').length === 4, 'new card');
     assert.ok($$('.col')[0].textContent.includes('Buy duct tape'));
+    const doneInput = $$('.col .coladd input')[2];
+    setVal(doneInput, 'Old fan in the bin');
+    doneInput.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await waitFor(() => $$('.kcard').length === 5, 'card added with Enter');
+    assert.ok($$('.col')[2].textContent.includes('Old fan in the bin'));
+    assert.ok(!$$('.col')[0].textContent.includes('Old fan in the bin'));
   });
 
   await step('moving a card updates the screen immediately and the sheet afterwards', async () => {
@@ -149,6 +194,33 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('[data-act="today.start"]'), 'start button');
     click($('[data-act="today.start"]'));
     await waitFor(() => $('.timer'), 'timer');
+
+    click($('[data-act="today.pause"]'));
+    await waitFor(() => $('[data-act="today.resume"]') && $('.timer .state'), 'paused');
+    click($('[data-act="today.resume"]'));
+    await waitFor(() => $('[data-act="today.pause"]') && !$('.timer .state'), 'resumed');
+
+    assert.strictEqual($('#pomo'), null, 'pomodoro is off by default');
+    click($('[data-act="today.pomodoro"]'));
+    await waitFor(() => $('#pomo'), 'pomodoro shown');
+    assert.ok(/Work 2[45]:\d\d left/.test($('#pomo').textContent), $('#pomo').textContent);
+    // Pretend the work period ran out: the box switches to "take a break" and the tab title changes
+    server.run(`(function () {
+      var props = PropertiesService.getUserProperties(), s = JSON.parse(props.getProperty('today.state'));
+      s.session.pomodoro.phaseStartMs -= 26 * 60000;
+      props.setProperty('today.state', JSON.stringify(s)); })()`);
+    await w.FT.reload();
+    await waitFor(() => $('#pomo.over'), 'work period over');
+    assert.ok($('#pomo').textContent.includes('Time for a break'));
+    await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title');
+    click(tab('Projects'));
+    await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title stays on other tabs', 2500);
+    click(tab('Today'));
+    await waitFor(() => $('#pomo.over'), 'back on Today');
+    click($('[data-act="today.nextPhase"]'));
+    await waitFor(() => $('#pomo') && !$('#pomo.over') && $('#pomo').textContent.includes('Break'), 'break started');
+    assert.strictEqual(d.title, 'Focus Tracker');
+
     click($('[data-act="today.finish"]'));
     await waitFor(() => $('.dialog'), 'finish dialog');
     setVal($('#dlg-where'), 'Rewrote the opening line'); setVal($('#dlg-next'), 'Send to a friend for feedback');

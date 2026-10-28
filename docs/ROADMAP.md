@@ -17,7 +17,15 @@ Paddy juggles several coding projects, job-search goals and house maintenance, a
 
 ## Requested changes, in the suggested order
 
-### Batch 1: quick wins
+### Batch 1: quick wins (done, 2026-10-28; tested with fakes only, not yet on Google's runtime)
+Decisions Paddy made while it was built:
+- Pomodoro breaks count as session time. Only Pause stops the session clock (and the pomodoro).
+- When a work or break period ends, it alerts and then waits for a click ("Start break" / "Start work"). It does not move on by itself.
+- The pomodoro is off by default and is switched on per session. Lengths are kept in user properties. A changed length applies from the next period.
+- The Log has a `minutes` column: worked minutes without pauses, written on finish.
+- The alert ticks on every tab while a session runs, not only on Today.
+
+Original requests:
 - Desktop: a small icon at the right to stretch the page to full screen width (remember the choice per browser).
 - Projects table: sortable and filterable (by category, status, text).
 - Kanban: remove the single "new task" bar. Each column has its own add-task control.

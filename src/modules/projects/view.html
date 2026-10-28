@@ -4,15 +4,79 @@
 .status-paused, .status-done, .status-archived { color: var(--muted); }
 .phead { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between; }
 .phead h2 { font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
+.pfilters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; align-items: center; }
+@media (max-width: 640px) { .pfilters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .pfilters input { grid-column: 1 / -1; } }
+.sortbtn { border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+.sortbtn:hover { color: var(--ink); }
+.sortbtn .arrow { display: inline-block; width: 1em; }
 </style>
 <script>
 (function () {
   var ORDER = { active: 0, paused: 1, done: 2, archived: 3 };
+  var STATUSES = ['active', 'paused', 'done', 'archived'];
+  var COLUMNS = [
+    { key: 'name', title: 'Project' },
+    { key: 'category', title: 'Category' },
+    { key: 'status', title: 'Status' },
+    { key: 'next_action', title: 'Next action' },
+    { key: 'last_touched', title: 'Last touched' }
+  ];
+  // Values compared when sorting by a column. Status sorts by its life-cycle order, not alphabetically.
+  var SORT_VALUE = {
+    name: function (p) { return p.name.toLowerCase(); },
+    category: function (p) { return FT.category(p.category).label.toLowerCase(); },
+    status: function (p) { return ORDER[p.status]; },
+    next_action: function (p) { return p.next_action.toLowerCase(); },
+    last_touched: function (p) { return p.last_touched; }
+  };
+  // view.sort null keeps the default order: active first, then longest untouched.
+  var view = { sort: null, desc: false, category: '', status: '', text: '' };
+
+  function defaultOrder(a, b) {
+    return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
+  }
+
+  function columnOrder(a, b) {
+    var value = SORT_VALUE[view.sort], left = value(a), right = value(b);
+    var result = left < right ? -1 : left > right ? 1 : 0;
+    return (view.desc ? -result : result) || defaultOrder(a, b);
+  }
+
+  function matchesFilters(p) {
+    if (view.category && p.category !== view.category) return false;
+    if (view.status && p.status !== view.status) return false;
+    var text = view.text.trim().toLowerCase();
+    return !text || (p.name + ' ' + p.next_action).toLowerCase().indexOf(text) !== -1;
+  }
+
+  function isFiltered() { return !!(view.category || view.status || view.text.trim()); }
+
+  function filtersHtml() {
+    var categories = '<option value="">All categories</option>' + FT.config.categories.map(function (c) {
+      return '<option value="' + FT.esc(c.id) + '"' + (c.id === view.category ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
+    }).join('');
+    var statuses = '<option value="">All statuses</option>' + STATUSES.map(function (s) {
+      return '<option value="' + s + '"' + (s === view.status ? ' selected' : '') + '>' + s + '</option>';
+    }).join('');
+    return '<div class="pfilters">' +
+      '<input type="text" id="pj-text" placeholder="Search name or next action" aria-label="Search projects" value="' + FT.esc(view.text) + '" data-input="projects.text">' +
+      '<select id="pj-category" aria-label="Filter by category" data-change="projects.category">' + categories + '</select>' +
+      '<select id="pj-status" aria-label="Filter by status" data-change="projects.statusFilter">' + statuses + '</select>' +
+      '<button class="btn sm" data-act="projects.clear"' + (isFiltered() ? '' : ' disabled') + '>Clear</button></div>';
+  }
+
+  function headHtml() {
+    return COLUMNS.map(function (c) {
+      var active = view.sort === c.key;
+      var sortState = active ? (view.desc ? 'descending' : 'ascending') : 'none';
+      return '<th aria-sort="' + sortState + '"><button class="sortbtn" data-act="projects.sort" data-key="' + c.key + '">' + FT.esc(c.title) +
+        '<span class="arrow" aria-hidden="true">' + (active ? (view.desc ? '↓' : '↑') : '') + '</span></button></th>';
+    }).join('');
+  }
 
   function tabHtml() {
-    var list = (FT.store.projects || []).slice().sort(function (a, b) {
-      return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
-    });
+    var all = FT.store.projects || [];
+    var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
       return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
@@ -20,10 +84,21 @@
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
     var table = list.length
-      ? '<div class="scroll"><table><thead><tr><th>Project</th><th>Category</th><th>Status</th><th>Next action</th><th>Last touched</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
-      : '<p class="empty">No projects yet. Add the first one.</p>';
+      ? '<div class="scroll"><table><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<p class="empty">' + (all.length ? 'No projects match these filters.' : 'No projects yet. Add the first one.') + '</p>';
     var extra = FT.slots('projects.tab').map(function (s) { return s.render(FT); }).join('');
-    return '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' + table + '</section>' + extra;
+    return '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
+      (all.length ? filtersHtml() : '') + table + '</section>' + extra;
+  }
+
+  /** Re-render after a keystroke in the search box, then put the caret back where it was. */
+  function renderKeepingSearchFocus(el) {
+    var caret = el.selectionStart;
+    FT.render();
+    var again = document.getElementById('pj-text');
+    if (!again) return;
+    again.focus();
+    again.setSelectionRange(caret, caret);
   }
 
   function headerHtml(p) {
@@ -50,6 +125,19 @@
   });
 
   FT.action('projects.open', function (el) { FT.go('project', { id: el.dataset.id }); });
+
+  /** Click a column title to sort by it, again to reverse, a third time to go back to the default order. */
+  FT.action('projects.sort', function (el) {
+    var key = el.dataset.key;
+    if (view.sort !== key) { view.sort = key; view.desc = false; }
+    else if (!view.desc) view.desc = true;
+    else { view.sort = null; view.desc = false; }
+    FT.render();
+  });
+  FT.on('input', 'projects.text', function (el) { view.text = el.value; renderKeepingSearchFocus(el); });
+  FT.on('change', 'projects.category', function (el) { view.category = el.value; FT.render(); });
+  FT.on('change', 'projects.statusFilter', function (el) { view.status = el.value; FT.render(); });
+  FT.action('projects.clear', function () { view.category = ''; view.status = ''; view.text = ''; FT.render(); });
 
   FT.action('projects.add', function () {
     FT.dialog({

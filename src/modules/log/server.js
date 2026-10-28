@@ -1,7 +1,7 @@
 /** Log module: one line per working session, written when you finish a session. */
 
 function logModule() {
-  var T = new Table('Log', ['id', 'project_id', 'date', 'where_stopped', 'next_action']);
+  var T = new Table('Log', ['id', 'project_id', 'date', 'where_stopped', 'next_action', 'minutes'], ['minutes']);
   var KEEP = 300; // newest entries sent to the browser
 
   return {
@@ -16,7 +16,8 @@ function logModule() {
           project_id: a.projectId,
           date: nowIso_(),
           where_stopped: clean_(a.where, 300) || 'No note',
-          next_action: clean_(a.next, 300)
+          next_action: clean_(a.next, 300),
+          minutes: Math.max(0, Math.round(Number(a.minutes) || 0))
         });
       },
 

@@ -12,10 +12,11 @@
  * Interactions use data attributes handled by delegation:
  *   data-act="module.name"     click   -> FT.action('module.name', function (el, event) {})
  *   data-change="module.name"  change  -> FT.on('change', 'module.name', fn)
+ *   data-input="module.name"   input   -> FT.on('input', 'module.name', fn)   (every keystroke)
  *   data-enter="module.name"   Enter key in an input
  */
 var FT = (function () {
-  var modules = {}, renderHooks = [], handlers = { act: {}, change: {}, enter: {} }, pending = 0, syncTimer = null;
+  var modules = {}, renderHooks = [], handlers = { act: {}, change: {}, input: {}, enter: {} }, pending = 0, syncTimer = null;
   var FT = { store: {}, config: { categories: [], staleDays: 5 }, state: { view: null, projectId: null }, ready: false };
 
   function $(id) { return document.getElementById(id); }
@@ -221,9 +222,29 @@ var FT = (function () {
       .bootstrap();
   };
 
+  // ---------- full width (desktop) ----------
+  var WIDE_KEY = 'ft.wide';
+  function applyWide(on) {
+    document.body.classList.toggle('wide', on);
+    var btn = $('wideBtn');
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.title = on ? 'Normal width' : 'Full width';
+    btn.setAttribute('aria-label', btn.title);
+    btn.textContent = on ? '⤡' : '⤢';
+  }
+  var wideSaved = false;
+  try { wideSaved = localStorage.getItem(WIDE_KEY) === '1'; } catch (e) {}
+  applyWide(wideSaved);
+
   // ---------- event delegation ----------
   FT.action('core.tab', function (el) { FT.go(el.dataset.view); });
   FT.action('core.reload', function () { location.reload(); });
+  FT.action('core.wide', function () {
+    var on = !document.body.classList.contains('wide');
+    applyWide(on);
+    try { localStorage.setItem(WIDE_KEY, on ? '1' : '0'); } catch (e) {}
+  });
 
   document.addEventListener('click', function (e) {
     var el = e.target.closest ? e.target.closest('[data-act]') : null;
@@ -234,6 +255,10 @@ var FT = (function () {
   document.addEventListener('change', function (e) {
     var el = e.target.closest ? e.target.closest('[data-change]') : null;
     if (el && handlers.change[el.dataset.change]) handlers.change[el.dataset.change](el, e);
+  });
+  document.addEventListener('input', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-input]') : null;
+    if (el && handlers.input[el.dataset.input]) handlers.input[el.dataset.input](el, e);
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') FT.closeDialog();
