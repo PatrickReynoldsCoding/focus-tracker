@@ -8,7 +8,7 @@
 .sticky .grip { display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding: 2px 4px; min-height: 28px; cursor: grab; touch-action: none;
   background: color-mix(in srgb, #000 6%, transparent); user-select: none; }
 .sticky .grip:active { cursor: grabbing; }
-.sticky .sbtn { border: 0; background: transparent; color: #2a2418; cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 7px; border-radius: 5px; opacity: 0.7; }
+.sticky .sbtn { border: 0; background: transparent; color: #2a2418; cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 7px; border-radius: 5px; opacity: 0.85; }
 .sticky .sbtn:hover, .sticky .sbtn[aria-expanded="true"] { background: rgba(0, 0, 0, 0.1); opacity: 1; }
 .sticky .sbtn.sdel:hover { color: #9a1d1a; }
 /* The options menu sits beside its note (outside it, so small notes do not cut it off). */
@@ -16,19 +16,21 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22); padding: 12px; }
 .stickymenu .label { margin-bottom: 8px; }
 .stickymenu .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
-.stickymenu .dot { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.2); padding: 0; cursor: pointer; }
+.stickymenu .dot { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.5); padding: 0; cursor: pointer; }
 .stickymenu .dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.stickymenu .dot { position: relative; }
+.stickymenu .dot[aria-pressed="true"]::after { content: "\2713"; position: absolute; right: -6px; bottom: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
 .stickymenu input[type="range"] { width: 100%; accent-color: var(--accent); }
 .stickymenu .rangerow { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
 .sticky textarea { flex: 1 1 auto; min-height: 0; border: 0; background: transparent; color: inherit; resize: none; padding: 8px 10px; font-size: 15px; line-height: 1.45; border-radius: 0; }
 .sticky textarea:focus { outline: none; }
-.sticky textarea::placeholder { color: rgba(42, 36, 24, 0.55); }
+.sticky textarea::placeholder { color: rgba(42, 36, 24, 0.82); }
 @media (max-width: 760px) { .sticky .grip { min-height: 40px; gap: 6px; padding: 2px 6px; } .sticky .sbtn { min-width: 40px; min-height: 36px; font-size: 18px; } }
 .stickyfab { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); z-index: 35; display: flex; gap: 8px; }
-.stickyfab button { position: relative; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; height: 44px; padding: 0 16px;
+.stickyfab button { position: relative; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); border-radius: 999px; height: 44px; padding: 0 16px;
   font-weight: 600; cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16); display: inline-flex; align-items: center; gap: 6px; }
 .stickyfab button:hover { background: var(--surface-2); }
-.stickyfab .badge { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff;
+.stickyfab .badge { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: var(--on-bad);
   font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 </style>
 <script>

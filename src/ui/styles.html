@@ -1,7 +1,7 @@
 <style>
 /* Shared look: tokens, layout and generic components. Module-specific styles live in each module's view.html. */
 :root {
-  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #5a6b68; --line: #d3dcd9;
+  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #4d5d5a; --line: #d3dcd9;
   --accent: #0e6b62; --accent-ink: #ffffff; --accent-soft: #d9efeb;
   --warn: #a35d00; --warn-soft: #fbeed8; --bad: #b3322f; --bad-soft: #f9e0df; --ok: #2b7a4b; --ok-soft: #dcf0e4;
   --cat-1: #0e6b62; --cat-2: #a35d00; --cat-3: #4a5fa8; --cat-4: #b3322f; --cat-5: #7a4fa8; --cat-6: #2b7a4b; --cat-7: #5a6b68; --cat-8: #c2561b;
@@ -13,7 +13,7 @@
 /* Dark colours: when the theme is Dark, or "Same as computer" and the computer is in dark mode (Settings, ⚙). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="eink"]) {
-    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #a6b9b5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
     --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
@@ -21,7 +21,7 @@
   }
 }
 :root[data-theme="dark"] {
-    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #a6b9b5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
     --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
@@ -204,10 +204,10 @@ main:focus { outline: none; }
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { filter: brightness(1.08); }
-.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: var(--on-bad); }
 .btn.done { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
 .btn.sm { padding: 5px 10px; font-size: 13px; }
-.btn[disabled] { opacity: 0.45; cursor: default; }
+.btn[disabled] { opacity: 1; cursor: default; background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; font-family: var(--font-mono); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); }
@@ -245,7 +245,7 @@ textarea { min-height: 150px; resize: vertical; }
 .hint { font-size: 13px; color: var(--muted); background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 14px; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; max-width: min(92vw, 520px); font-size: 14px; }
-.toast.error { background: var(--bad); color: #fff; }
+.toast.error { background: var(--bad); color: var(--on-bad); }
 .toast { display: flex; align-items: center; gap: 12px; }
 .toast .toastbtn, .toast .toastx { flex: none; }
 .toastx { border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer; }
@@ -271,4 +271,196 @@ textarea { min-height: 150px; resize: vertical; }
 .rtedit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
 .rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
 .rtedit a { overflow-wrap: anywhere; }
+
+/* ---- Theme review fixes, part 1: choices never rest on colour or a shadow alone ---- */
+/* A chosen option in a button group also gets a tick. */
+.choice label:has(input:checked)::before, .seg label:has(input:checked)::before { content: "\2713\00a0"; font-weight: 700; }
+/* E-ink: the eight card/list colours become black and white patterns, the same on the swatch, the card's left edge and a list's top edge.
+   A chosen option is filled black; keyboard focus is a dashed ring, so the two can be told apart. */
+:root[data-theme="eink"] {
+  --pat-1: linear-gradient(#000, #000);
+  --pat-2: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px);
+  --pat-3: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px);
+  --pat-4: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px);
+  --pat-5: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px;
+  --pat-6: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px;
+  --pat-7: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px);
+  --pat-8: linear-gradient(90deg, #000 50%, #fff 50%);
+}
+:root[data-theme="eink"] .swatches span[style*="var(--cat-1)"] { background: var(--pat-1); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-2)"] { background: var(--pat-2); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-3)"] { background: var(--pat-3); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-4)"] { background: var(--pat-4); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-5)"] { background: var(--pat-5); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-6)"] { background: var(--pat-6); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-7)"] { background: var(--pat-7); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-8)"] { background: var(--pat-8); }
+:root[data-theme="eink"] .swatches span { border: 3px solid #000; }
+:root[data-theme="eink"] .swatches input:checked + span { border-width: 5px; }
+:root[data-theme="eink"] .swatches input:checked + span::after, :root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"]::after { background: #000; color: #fff; }
+:root[data-theme="eink"] .kcard { position: relative; border: 2px solid #000; padding-left: 22px; }
+:root[data-theme="eink"] .kcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 11px; border-right: 2px solid #000; }
+:root[data-theme="eink"] .kcard[style*="var(--cat-1)"]::before { background: var(--pat-1); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-2)"]::before { background: var(--pat-2); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-3)"]::before { background: var(--pat-3); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-4)"]::before { background: var(--pat-4); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-5)"]::before { background: var(--pat-5); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-6)"]::before { background: var(--pat-6); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-7)"]::before { background: var(--pat-7); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-8)"]::before { background: var(--pat-8); }
+:root[data-theme="eink"] .listpanel.tinted { position: relative; border-top: 3px solid #000 !important; padding-top: 30px; }
+:root[data-theme="eink"] .listpanel.tinted::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 11px; border-bottom: 2px solid #000; }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-1)"]::before { background: var(--pat-1); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-2)"]::before { background: var(--pat-2); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-3)"]::before { background: var(--pat-3); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-4)"]::before { background: var(--pat-4); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-5)"]::before { background: var(--pat-5); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-6)"]::before { background: var(--pat-6); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-7)"]::before { background: var(--pat-7); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-8)"]::before { background: var(--pat-8); }
+:root[data-theme="eink"] .choice label:has(input:checked), :root[data-theme="eink"] .seg label:has(input:checked) { background: #000; color: #fff; border-color: #000; box-shadow: none; }
+:root[data-theme="eink"] .seg label:has(input:checked) small { color: #fff; }
+:root[data-theme="eink"] .choice label:has(input:focus-visible), :root[data-theme="eink"] .seg label:has(input:focus-visible) { outline: 4px dashed #000; outline-offset: 3px; }
+/* Sticky notes: the paper colour is shown as a pattern in the top strip and on the colour buttons. */
+:root[data-theme="eink"] .sticky[data-color="yellow"] .grip { background: #fff; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="yellow"] { background: #fff !important; }
+:root[data-theme="eink"] .sticky[data-color="sand"] .grip { background: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="sand"] { background: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px) !important; }
+:root[data-theme="eink"] .sticky[data-color="peach"] .grip { background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="peach"] { background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px) !important; }
+:root[data-theme="eink"] .sticky[data-color="orange"] .grip { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="orange"] { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="red"] .grip { background: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="red"] { background: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px !important; }
+:root[data-theme="eink"] .sticky[data-color="pink"] .grip { background: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="pink"] { background: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px !important; }
+:root[data-theme="eink"] .sticky[data-color="lavender"] .grip { background: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="lavender"] { background: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="purple"] .grip { background: linear-gradient(90deg, #000 50%, #fff 50%); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="purple"] { background: linear-gradient(90deg, #000 50%, #fff 50%) !important; }
+:root[data-theme="eink"] .sticky[data-color="blue"] .grip { background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="blue"] { background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px) !important; }
+:root[data-theme="eink"] .sticky[data-color="sky"] .grip { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 8px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="sky"] { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 8px) !important; }
+:root[data-theme="eink"] .sticky[data-color="teal"] .grip { background: repeating-linear-gradient(45deg, #000 0 4px, #fff 4px 9px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="teal"] { background: repeating-linear-gradient(45deg, #000 0 4px, #fff 4px 9px) !important; }
+:root[data-theme="eink"] .sticky[data-color="mint"] .grip { background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="mint"] { background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="green"] .grip { background: radial-gradient(#000 2.4px, #fff 3px) 0 0 / 9px 9px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="green"] { background: radial-gradient(#000 2.4px, #fff 3px) 0 0 / 9px 9px !important; }
+:root[data-theme="eink"] .sticky[data-color="lime"] .grip { background: repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 6px), repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 6px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="lime"] { background: repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 6px), repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 6px) !important; }
+:root[data-theme="eink"] .sticky[data-color="grey"] .grip { background: linear-gradient(#000, #000); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="grey"] { background: linear-gradient(#000, #000) !important; }
+:root[data-theme="eink"] .stickymenu .dot { border: 3px solid #000; width: 40px; height: 40px; }
+:root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"] { border-width: 5px; }
+
+/* ---- Theme review fixes, part 2: E-ink borders, states and tap targets ---- */
+/* Nothing thinner than 2px, and no placeholder that fades to grey. */
+:root[data-theme="eink"] .choice label, :root[data-theme="eink"] .seg label, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .mvb,
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
+:root[data-theme="eink"] .pager .dots i { border-width: 2px; width: 10px; height: 10px; } :root[data-theme="eink"] .pager .dots i.on { width: 20px; }
+:root[data-theme="eink"] .addcol { border: 2px dashed #000; }
+:root[data-theme="eink"] ::placeholder { color: #333; opacity: 1; }
+:root[data-theme="eink"] .rtedit:empty::before { color: #333; }
+/* One heavy ring when a field has focus (the border plus a touching outline), not a ring with a gap. */
+:root[data-theme="eink"] input:focus-visible, :root[data-theme="eink"] select:focus-visible, :root[data-theme="eink"] textarea:focus-visible, :root[data-theme="eink"] .rtedit:focus { outline: 3px solid #000; outline-offset: 0; }
+/* Disabled: a dashed outline and plain dark text, not just paler ink. */
+:root[data-theme="eink"] .btn[disabled], :root[data-theme="eink"] .rm[disabled], :root[data-theme="eink"] .mvb[disabled] { opacity: 1; background: #fff; color: #444; border: 2px dashed #000; }
+:root[data-theme="eink"] .btn.primary[disabled], :root[data-theme="eink"] .btn.danger[disabled] { background: #fff; color: #444; border: 2px dashed #000; }
+/* Danger looks different from the main action: white, double border, and a warning sign. */
+:root[data-theme="eink"] .btn.danger, :root[data-theme="eink"] .btn.danger:hover { background: #fff; color: #000; border: 5px double #000; font-weight: 700; }
+:root[data-theme="eink"] .btn.danger::before { content: "\26A0\00a0"; }
+:root[data-theme="eink"] .toast.error::before { content: "Error: "; font-weight: 700; }
+/* Text colours have no place on e-ink: the colour buttons go, and coloured text in a note is bold and underlined instead. */
+:root[data-theme="eink"] .rtbar .dot { display: none; }
+:root[data-theme="eink"] font[color] { color: #000; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
+/* Dragging a card: a dashed outline in place of the shadow; the gap it leaves stays solid. */
+:root[data-theme="eink"] .kchosen { outline: 3px dashed #000; outline-offset: 2px; }
+:root[data-theme="eink"] .kghost { opacity: 1; border-style: dashed; }
+/* Sticky notes: one border, a pattern strip for the colour, plain white buttons. */
+:root[data-theme="eink"] .sticky .grip { border-bottom: 2px solid #000; min-height: 48px; gap: 6px; }
+:root[data-theme="eink"] .sticky .sbtn { background: #fff; color: #000; opacity: 1; border: 2px solid #000; min-width: 44px; min-height: 40px; font-size: 18px; }
+:root[data-theme="eink"] .sticky textarea { border: 0; outline: 0; min-height: 0; background: transparent; }
+:root[data-theme="eink"] .sticky textarea::placeholder { color: #333; }
+:root[data-theme="eink"] .stickymenu { width: min(300px, 90vw); }
+:root[data-theme="eink"] .stickymenu .dot { width: 44px; height: 44px; }
+:root[data-theme="eink"] .stickyfab button { border: 3px solid #000; background: #fff; color: #000; }
+:root[data-theme="eink"] .stickyfab .badge { background: #000; color: #fff; }
+/* The pager's neighbours are buttons, so they look like buttons. */
+:root[data-theme="eink"] .pager .pg-side { border: 2px solid #000; border-radius: 6px; color: #000; min-height: 44px; padding: 8px 12px; }
+/* Work and Personal differ without colour: Work has a double rule under the bar. */
+:root[data-theme="eink"] body[data-mode="work"] .bar { border-bottom: 6px double #000; }
+/* Tap targets of at least 44px on e-ink, where a missed tap costs a slow screen refresh. */
+:root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm, :root[data-theme="eink"] .mvb, :root[data-theme="eink"] .sortbtn, :root[data-theme="eink"] .rotq .arrows button,
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .wblist .wbname { min-width: 44px; min-height: 44px; }
+:root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm { padding: 8px 12px; }
+:root[data-theme="eink"] .btn.sm { min-height: 44px; padding: 8px 14px; }
+:root[data-theme="eink"] .kcard .ktitle { padding: 10px 0; min-height: 44px; display: flex; align-items: center; }
+:root[data-theme="eink"] .rotq blockquote { padding: 10px 0; }
+:root[data-theme="eink"] .swatches span { width: 44px; height: 44px; }
+:root[data-theme="eink"] .toggle { min-height: 44px; }
+:root[data-theme="eink"] .toggle input, :root[data-theme="eink"] .crit input[type="checkbox"] { width: 36px; height: 36px; }
+:root[data-theme="eink"] .crit li { min-height: 48px; align-items: center; }
+:root[data-theme="eink"] .crit .ctext { min-height: 44px; display: flex; align-items: center; }
+:root[data-theme="eink"] a#nt-link, :root[data-theme="eink"] .wbmeta, :root[data-theme="eink"] .reslist a, :root[data-theme="eink"] .wbfoot a { display: inline-flex; align-items: center; min-height: 44px; }
+:root[data-theme="eink"] .sticky .sbtn { min-height: 44px; }
+:root[data-theme="eink"] .wbmeta { min-width: 44px; justify-content: center; }
+:root[data-theme="eink"] .notes-panel.full .notes-top .rtbar button { min-width: 44px; height: 44px; }
+
+/* ---- Theme review fixes, part 3: contrast in Light and Dark ---- */
+/* Tokens. --line-strong is for the edges of controls (3:1 against the page); --line stays for quiet dividers.
+   --placeholder is ink faded towards the field, always above 4.5:1. --on-bad is the text colour on --bad. */
+:root { --line-strong: #6a7b78; --placeholder: color-mix(in srgb, var(--ink) 78%, var(--surface)); --on-bad: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) { --line-strong: #73918b; --on-bad: #2a0907; } }
+:root[data-theme="dark"] { --line-strong: #73918b; --on-bad: #2a0907; }
+:root[data-theme="eink"] { --line-strong: #000; --placeholder: #333; --on-bad: #fff; }
+/* Control edges you can see: buttons, fields, editors, choices and small buttons. The chosen state keeps its own colour. */
+:root .btn:not(.primary):not(.danger):not(.done):not([disabled]), :root .iconbtn, :root select:not(.modeselect), :root input[type="text"], :root input[type="date"], :root input[type="time"],
+:root textarea, :root .rtbar button, :root .rtedit, :root .mvb, :root .coladd input, :root .addcol, :root .toastbtn, :root .modebadge, :root .dialog,
+:root .dialog .choice label:not(:has(input:checked)), :root .dialog .seg label:not(:has(input:checked)) { border-color: var(--line-strong); }
+:root .tab[aria-current="page"] { border-color: transparent; }
+/* Placeholders: the browser's default grey fails on dark and on coloured lists. */
+input::placeholder, textarea::placeholder { color: var(--placeholder); opacity: 1; }
+.rtedit:empty::before { color: var(--placeholder); }
+font[color="#d64545" i] { color: #c53030; }
+font[color="#2f7fd6" i] { color: #1f6bc0; }
+font[color="#2b9a5b" i] { color: #1f8049; }
+font[color="#c27a00" i] { color: #a86800; }
+/* Dark: the current tab uses the accent instead of a bright white pill, and a coloured list's tint stays calm. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 17%, var(--surface)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#d64545" i] { color: #ff8f8a; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#2f7fd6" i] { color: #7db5ff; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#2b9a5b" i] { color: #5fd392; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#c27a00" i] { color: #f0b85a; }
+}
+:root[data-theme="dark"] .tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+:root[data-theme="dark"] .listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); }
+:root[data-theme="dark"] .listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 17%, var(--surface)); }
+/* The four text colours of the note editor, lightened for a dark page (the stored note keeps the original colour). */
+:root[data-theme="dark"] font[color="#d64545" i] { color: #ff8f8a; }
+:root[data-theme="dark"] font[color="#2f7fd6" i] { color: #7db5ff; }
+:root[data-theme="dark"] font[color="#2b9a5b" i] { color: #5fd392; }
+:root[data-theme="dark"] font[color="#c27a00" i] { color: #f0b85a; }
+/* Dark sticky notes: near-black ink, and the paper never thinner than 60% (below that no paper colour keeps 4.5:1 over a dark page;
+   Light keeps the full 40% to 100% range). The saved see-through value is not changed. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
+}
+:root[data-theme="dark"] .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
+:root[data-theme="dark"] .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
+:root[data-theme="dark"] .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
+
+/* ---- Theme review fixes, part 4: reduced motion ---- */
+/* Sortable animates the cards and checklist rows it moves with an inline 150ms transition, and GridStack animates panels while arranging them.
+   With "reduce motion" on, things jump into place instead. */
+@media (prefers-reduced-motion: reduce) {
+  .cards > *, .crit > *, .board > *, .lists > *, .grid-stack-animate, .grid-stack-animate > .grid-stack-item { transition: none !important; animation: none !important; }
+  html { scroll-behavior: auto; }
+}
 </style>
