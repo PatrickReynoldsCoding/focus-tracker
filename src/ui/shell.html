@@ -51,6 +51,16 @@ var FT = (function () {
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
     return null;
   };
+  // Web addresses in plain text. Trailing punctuation (a full stop after a link) stays outside the link.
+  var URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+
+  /** Escape text for HTML and make web addresses in it clickable links that open in a new tab. */
+  FT.linkify = function (text) {
+    return FT.esc(text).replace(URL_PATTERN, function (url) {
+      return '<a class="textlink" href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
+    });
+  };
+
   FT.errorText = function (err) {
     var m = err && err.message ? err.message : String(err || 'Something went wrong.');
     return m.replace(/^(Error:\s*)+/, '');
@@ -150,6 +160,7 @@ var FT = (function () {
     'kanban.addColumn': 'Column added', 'kanban.renameColumn': 'Column rename', 'kanban.deleteColumn': 'Column deleted',
     'projects.create': 'Project added', 'projects.update': 'Project edit', 'projects.remove': 'Project deleted',
     'lists.create': 'List added', 'lists.rename': 'List rename', 'lists.remove': 'List deleted', 'lists.setColor': 'List colour',
+    'criteria.add': 'Criterion added', 'criteria.update': 'Criterion change', 'criteria.remove': 'Criterion deleted',
     'categories.add': 'Category added', 'categories.update': 'Category edit', 'categories.remove': 'Category deleted',
     'resources.add': 'Link added', 'resources.remove': 'Link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap'
   };
@@ -544,6 +555,9 @@ var FT = (function () {
   document.addEventListener('click', function (e) {
     var el = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!el || el.disabled) return;
+    // A link inside a clickable card or row opens the link, not the card.
+    var link = e.target.closest('a[href]');
+    if (link && el.contains(link)) return;
     var fn = handlers.act[el.dataset.act];
     if (fn) fn(el, e);
   });
@@ -560,7 +574,16 @@ var FT = (function () {
   }
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') FT.closeDialog();
+    if (e.key === 'Escape') {
+      if ($('dialogRoot').innerHTML) FT.closeDialog();
+      else if (FT.state.editLayout) { FT.state.editLayout = false; FT.render(); }
+    }
+    // Clickable areas that are not buttons (they hold links, which may not sit inside a button) answer Enter and Space.
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role="button"][data-act]')) {
+      e.preventDefault();
+      e.target.click();
+      return;
+    }
     if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-enter]')) {
       var fn = handlers.enter[e.target.dataset.enter];
       if (fn) { e.preventDefault(); fn(e.target, e); }

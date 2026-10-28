@@ -53,6 +53,11 @@ Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
+### Links, acceptance criteria, Esc (done, 2026-10-28, requested by Paddy)
+- Web addresses in card titles and note previews, next actions, "Last time", the Log and resource notes are clickable (`FT.linkify`, new tab). A link inside a clickable card opens the link, not the card. Addresses typed into a card note become links when saved; in the editor Cmd/Ctrl + click opens them.
+- Each project page has an "Acceptance criteria" checklist above the Kanban (criteria module, Criteria tab): add with Enter, tick, click to edit, drag to reorder, delete with Undo, "Hide checked" per project (browser-local).
+- Esc leaves Edit layout (after closing a dialog, if one is open).
+
 ### Speed, undo and editing (done, 2026-10-28, requested by Paddy)
 - Duplicate cards were real: while a save was slow (about 1.5 s on Apps Script) the text stayed in the box, so a second Enter saved it twice. Now new cards show at once with an id made in the browser, the box clears, and the server refuses a repeated id.
 - Speed: each sheet tab is read once per request and writes keep that copy up to date (sheetdb.js), header and rows come in one read. Sheet calls fell from 86 to 44 to open the app and from 44 to 12 to add a card. Card add, move, edit and delete show on screen first and save in the background, one save at a time and in order; a reply's data is only used when no later save is waiting. The browser warns before closing the tab while saves are pending.

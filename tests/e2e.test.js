@@ -412,6 +412,57 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0].color === '6', 'saved');
   });
 
+  await step('acceptance criteria sit above the Kanban: add with Enter, tick, hide checked, edit', async () => {
+    click(tab('Projects'));
+    click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
+    await waitFor(() => $('#crit-new'), 'criteria panel');
+    const labels = $$('.lcell .label').map((l) => l.textContent);
+    assert.ok(labels.indexOf('Acceptance criteria') < labels.indexOf('Kanban'), 'above the Kanban');
+    for (const text of ['Fan is quiet', 'Spec: https://example.com/fan']) {
+      setVal($('#crit-new'), text);
+      $('#crit-new').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+    assert.deepStrictEqual($$('.crit li .ctext').map((t) => t.textContent), ['Fan is quiet', 'Spec: https://example.com/fan']);
+    const link = $('.crit li .ctext a');
+    assert.strictEqual(link.getAttribute('href'), 'https://example.com/fan');
+    assert.strictEqual(link.getAttribute('target'), '_blank');
+    const box = $$('.crit li input[type="checkbox"]')[0];
+    box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok($('.crithead').textContent.includes('1 of 2 done'));
+    click($('[data-act="criteria.toggleDone"]'));
+    assert.deepStrictEqual($$('.crit li .ctext').map((t) => t.textContent), ['Spec: https://example.com/fan'], 'checked items hidden');
+    assert.ok($('[data-act="criteria.toggleDone"]').textContent.includes('Show checked (1)'));
+    click($('.crit li .ctext'));
+    const edit = await waitFor(() => $('#crit-edit'), 'edit box');
+    setVal(edit, 'Spec sheet: https://example.com/fan');
+    edit.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await waitFor(() => !$('#crit-edit') && $('.crit li .ctext').textContent === 'Spec sheet: https://example.com/fan', 'edited');
+    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.criteria)).some((c) => c.text.startsWith('Spec sheet') ), 'saved');
+  });
+
+  await step('a link in a card title opens the link, not the card', async () => {
+    const input = $$('.col .coladd input')[0];
+    setVal(input, 'Read https://example.com/manual');
+    input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const card = $$('.kcard').find((c) => c.textContent.includes('example.com/manual'));
+    const link = card.querySelector('a.textlink');
+    assert.strictEqual(link.getAttribute('href'), 'https://example.com/manual');
+    link.addEventListener('click', (e) => e.preventDefault(), { once: true });
+    click(link);
+    await sleep(30);
+    assert.strictEqual($('.dialog'), null, 'no card dialog');
+    click(card.querySelector('.kt'));
+    await waitFor(() => $('#dlg-cardtitle'), 'clicking the text still opens the card');
+    click($('#dlg-cancel'));
+  });
+
+  await step('Esc leaves Edit layout mode', async () => {
+    w.FT.state.editLayout = true;
+    w.FT.render();
+    d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.strictEqual(w.FT.state.editLayout, false);
+  });
+
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {
     const personalFolder = $('#driveLink').href;
     assert.strictEqual(d.body.dataset.mode, 'personal');

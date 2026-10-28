@@ -415,6 +415,10 @@ test('rich-text notes keep safe formatting and drop anything that could run or l
   assert.strictEqual(clean('1 < 2 <img src=x onerror=alert(1)'), '1 &lt; 2 &lt;img src=x onerror=alert(1)');
   assert.strictEqual(clean('<b title="a>b" onclick=x>t</b>'), '<b>t</b>');
   assert.throws(() => clean('x'.repeat(40001)), /too long/);
+  assert.strictEqual(clean('See https://a.io/x?y=1&amp;z=2. Done'),
+    'See <a href="https://a.io/x?y=1&amp;z=2" target="_blank" rel="noopener noreferrer">https://a.io/x?y=1&amp;z=2</a>. Done', 'typed addresses become links');
+  assert.strictEqual(clean('<a href="https://a.io">https://a.io</a>'), '<a href="https://a.io" target="_blank" rel="noopener noreferrer">https://a.io</a>', 'no link inside a link');
+  assert.strictEqual(clean('javascript:alert(1) and ftp://x'), 'javascript:alert(1) and ftp://x', 'only web addresses');
   const plain = s.run('richTextToPlain_')('<p>Intro &amp; more</p><ul><li>One</li><li><a href="https://a.io">site</a></li></ul>Line<br>two');
   assert.strictEqual(plain, 'Intro & more\n\n- One\n- site (https://a.io)\nLine\ntwo');
   assert.strictEqual(s.run('plainToRichText_')('See https://a.io/x?y=1&z=2\n<b>'),
@@ -581,13 +585,32 @@ test('a project can be made with a new category; lists get a colour; panels can 
   assert.strictEqual(json(s.run('bootstrap()')).data.layout.today.rotation.hidden, true);
 });
 
+test('acceptance criteria: add, tick, edit, reorder, delete, undo, and they go with the project', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  assert.throws(() => s.call('criteria', 'add', { projectId: 'nope', text: 'x' }), /Project not found/);
+  assert.throws(() => s.call('criteria', 'add', { projectId: p.id, text: ' ' }), /needs some text/);
+  const a = s.call('criteria', 'add', { id: 'cccc0001', projectId: p.id, text: 'Fan is quiet' }).result;
+  s.call('criteria', 'add', { projectId: p.id, text: 'Steam clears in 5 minutes' });
+  assert.strictEqual(a.id, 'cccc0001');
+  let list = s.call('criteria', 'update', { id: a.id, done: true }).slices.criteria;
+  assert.strictEqual(list[0].done, 'yes');
+  list = s.call('criteria', 'update', { id: a.id, text: 'Fan is quiet at night', order: 9 }).slices.criteria;
+  assert.deepStrictEqual(list.map((c) => c.text), ['Steam clears in 5 minutes', 'Fan is quiet at night']);
+  s.call('criteria', 'remove', { id: a.id });
+  assert.strictEqual(json(s.run('undo')()).undone, 'criteria.remove');
+  assert.strictEqual(json(s.run('bootstrap()')).data.criteria.length, 2);
+  s.call('projects', 'remove', { id: p.id });
+  assert.strictEqual(json(s.run('bootstrap()')).data.criteria.length, 0);
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'today', 'whiteboard']);
-  assert.strictEqual(b.modules.length, 10);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'today', 'whiteboard']);
+  assert.strictEqual(b.modules.length, 11);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

@@ -91,9 +91,10 @@
   function cardHtml(t) {
     var id = FT.esc(t.id);
     var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
-    var note = t.note_text ? '<span class="knote">' + FT.esc(t.note_text.slice(0, 160)) + '</span>' : '';
-    return '<div class="kcard" data-id="' + id + '"' + color + '><button class="ktitle" data-act="kanban.open-card" data-id="' + id + '" aria-label="Open ' + FT.esc(t.title) + '">' +
-      '<span class="kt">' + FT.esc(t.title) + '</span>' + note + '</button><span class="mv">' +
+    var note = t.note_text ? '<span class="knote">' + FT.linkify(t.note_text.slice(0, 160)) + '</span>' : '';
+    // A div, not a button: titles and notes can hold links, and a link may not sit inside a button.
+    return '<div class="kcard" data-id="' + id + '"' + color + '><div class="ktitle" role="button" tabindex="0" data-act="kanban.open-card" data-id="' + id + '">' +
+      '<span class="kt">' + FT.linkify(t.title) + '</span>' + note + '</div><span class="mv">' +
       '<button class="mvb kdel" data-act="kanban.del-task" data-id="' + id + '" aria-label="Delete ' + FT.esc(t.title) + '">×</button></span></div>';
   }
 
@@ -278,6 +279,11 @@
     var bar = document.querySelector('.rtbar');
     if (!bar) return;
     bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
+    // Links in the note open with Cmd or Ctrl + click, so a plain click still places the cursor to edit the text.
+    document.getElementById('dlg-note').addEventListener('click', function (e) {
+      var link = e.target.closest('a[href]');
+      if (link && (e.metaKey || e.ctrlKey)) { e.preventDefault(); window.open(link.href, '_blank', 'noopener'); }
+    });
     bar.addEventListener('click', function (e) {
       var btn = e.target.closest('button');
       if (!btn) return;
@@ -301,7 +307,8 @@
         { id: 'cardcolumn', label: word.charAt(0).toUpperCase() + word.slice(1), type: 'select', options: columns, value: t.column_id }
       ],
       after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
-        '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>',
+        '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>' +
+        '<div class="hint" style="background:none;padding:4px 0 0">Web addresses become links when you save. Cmd or Ctrl + click a link to open it.</div>',
       onOpen: wireToolbar,
       onSubmit: function (v) {
         assert(v.cardtitle, 'A card needs a title.');

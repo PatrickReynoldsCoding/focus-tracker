@@ -78,7 +78,7 @@
   function minimumHtml(categoryId, project, done) {
     var label = FT.category(categoryId).label;
     return '<section class="panel"><div class="label">Daily minimum: ' + FT.esc(label.toLowerCase()) + '</div>' +
-      (project ? '<p style="margin:0 0 4px"><b>' + FT.esc(project.name) + '</b></p><p style="margin:0 0 12px;color:var(--muted)">' + FT.esc(project.next_action) + '</p>'
+      (project ? '<p style="margin:0 0 4px"><b>' + FT.esc(project.name) + '</b></p><p style="margin:0 0 12px;color:var(--muted)">' + FT.linkify(project.next_action) + '</p>'
                : '<p style="margin:0 0 12px;color:var(--muted)">No active ' + FT.esc(label.toLowerCase()) + ' project yet.</p>') +
       '<button class="btn ' + (done ? 'done' : '') + '" data-act="today.job">' + (done ? 'Done for today' : 'Mark 10 minutes done') + '</button></section>';
   }
@@ -93,8 +93,8 @@
     var lastLog = (FT.store.log || []).filter(function (l) { return l.project_id === f.id; })[0];
     return '<section class="panel"><div class="label">Today\'s focus</div><h2 class="focus-name">' + FT.esc(f.name) + '</h2>' +
       '<div class="meta">' + FT.pill(f.category) + '<span class="' + FT.ageClass(n) + '">Last touched ' + FT.ageLabel(n) + '</span></div>' +
-      '<div class="next"><small>Next action</small>' + FT.esc(f.next_action) + '</div>' +
-      '<div class="lastnote">' + (lastLog ? '<b>Last time:</b> ' + FT.esc(lastLog.where_stopped) : 'No notes yet for this project.') + '</div>' +
+      '<div class="next"><small>Next action</small>' + FT.linkify(f.next_action) + '</div>' +
+      '<div class="lastnote">' + (lastLog ? '<b>Last time:</b> ' + FT.linkify(lastLog.where_stopped) : 'No notes yet for this project.') + '</div>' +
       (running ? sessionHtml(t)
                : '<div class="actions"><button class="btn primary" data-act="today.start">Start session</button><button class="btn" data-act="today.swap">Swap focus</button>') +
       '<button class="btn" data-act="today.open" data-id="' + FT.esc(f.id) + '">Open project</button></div></section>';

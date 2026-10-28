@@ -1,0 +1,137 @@
+<style>
+.crit { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.crit li { display: flex; gap: 10px; align-items: flex-start; padding: 6px 4px; border-radius: 6px; }
+.crit li:hover { background: var(--surface-2); }
+.crit input[type="checkbox"] { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.crit .ctext { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; cursor: text; }
+.crit li.done .ctext { color: var(--muted); text-decoration: line-through; }
+.crit .cedit { flex: 1 1 auto; padding: 4px 8px; }
+.crit li { cursor: grab; }
+.critadd { display: flex; gap: 6px; margin-top: 8px; }
+.critadd input { padding: 7px 10px; }
+.crithead { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.crithead .label { margin: 0; }
+.crithead .crittitle { display: inline-flex; gap: 12px; align-items: baseline; }
+.crithead .count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+</style>
+<script>
+/**
+ * Acceptance criteria above each project's Kanban: tick them off, click a text to edit it, drag to reorder.
+ * Changes show at once and save in the background. "Hide checked" is remembered per project in this browser.
+ */
+(function () {
+  var editingId = null, sortable = null;
+
+  function criteriaOf(projectId) {
+    return (FT.store.criteria || []).filter(function (c) { return c.project_id === projectId; }).sort(function (a, b) { return a.order - b.order; });
+  }
+  function byId(id) { return (FT.store.criteria || []).filter(function (c) { return c.id === id; })[0] || null; }
+
+  function hideKey(projectId) { return 'ft.criteria.hideDone.' + projectId; }
+  function hidingDone(projectId) {
+    try { return localStorage.getItem(hideKey(projectId)) === '1'; } catch (e) { return false; }
+  }
+
+  function itemHtml(c) {
+    var id = FT.esc(c.id), done = c.done === 'yes';
+    var text = editingId === c.id
+      ? '<input type="text" class="cedit" id="crit-edit" value="' + FT.esc(c.text) + '" aria-label="Edit criterion" data-enter="criteria.save" data-id="' + id + '">'
+      : '<span class="ctext" data-act="criteria.edit" data-id="' + id + '">' + FT.linkify(c.text) + '</span>';
+    return '<li class="' + (done ? 'done' : '') + '" data-id="' + id + '"><input type="checkbox" aria-label="Done: ' + FT.esc(c.text) + '"' + (done ? ' checked' : '') +
+      ' data-change="criteria.tick" data-id="' + id + '">' + text +
+      '<button class="mvb" data-act="criteria.remove" data-id="' + id + '" aria-label="Delete criterion">×</button></li>';
+  }
+
+  function panel(p) {
+    var all = criteriaOf(p.id), hide = hidingDone(p.id);
+    var done = all.filter(function (c) { return c.done === 'yes'; }).length;
+    var shown = hide ? all.filter(function (c) { return c.done !== 'yes'; }) : all;
+    return '<section class="panel"><div class="crithead"><span class="crittitle"><span class="label">Acceptance criteria</span>' +
+      (all.length ? '<span class="count">' + done + ' of ' + all.length + ' done</span>' : '') + '</span>' +
+      (done ? '<button class="btn sm" data-act="criteria.toggleDone" data-id="' + FT.esc(p.id) + '">' + (hide ? 'Show checked (' + done + ')' : 'Hide checked') + '</button>' : '') + '</div>' +
+      (shown.length ? '<ul class="crit" data-project="' + FT.esc(p.id) + '">' + shown.map(itemHtml).join('') + '</ul>'
+                    : (all.length ? '<p class="empty" style="padding:0">All done.</p>' : '')) +
+      '<div class="critadd"><input type="text" id="crit-new" placeholder="+ Add a criterion: done when…" aria-label="New criterion" data-enter="criteria.add" data-project="' + FT.esc(p.id) + '"></div></section>';
+  }
+
+  FT.module({ id: 'criteria', slots: { 'project.page': [{ id: 'criteria', title: 'Acceptance criteria', order: 5, span: 'full', render: panel }] } });
+
+  function add(el) {
+    var text = el.value.trim();
+    if (!text) return;
+    var projectId = el.dataset.project, all = criteriaOf(projectId);
+    var c = { id: FT.newId(), project_id: projectId, text: text.slice(0, 300), done: '', order: (all.length ? all[all.length - 1].order : 0) + 1, created: new Date().toISOString() };
+    FT.store.criteria = (FT.store.criteria || []).concat([c]);
+    FT.render();
+    var again = document.getElementById('crit-new');
+    if (again) again.focus();
+    FT.rpc('criteria', 'add', { id: c.id, projectId: projectId, text: c.text }, { render: false }).catch(FT.saveFailed);
+  }
+  FT.on('enter', 'criteria.add', add);
+
+  FT.on('change', 'criteria.tick', function (el) {
+    var c = byId(el.dataset.id);
+    if (!c) return;
+    c.done = el.checked ? 'yes' : '';
+    FT.render();
+    FT.rpc('criteria', 'update', { id: c.id, done: el.checked }, { render: false }).catch(FT.saveFailed);
+  });
+
+  FT.action('criteria.edit', function (el) {
+    editingId = el.dataset.id;
+    FT.render();
+    var input = document.getElementById('crit-edit');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  });
+
+  function save(el) {
+    var c = byId(el.dataset.id), text = el.value.trim();
+    editingId = null;
+    if (!c || !text || text === c.text) { FT.render(); return; }
+    c.text = text.slice(0, 300);
+    FT.render();
+    FT.rpc('criteria', 'update', { id: c.id, text: c.text }, { render: false }).catch(FT.saveFailed);
+  }
+  FT.on('enter', 'criteria.save', save);
+  document.addEventListener('focusout', function (e) {
+    if (e.target && e.target.id === 'crit-edit' && editingId) save(e.target);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && e.target && e.target.id === 'crit-edit') { editingId = null; FT.render(); }
+  });
+
+  FT.action('criteria.remove', function (el) {
+    var c = byId(el.dataset.id);
+    if (!c) return;
+    FT.store.criteria = FT.store.criteria.filter(function (x) { return x.id !== c.id; });
+    FT.render();
+    FT.rpc('criteria', 'remove', { id: c.id }, { render: false }).then(function () { FT.deleted('Criterion'); }).catch(FT.saveFailed);
+  });
+
+  FT.action('criteria.toggleDone', function (el) {
+    try { localStorage.setItem(hideKey(el.dataset.id), hidingDone(el.dataset.id) ? '0' : '1'); } catch (e) {}
+    FT.render();
+  });
+
+  /** Dragging a criterion gives it an order halfway between its new neighbours. */
+  FT.onRender(function () {
+    if (sortable) { sortable.destroy(); sortable = null; }
+    var list = document.querySelector('#app .crit');
+    if (!list || !window.Sortable || editingId) return;
+    sortable = window.Sortable.create(list, {
+      animation: 150, delay: 180, delayOnTouchOnly: true, filter: 'input, button, a', preventOnFilter: false, ghostClass: 'kghost',
+      onStart: function () { FT.state.dragging = true; },
+      onEnd: function (evt) {
+        FT.state.dragging = false;
+        var c = byId(evt.item.dataset.id);
+        if (!c || evt.oldIndex === evt.newIndex) { FT.dragEnded(); return; }
+        var ids = Array.prototype.map.call(list.children, function (li) { return li.dataset.id; });
+        var before = byId(ids[evt.newIndex - 1]), after = byId(ids[evt.newIndex + 1]);
+        c.order = before && after ? (before.order + after.order) / 2 : before ? before.order + 1 : after ? after.order - 1 : 1;
+        FT.render();
+        FT.rpc('criteria', 'update', { id: c.id, order: c.order }, { render: false }).catch(FT.saveFailed);
+      }
+    });
+  });
+})();
+</script>

@@ -17,19 +17,28 @@ function sanitizeRichText_(html) {
   var source = typeof html === 'string' ? html : '';
   assert_(source.length <= RICH_MAX_LENGTH_, 'That note is too long to save. Make it shorter or move some of it to the project notes.');
   var tagPattern = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
-  var out = [], dropDepth = 0, last = 0, match;
+  var out = [], dropDepth = 0, linkDepth = 0, last = 0, match;
+  function text(segment) { return linkDepth ? escapeRichText_(segment) : linkRichText_(escapeRichText_(segment)); }
   while ((match = tagPattern.exec(source))) {
-    if (!dropDepth) out.push(escapeRichText_(source.slice(last, match.index)));
+    if (!dropDepth) out.push(text(source.slice(last, match.index)));
     last = tagPattern.lastIndex;
     if (match[0].indexOf('<!--') === 0) continue;
     var closing = match[1] === '/', tag = match[2].toLowerCase();
     if (RICH_DROP_TAGS_[tag]) { dropDepth = Math.max(0, dropDepth + (closing ? -1 : 1)); continue; }
     if (dropDepth || !RICH_TAGS_[tag]) continue;
+    if (tag === 'a') linkDepth = Math.max(0, linkDepth + (closing ? -1 : 1));
     if (closing) { if (!RICH_VOID_TAGS_[tag]) out.push('</' + tag + '>'); continue; }
     out.push('<' + tag + richAttributes_(tag, match[3]) + '>');
   }
-  if (!dropDepth) out.push(escapeRichText_(source.slice(last)));
+  if (!dropDepth) out.push(text(source.slice(last)));
   return out.join('').trim();
+}
+
+/** Web addresses typed into a note become links. The text is already escaped, so an address cannot hold < > or quotes. */
+function linkRichText_(escaped) {
+  return escaped.replace(/\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g, function (url) {
+    return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
+  });
 }
 
 /** Text between tags is already entity-encoded by the browser. Any raw angle bracket left is escaped so it stays text. */

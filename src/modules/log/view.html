@@ -9,7 +9,7 @@
     }).join('');
     var rows = (FT.store.log || []).filter(function (l) { return filter === 'all' || l.project_id === filter; }).map(function (l) {
       var p = FT.project(l.project_id);
-      return '<tr><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.esc(l.where_stopped) + '</td><td>' + FT.esc(l.next_action) + '</td><td class="num">' + (l.minutes ? l.minutes + ' min' : '') + '</td></tr>';
+      return '<tr><td class="num">' + FT.fmtDate(l.date) + '</td><td><b>' + FT.esc(p ? p.name : 'Deleted project') + '</b></td><td>' + FT.linkify(l.where_stopped) + '</td><td>' + FT.linkify(l.next_action) + '</td><td class="num">' + (l.minutes ? l.minutes + ' min' : '') + '</td></tr>';
     }).join('');
     return '<section class="panel"><div class="label">Session log</div>' +
       '<label for="log-filter" class="label" style="display:block">Filter<select id="log-filter" class="auto" style="display:block;margin-top:6px" data-change="log.filter">' + opts + '</select></label>' +

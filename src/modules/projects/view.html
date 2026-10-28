@@ -80,7 +80,7 @@
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
       return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
-        '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.esc(p.next_action) +
+        '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.linkify(p.next_action) +
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
     var table = list.length
@@ -108,7 +108,7 @@
     return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + FT.pill(p.category) +
       '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
       skippedHtml(p) + '</div></div></div>' +
-      '<div class="next"><small>Next action</small>' + FT.esc(p.next_action) + '</div>' +
+      '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>' +
       '<div class="actions" style="margin-top:0"><button class="btn sm" data-act="projects.edit">Edit</button>' +
       (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
       (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
