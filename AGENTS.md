@@ -1,6 +1,6 @@
 # Instructions for Claude (and any other agent) working on Focus Tracker
 
-Read this file at the start of every session that touches this project or the tracker's Drive folder.
+Read this file at the start of every session that touches this project or the tracker's Drive folder. Then read `docs/ROADMAP.md` for the requirements, decisions and planned work before you plan anything.
 
 ## Never link or copy sensitive material
 
