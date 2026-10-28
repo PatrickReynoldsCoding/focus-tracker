@@ -115,6 +115,12 @@ Original plan:
 - The Apps Script banner: not removed. See docs/banner-and-hosting.md. Local cache and offline: designed, not built. See docs/offline-design.md.
 - Tests: the flaky e2e steps ('rotating', 'Wiring listed') were races in the test and are fixed.
 
+### Wrapper site on GitHub Pages (published 2026-10-28, spike; Paddy said yes)
+- `site/` is a free static page at https://patrickreynoldscoding.github.io/focus-tracker/ (branch `gh-pages`, published with `scripts/publish-site.sh`). It frames the existing web app full window, has a web manifest with the 192, 512 and maskable icons, and a service worker that caches only the wrapper, so it opens and says "You are offline" with no signal. The web app address is asked once and kept in the browser (`localStorage`); it is never in the repo. `#u=<address>` on the first open stores it and clears the address bar; `#reset` forgets it.
+- Checked in Chrome: manifest parses with no errors, no install blockers other than the test browser being incognito, the service worker takes control and serves the page with the server down, and the offline card shows.
+- NOT checked (needs Paddy's signed-in browser): whether the app loads and stays signed in inside the frame on github.io, whether the Google banner is gone, and what Android shows for "Add to Home screen". If sign-in fails in the frame, the fallback is the Google sign-in plus Sheets and Drive API route in docs/offline-design.md, which needs an OAuth client set up in Google Cloud.
+- The local cache with queued edits is still not built. It waits on this check, because it depends on where the front end ends up living.
+
 ### Separate project: PR notifications (dropped 2026-10-28, not wanted)
 - Wanted: search work GitHub for his open PRs and notify him when someone comments, as a macOS notification on his work Mac.
 - Apps Script cannot show native macOS notifications. Recommendation: a small local tool on the work Mac using the `gh` CLI (already signed in) run by a scheduled job (launchd) that checks for new comments and calls the macOS notification command. This also keeps a work token out of his personal Google account.
