@@ -128,7 +128,7 @@
     if (old) old.remove();
     if (oldFab) oldFab.remove();
     if (observer) { observer.disconnect(); observer = null; }
-    if (FT.state.view !== 'project' || !FT.project(FT.state.projectId)) return;
+    if (FT.state.view !== 'project' || !FT.project(FT.state.projectId) || FT.lockedUntil(FT.project(FT.state.projectId))) return;
     var notes = notesOf(FT.state.projectId), isHidden = hidden(), app = document.getElementById('app');
     var fab = document.createElement('div');
     fab.id = 'stickyfab'; fab.innerHTML = fabHtml(notes.length, isHidden);

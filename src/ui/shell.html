@@ -479,8 +479,7 @@ var FT = (function () {
       var node = sel.anchorNode, before = node.data.slice(0, sel.anchorOffset).replace(/ /g, ' ');
       var block = before.match(/^(-|\*|\d+\.|##|#) $/);
       if (block && e.data === ' ' && !node.previousSibling) {
-        node.data = node.data.slice(sel.anchorOffset);
-        var r = document.createRange(); r.setStart(node, 0); r.collapse(true); sel.removeAllRanges(); sel.addRange(r);
+        for (var i = 0; i < before.length; i++) document.execCommand('delete'); // let the browser remove the marker, so its caret stays valid
         var m = block[1];
         if (m === '-' || m === '*') document.execCommand('insertUnorderedList');
         else if (m === '#') document.execCommand('formatBlock', false, 'h3');
