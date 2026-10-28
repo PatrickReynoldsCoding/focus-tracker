@@ -307,4 +307,57 @@ textarea { min-height: 150px; resize: vertical; }
 :root[data-theme="eink"] .stickymenu .dot[data-color="grey"] { background: linear-gradient(#000, #000) !important; }
 :root[data-theme="eink"] .stickymenu .dot { border: 3px solid #000; width: 40px; height: 40px; }
 :root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"] { border-width: 5px; }
+
+/* ---- Theme review fixes, part 2: E-ink borders, states and tap targets ---- */
+/* Nothing thinner than 2px, and no placeholder that fades to grey. */
+:root[data-theme="eink"] .choice label, :root[data-theme="eink"] .seg label, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .mvb,
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
+:root[data-theme="eink"] .pager .dots i { border-width: 2px; width: 10px; height: 10px; } :root[data-theme="eink"] .pager .dots i.on { width: 20px; }
+:root[data-theme="eink"] .addcol { border: 2px dashed #000; }
+:root[data-theme="eink"] ::placeholder { color: #333; opacity: 1; }
+:root[data-theme="eink"] .rtedit:empty::before { color: #333; }
+/* One heavy ring when a field has focus (the border plus a touching outline), not a ring with a gap. */
+:root[data-theme="eink"] input:focus-visible, :root[data-theme="eink"] select:focus-visible, :root[data-theme="eink"] textarea:focus-visible, :root[data-theme="eink"] .rtedit:focus { outline: 3px solid #000; outline-offset: 0; }
+/* Disabled: a dashed outline and plain dark text, not just paler ink. */
+:root[data-theme="eink"] .btn[disabled], :root[data-theme="eink"] .rm[disabled], :root[data-theme="eink"] .mvb[disabled] { opacity: 1; background: #fff; color: #444; border: 2px dashed #000; }
+:root[data-theme="eink"] .btn.primary[disabled], :root[data-theme="eink"] .btn.danger[disabled] { background: #fff; color: #444; border: 2px dashed #000; }
+/* Danger looks different from the main action: white, double border, and a warning sign. */
+:root[data-theme="eink"] .btn.danger, :root[data-theme="eink"] .btn.danger:hover { background: #fff; color: #000; border: 5px double #000; font-weight: 700; }
+:root[data-theme="eink"] .btn.danger::before { content: "\26A0\00a0"; }
+:root[data-theme="eink"] .toast.error::before { content: "Error: "; font-weight: 700; }
+/* Text colours have no place on e-ink: the colour buttons go, and coloured text in a note is bold and underlined instead. */
+:root[data-theme="eink"] .rtbar .dot { display: none; }
+:root[data-theme="eink"] font[color] { color: #000; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
+/* Dragging a card: a dashed outline in place of the shadow; the gap it leaves stays solid. */
+:root[data-theme="eink"] .kchosen { outline: 3px dashed #000; outline-offset: 2px; }
+:root[data-theme="eink"] .kghost { opacity: 1; border-style: dashed; }
+/* Sticky notes: one border, a pattern strip for the colour, plain white buttons. */
+:root[data-theme="eink"] .sticky .grip { border-bottom: 2px solid #000; min-height: 48px; gap: 6px; }
+:root[data-theme="eink"] .sticky .sbtn { background: #fff; color: #000; opacity: 1; border: 2px solid #000; min-width: 44px; min-height: 40px; font-size: 18px; }
+:root[data-theme="eink"] .sticky textarea { border: 0; outline: 0; min-height: 0; background: transparent; }
+:root[data-theme="eink"] .sticky textarea::placeholder { color: #333; }
+:root[data-theme="eink"] .stickymenu { width: min(300px, 90vw); }
+:root[data-theme="eink"] .stickymenu .dot { width: 44px; height: 44px; }
+:root[data-theme="eink"] .stickyfab button { border: 3px solid #000; background: #fff; color: #000; }
+:root[data-theme="eink"] .stickyfab .badge { background: #000; color: #fff; }
+/* The pager's neighbours are buttons, so they look like buttons. */
+:root[data-theme="eink"] .pager .pg-side { border: 2px solid #000; border-radius: 6px; color: #000; min-height: 44px; padding: 8px 12px; }
+/* Work and Personal differ without colour: Work has a double rule under the bar. */
+:root[data-theme="eink"] body[data-mode="work"] .bar { border-bottom: 6px double #000; }
+/* Tap targets of at least 44px on e-ink, where a missed tap costs a slow screen refresh. */
+:root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm, :root[data-theme="eink"] .mvb, :root[data-theme="eink"] .sortbtn, :root[data-theme="eink"] .rotq .arrows button,
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .wblist .wbname { min-width: 44px; min-height: 44px; }
+:root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm { padding: 8px 12px; }
+:root[data-theme="eink"] .btn.sm { min-height: 44px; padding: 8px 14px; }
+:root[data-theme="eink"] .kcard .ktitle { padding: 10px 0; min-height: 44px; display: flex; align-items: center; }
+:root[data-theme="eink"] .rotq blockquote { padding: 10px 0; }
+:root[data-theme="eink"] .swatches span { width: 44px; height: 44px; }
+:root[data-theme="eink"] .toggle { min-height: 44px; }
+:root[data-theme="eink"] .toggle input, :root[data-theme="eink"] .crit input[type="checkbox"] { width: 36px; height: 36px; }
+:root[data-theme="eink"] .crit li { min-height: 48px; align-items: center; }
+:root[data-theme="eink"] .crit .ctext { min-height: 44px; display: flex; align-items: center; }
+:root[data-theme="eink"] a#nt-link, :root[data-theme="eink"] .wbmeta, :root[data-theme="eink"] .reslist a, :root[data-theme="eink"] .wbfoot a { display: inline-flex; align-items: center; min-height: 44px; }
+:root[data-theme="eink"] .sticky .sbtn { min-height: 44px; }
+:root[data-theme="eink"] .wbmeta { min-width: 44px; justify-content: center; }
+:root[data-theme="eink"] .notes-panel.full .notes-top .rtbar button { min-width: 44px; height: 44px; }
 </style>
