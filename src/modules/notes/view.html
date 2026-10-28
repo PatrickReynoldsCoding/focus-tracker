@@ -15,8 +15,8 @@
 .nt-edit[contenteditable="false"] { opacity: 0.6; }
 .nt-edit:empty::before { content: attr(data-placeholder); color: var(--muted); }
 .nt-edit ul, .nt-edit ol { margin: 4px 0; padding-left: 22px; }
-.nt-edit h1, .nt-edit h2, .nt-edit h3, .nt-edit h4 { margin: 10px 0 4px; line-height: 1.25; }
-.nt-edit h1 { font-size: 1.6em; } .nt-edit h2 { font-size: 1.35em; } .nt-edit h3 { font-size: 1.15em; } .nt-edit h4 { font-size: 1em; }
+.nt-edit h2, .nt-edit h3, .nt-edit h4 { margin: 10px 0 4px; line-height: 1.25; }
+.nt-edit h2 { font-size: 1.75em; } .nt-edit h3 { font-size: 1.4em; } .nt-edit h4 { font-size: 1.15em; }
 .nt-edit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
 .nt-edit a { overflow-wrap: anywhere; }
 </style>
@@ -42,9 +42,12 @@
   }
 
   // ---------- storage forms ----------
-  /** A note written before the editor was rich is plain text: keep its lines, escape the rest. */
+  /** A note written before the editor was rich is plain text: one line block per line, so a heading hits one line. */
   function plainToHtml(text) {
-    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    if (!text) return '';
+    return String(text).split('\n').map(function (line) {
+      return '<div>' + (line ? line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '<br>') + '</div>';
+    }).join('');
   }
 
   /** Markdown for the editor's HTML, so the file in Drive stays readable by hand and by Claude. Underline and colour have no markdown form and are dropped. */
@@ -165,12 +168,29 @@
       .catch(function () { FT.toast('Could not copy. Select the text and copy it by hand.', 'error'); });
   });
 
+  /** The tag of the block the cursor is in, if it is one the toolbar makes (or a list item, where headings do not belong). */
+  function blockAtCursor(ed) {
+    var sel = window.getSelection(), node = sel && sel.anchorNode;
+    while (node && node !== ed) {
+      if (node.nodeType === 1 && /^(H[1-4]|BLOCKQUOTE|LI)$/.test(node.tagName)) return node.tagName.toLowerCase();
+      node = node.parentNode;
+    }
+    return '';
+  }
+
   FT.action('notes.cmd', function (el) {
     var ed = editor();
     if (!ed) return;
     ed.focus();
-    try { document.execCommand('styleWithCSS', false, el.dataset.cmd === 'hiliteColor'); } catch (err) {}
-    document.execCommand(el.dataset.cmd, false, el.dataset.val || null);
+    var cmd = el.dataset.cmd, val = el.dataset.val || null;
+    if (cmd === 'formatBlock') {
+      var at = blockAtCursor(ed);
+      if (at === 'li' && val !== 'div') { FT.toast('Headings and quotes do not work inside a list. Put the cursor on a normal line.'); return; }
+      if (at === val) val = 'div'; // the same button again turns it back into normal text
+      val = '<' + val + '>';       // Chrome takes "h2" too, Safari and Firefox need the brackets
+    }
+    try { document.execCommand('styleWithCSS', false, cmd === 'hiliteColor'); } catch (err) {}
+    document.execCommand(cmd, false, val);
     ed.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
@@ -207,6 +227,18 @@
   });
   document.addEventListener('focusout', function (e) {
     if (e.target && e.target.id === 'nt-text') save(FT.state.projectId);
+  });
+  // An empty editor would put the first line in as bare text, which a heading cannot format. Start it with a line block.
+  document.addEventListener('focusin', function (e) {
+    var ed = e.target;
+    if (!ed || ed.id !== 'nt-text') return;
+    try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch (err) {}
+    if (!ed.firstChild) {
+      ed.innerHTML = '<div><br></div>';
+      var range = document.createRange();
+      range.setStart(ed.firstChild, 0); range.collapse(true);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
   });
 
   // ---------- resize: the editor's corner handle sets its height, the panel follows and the height is remembered ----------

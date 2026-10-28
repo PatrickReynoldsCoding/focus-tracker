@@ -264,8 +264,12 @@ test('notes keep their formatting in a cleaned HTML file beside the markdown', (
   assert.strictEqual(got.text, '## Bigger');
   assert.strictEqual(got.html, '<h2>Bigger</h2><span style="background-color: #fff176">hi</span>');
   assert.strictEqual(Object.values(s.drive.files).filter((f) => f.name.endsWith('.html')).length, 1, 'second save updates the same html file');
+  // exactly what Chrome's editor makes for a styled word, a heading and a quote
+  const chrome = '<h2>Big</h2><h4>Small</h4><blockquote>q</blockquote><div><font color="#d64545" style="background-color: rgb(255, 241, 118);"><b><i><u><strike>Hello</strike></u></i></b></font> world</div>';
+  s.call('notes', 'save', { projectId: p.id, text: 'x', html: chrome });
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html, chrome.replace('118);"', '118)"'), 'editor output survives cleaning');
   s.call('notes', 'save', { projectId: p.id, text: 'plain only' });
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html.includes('Bigger'), true, 'a save without html leaves the formatted copy alone');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html.includes('Big'), true, 'a save without html leaves the formatted copy alone');
 });
 
 test('resources only accept https links and attach to a category or a project', () => {
