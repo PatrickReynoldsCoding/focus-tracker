@@ -13,6 +13,17 @@ The Resources feature stores links to Google Drive files. Before adding, suggest
 6. Imported data (for example from Todoist) lives only in git-ignored `src/private/` while it waits to be imported. Never commit it, and delete it once the import has run.
 5. If in doubt, ask.
 
+## Check that a change is needed now
+
+This tracker exists to cut Paddy's procrastination, so building it can become procrastination too. Vibecoding loops (ask for a change, see it, ask for another) waste a lot of time.
+
+When Paddy asks for a change to this project (a new feature, a tweak, a restyle):
+
+1. Before you build, ask him one short question: "Are you sure you need this right now, or is it procrastination?"
+2. Wait for his answer. If he says he needs it, build it. If he is unsure, suggest he does the task he was avoiding first and puts this change on a list for later.
+3. Ask once per request, not after every small follow-up. Do not lecture. Keep it friendly and short.
+4. Fixing a bug that stops him using the tracker is not a new feature. Fix it without asking.
+
 ## How the code is organised
 
 - `src/core/` is the small shared core: config, sheet access (`sheetdb.js`), module registry, `rpc`, setup. Avoid putting feature logic here.
