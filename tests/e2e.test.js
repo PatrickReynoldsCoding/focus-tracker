@@ -116,7 +116,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.board'), 'board');
     assert.strictEqual($$('.colname').map((i) => i.value).join('|'), 'To do|Doing|Done');
     assert.strictEqual($$('.kcard').length, 3);
-    await waitFor(() => $('#nt-text') && !$('#nt-text').disabled && $('#nt-text').value.includes('100mm'), 'notes loaded');
+    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('100mm'), 'notes loaded');
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Resources: this project'));
     assert.ok(!$('#nt-link').hidden);
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Whiteboards'), 'whiteboards panel');
@@ -212,11 +212,13 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('notes autosave to a Drive file', async () => {
     const ta = $('#nt-text');
-    setVal(ta, 'Replacement needs to be 100mm.\nChecked the duct: 98mm.');
+    ta.innerHTML = '<h1>Fan</h1><div>Replacement needs to be <b>100mm</b>.</div><ul><li>Checked the duct: 98mm</li></ul>';
+    ta.dispatchEvent(new w.Event('input', { bubbles: true }));
     ta.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
     const file = Object.values(server.drive.files).find((f) => f.content && f.content.includes('98mm'));
     assert.ok(file, 'file content updated');
+    assert.strictEqual(file.content, '# Fan\nReplacement needs to be **100mm**.\n- Checked the duct: 98mm', 'the rich text is stored as markdown');
   });
 
   await step('a session can be started and finished from Today, and lands in the log', async () => {

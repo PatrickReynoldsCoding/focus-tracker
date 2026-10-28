@@ -37,17 +37,6 @@
 .swatches span.none { background: repeating-linear-gradient(45deg, var(--surface-2) 0 4px, var(--surface) 4px 8px); }
 .swatches input:checked + span { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
 .swatches input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-.rtbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.rtbar button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; }
-.rtbar button:hover { background: var(--surface-2); }
-.rtbar .dot { width: 30px; padding: 0; }
-.rtbar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
-.rtedit { min-height: 180px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
-.rtedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-.rtedit:empty::before { content: attr(data-placeholder); color: var(--muted); }
-.rtedit h3, .rtedit h4 { margin: 8px 0 2px; }
-.rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
-.rtedit a { overflow-wrap: anywhere; }
 </style>
 <script>
 /**
@@ -310,7 +299,7 @@
       ],
       after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
         '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>' +
-        '<div class="hint" style="background:none;padding:4px 0 0">Type <b>- </b> for a list, <b># </b> for a heading, **bold** or _italic_ and they format as you go. Web addresses become links when you save.</div>',
+        '<div class="hint" style="background:none;padding:4px 0 0">Type <b>- </b> for a list, <b># </b>, <b>## </b> or <b>### </b> for a heading, **bold** or _italic_ and they format as you go. Web addresses become links when you save.</div>',
       onOpen: wireToolbar,
       onSubmit: function (v) {
         assert(v.cardtitle, 'A card needs a title.');

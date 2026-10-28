@@ -470,20 +470,19 @@ var FT = (function () {
   }
 
   // ---------- markdown typing helpers (notes) ----------
-  /** Typing markdown in a rich-text box formats it as you go: "- " or "* " a list, "1. " a numbered list, "# " and "## " headings, **bold** and _italic_. */
+  /** Typing markdown in a rich-text box formats it as you go: "- " or "* " a list, "1. " a numbered list, "# ", "## " and "### " headings 1 to 3, **bold** and _italic_. */
   FT.richShortcuts = function (editor) {
     editor.addEventListener('input', function (e) {
       if (e.inputType !== 'insertText' || !e.data) return;
       var sel = window.getSelection();
       if (!sel.rangeCount || !sel.isCollapsed || sel.anchorNode.nodeType !== 3 || !editor.contains(sel.anchorNode)) return;
       var node = sel.anchorNode, before = node.data.slice(0, sel.anchorOffset).replace(/ /g, ' ');
-      var block = before.match(/^(-|\*|\d+\.|##|#) $/);
+      var block = before.match(/^(-|\*|\d+\.|#{1,3}) $/);
       if (block && e.data === ' ' && !node.previousSibling) {
         for (var i = 0; i < before.length; i++) document.execCommand('delete'); // let the browser remove the marker, so its caret stays valid
         var m = block[1];
         if (m === '-' || m === '*') document.execCommand('insertUnorderedList');
-        else if (m === '#') document.execCommand('formatBlock', false, 'h3');
-        else if (m === '##') document.execCommand('formatBlock', false, 'h4');
+        else if (m.charAt(0) === '#') document.execCommand('formatBlock', false, 'h' + m.length);
         else document.execCommand('insertOrderedList');
         return;
       }
@@ -503,43 +502,93 @@ var FT = (function () {
     });
   };
 
-  /** In a markdown text box, Enter on a list line starts the next item; Enter on an empty item ends the list. */
-  FT.listEnter = function (e, area) {
-    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || area.selectionStart !== area.selectionEnd) return false;
-    var pos = area.selectionStart, from = area.value.lastIndexOf('\n', pos - 1) + 1, line = area.value.slice(from, pos);
-    var m = line.match(/^(\s*)(- \[[ x]\] |[-*] |(\d+)\. )(.*)$/);
-    if (!m) return false;
-    e.preventDefault();
-    if (!m[4]) { area.setRangeText('', from, pos, 'end'); }
-    else {
-      var marker = m[3] ? (parseInt(m[3], 10) + 1) + '. ' : m[2].indexOf('[') > -1 ? '- [ ] ' : m[2];
-      area.setRangeText('\n' + m[1] + marker, pos, pos, 'end');
-    }
-    area.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  };
-
-  /** A small, safe markdown preview: headings, lists, bold, italic, code, links and paragraphs. Everything is escaped first. */
+  /**
+   * Markdown to safe HTML for the rich editor. Everything is escaped first. Handles headings, lists, quotes, bold, italic,
+   * strikethrough, code, links and backslash escapes. A blank line becomes an empty paragraph, so spacing survives a round trip.
+   */
   FT.mdToHtml = function (text) {
+    var escapes = [];
     function inline(t) {
-      return FT.esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      t = t.replace(/\\([\\*_`\[\]~])/g, function (m, ch) { escapes.push(ch); return '\u0001' + (escapes.length - 1) + '\u0002'; });
+      t = FT.esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/~~([^~]+)~~/g, '<s>$1</s>')
         .replace(/(^|[\s(])_([^_]+)_(?=[\s).,;:!?]|$)/g, '$1<i>$2</i>').replace(/\*([^*\s][^*]*)\*/g, '<i>$1</i>')
         .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-        .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+        .replace(/(^|[\s(>])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+      return t.replace(/\u0001(\d+)\u0002/g, function (m, i) { return FT.esc(escapes[Number(i)]); });
     }
-    var out = [], list = '';
-    function close() { if (list) { out.push('</' + list + '>'); list = ''; } }
-    String(text || '').split('\n').forEach(function (line) {
-      var h = line.match(/^(#{1,6})\s+(.*)$/), ul = line.match(/^\s*[-*]\s+(?:\[([ x])\]\s+)?(.*)$/), ol = line.match(/^\s*\d+\.\s+(.*)$/);
-      if (h) { close(); out.push('<h' + Math.min(6, h[1].length + 2) + '>' + inline(h[2]) + '</h' + Math.min(6, h[1].length + 2) + '>'); }
-      else if (ul || ol) {
-        var want = ul ? 'ul' : 'ol';
-        if (list !== want) { close(); out.push('<' + want + '>'); list = want; }
-        out.push('<li>' + (ul && ul[1] ? (ul[1] === 'x' ? '☑ ' : '☐ ') : '') + inline(ul ? ul[2] : ol[1]) + '</li>');
-      } else if (!line.trim()) { close(); } else { close(); out.push('<p>' + inline(line) + '</p>'); }
+    var lines = String(text || '').replace(/\r\n?/g, '\n').replace(/\s+$/, '').split('\n'), out = [], stack = [], quote = false;
+    function closeLists(to) { while (stack.length > to) out.push('</li></' + stack.pop().tag + '>'); }
+    function closeQuote() { if (quote) { out.push('</blockquote>'); quote = false; } }
+    lines.forEach(function (raw) {
+      var line = raw, q = line.match(/^>\s?(.*)$/);
+      if (q) { closeLists(0); if (!quote) { out.push('<blockquote>'); quote = true; } line = q[1]; if (!line) return; } else closeQuote();
+      var h = line.match(/^(#{1,6})\s+(.*)$/), li = line.match(/^(\s*)([-*]|\d+\.)\s+(.*)$/);
+      if (h) { closeLists(0); out.push('<h' + h[1].length + '>' + inline(h[2]) + '</h' + h[1].length + '>'); }
+      else if (li) {
+        var depth = Math.floor(li[1].replace(/\t/g, '  ').length / 2) + 1, tag = /\d/.test(li[2]) ? 'ol' : 'ul';
+        if (depth > stack.length + 1) depth = stack.length + 1;
+        if (depth <= stack.length && stack[depth - 1].tag !== tag) closeLists(depth - 1);
+        if (depth < stack.length) closeLists(depth);
+        if (depth === stack.length) out.push('</li>');
+        else { out.push('<' + tag + '>'); stack.push({ tag: tag }); }
+        out.push('<li>' + inline(li[3]));
+      }
+      else if (!line.trim()) { closeLists(0); out.push('<p><br></p>'); }
+      else { closeLists(0); out.push('<p>' + inline(line) + '</p>'); }
     });
-    close();
+    closeLists(0); closeQuote();
     return out.join('');
+  };
+
+  /** The rich editor's HTML back to markdown (what is stored in the notes file). Underline and colours have no markdown form and are dropped. */
+  FT.htmlToMd = function (root) {
+    function esc(t) { return t.replace(/ /g, ' ').replace(/([\\*_`\[\]~])/g, '\\$1'); }
+    function inline(node) {
+      return Array.prototype.map.call(node.childNodes, function (n) {
+        if (n.nodeType === 3) return esc(n.data);
+        if (n.nodeType !== 1) return '';
+        var tag = n.tagName.toLowerCase(), inner = /^(ul|ol|div|p|h[1-6]|blockquote)$/.test(tag) ? '' : inline(n);
+        if (tag === 'br') return '\n';
+        if (!inner.trim()) return inner;
+        if (tag === 'b' || tag === 'strong') return '**' + inner + '**';
+        if (tag === 'i' || tag === 'em') return '_' + inner + '_';
+        if (tag === 's' || tag === 'strike' || tag === 'del') return '~~' + inner + '~~';
+        if (tag === 'a' && /^https?:\/\//i.test(n.getAttribute('href') || '')) return '[' + inner + '](' + n.getAttribute('href') + ')';
+        return inner;
+      }).join('');
+    }
+    function list(node, depth) {
+      var lines = [], n = 0, pad = new Array(depth + 1).join('  ');
+      Array.prototype.forEach.call(node.children, function (li) {
+        if (li.tagName.toLowerCase() !== 'li') return;
+        var own = document.createElement('div'), nested = [];
+        Array.prototype.forEach.call(li.childNodes, function (c) {
+          if (c.nodeType === 1 && /^(ul|ol)$/i.test(c.tagName)) nested.push(c); else own.appendChild(c.cloneNode(true));
+        });
+        n++;
+        lines.push(pad + (node.tagName.toLowerCase() === 'ol' ? n + '. ' : '- ') + inline(own).replace(/\n/g, ' ').trim());
+        nested.forEach(function (c) { lines = lines.concat(list(c, depth + 1)); });
+      });
+      return lines;
+    }
+    function blocks(node) {
+      var lines = [], buf = '';
+      function flush() { if (buf !== '') { lines = lines.concat(buf.replace(/\n+$/, '').split('\n')); buf = ''; } }
+      Array.prototype.forEach.call(node.childNodes, function (n) {
+        var tag = n.nodeType === 1 ? n.tagName.toLowerCase() : '';
+        if (/^h[1-6]$/.test(tag)) { flush(); lines.push(new Array(Number(tag.charAt(1)) + 1).join('#') + ' ' + inline(n).replace(/\n/g, ' ').trim()); }
+        else if (tag === 'ul' || tag === 'ol') { flush(); lines = lines.concat(list(n, 0)); }
+        else if (tag === 'blockquote') { flush(); lines = lines.concat(blocks(n).map(function (l) { return '> ' + l; })); }
+        else if (tag === 'div' || tag === 'p') {
+          flush();
+          var inner = blocks(n); lines = lines.concat(inner.length ? inner : ['']);
+        }
+        else buf += n.nodeType === 3 ? esc(n.data) : n.nodeType === 1 ? inline({ childNodes: [n] }) : '';
+      });
+      flush();
+      return lines;
+    }
+    return blocks(root).join('\n').replace(/\s+$/, '');
   };
 
   // ---------- settings (⚙): Drive folder and theme ----------

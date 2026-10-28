@@ -4,7 +4,7 @@
  * so the sheet stays readable by hand and by Claude.
  */
 
-var RICH_TAGS_ = { b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, strike: 1, ul: 1, ol: 1, li: 1, p: 1, div: 1, br: 1, span: 1, font: 1, h3: 1, h4: 1, blockquote: 1, a: 1 };
+var RICH_TAGS_ = { b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, strike: 1, ul: 1, ol: 1, li: 1, p: 1, div: 1, br: 1, span: 1, font: 1, h1: 1, h2: 1, h3: 1, h4: 1, blockquote: 1, a: 1 };
 var RICH_VOID_TAGS_ = { br: 1 };
 // Tags whose content is dropped too, not only the tag.
 var RICH_DROP_TAGS_ = { script: 1, style: 1, iframe: 1, object: 1, embed: 1, template: 1, svg: 1, math: 1, noscript: 1, textarea: 1, select: 1 };

@@ -194,4 +194,18 @@ textarea { min-height: 150px; resize: vertical; }
 .hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .back { margin-bottom: 4px; }
 @media (prefers-reduced-motion: no-preference) { .btn, .tab { transition: background 0.12s, color 0.12s; } }
+/* Rich-text editor (card notes and project notes). */
+.rtbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.rtbar button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; }
+.rtbar button:hover { background: var(--surface-2); }
+.rtbar .dot { width: 30px; padding: 0; }
+.rtbar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
+.rtedit { min-height: 180px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
+.rtedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rtedit:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rtedit h1, .rtedit h2, .rtedit h3, .rtedit h4 { margin: 10px 0 2px; line-height: 1.25; }
+.rtedit h1 { font-size: 1.6em; } .rtedit h2 { font-size: 1.3em; } .rtedit h3 { font-size: 1.12em; } .rtedit h4 { font-size: 1em; }
+.rtedit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
+.rtedit a { overflow-wrap: anywhere; }
 </style>

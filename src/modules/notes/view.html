@@ -1,39 +1,52 @@
 <style>
-.notes-bar { display: none; }
-.notes-prev { display: none; }
-.notes-prev h3, .notes-prev h4, .notes-prev h5 { margin: 12px 0 4px; }
-.notes-prev p, .notes-prev ul, .notes-prev ol { margin: 6px 0; }
-.notes-prev ul, .notes-prev ol { padding-left: 22px; }
-.notes-prev code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
-/* Phone: tapping the notes opens them full screen, with Edit and Preview. */
-@media (max-width: 760px) {
-  .notes-panel.full { position: fixed; inset: 0; z-index: 50; margin: 0; border-radius: 0; display: flex; flex-direction: column; padding: 12px max(16px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-bottom, 0px)); overflow: hidden; }
-  .notes-panel.full > .label { display: none; }
-  .notes-panel.full .notes-bar { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
-  .notes-panel.full .notes-bar .spacer { flex: 1; }
-  .notes-panel.full #nt-text { flex: 1; min-height: 0; resize: none; font-size: 16px; line-height: 1.55; }
-  .notes-panel.full.previewing #nt-text { display: none; }
-  .notes-panel.full.previewing .notes-prev { display: block; flex: 1; overflow: auto; padding: 4px 2px; }
-}
+.notes-top { display: none; }
+.notes-edit { min-height: 220px; max-height: 60vh; font-size: 15.5px; }
+.notes-panel .rtbar { margin-bottom: 8px; }
 .notes-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+/* Phone: tapping the notes opens them edge to edge. Only a Done button at the top; the formatting bar sits at the bottom, above the keyboard. */
+@media (max-width: 760px) {
+  .notes-panel.full { position: fixed; top: 0; left: 0; right: 0; height: var(--vvh, 100dvh); z-index: 50; margin: 0; padding: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
+  .notes-panel.full > .label, .notes-panel.full .notes-foot { display: none; }
+  .notes-panel.full .notes-top { display: flex; justify-content: flex-end; padding: max(8px, env(safe-area-inset-top, 0px)) 12px 4px; }
+  .notes-panel.full .notes-edit { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; outline: 0; padding: 8px 18px 18px; font-size: 17px; line-height: 1.6; }
+  .notes-panel.full .rtbar { order: 3; flex-wrap: nowrap; overflow-x: auto; margin: 0; padding: 8px 10px max(8px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--surface); }
+  .notes-panel.full .rtbar button { min-width: 40px; height: 40px; flex: none; }
+}
 </style>
 <script>
 (function () {
-  var cache = {};        // projectId -> text, once loaded
+  var cache = {};        // projectId -> markdown text, once loaded
   var timers = {};       // projectId -> debounce timer
   var dirty = {};        // projectId -> true while there are unsaved edits
+  var fullOpen = false;  // the phone's full screen editor is open
+  var narrow = window.matchMedia('(max-width: 760px)');
+
+  // The toolbar edits what the markdown file can hold: bold, italic, headings, lists and quotes.
+  var TOOLS = [
+    ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'],
+    ['formatBlock', 'h1', 'H1', 'Heading 1'], ['formatBlock', 'h2', 'H2', 'Heading 2'], ['formatBlock', 'p', 'Text', 'Normal text'],
+    ['insertUnorderedList', null, '• List', 'Bullet list'], ['insertOrderedList', null, '1. List', 'Numbered list'],
+    ['formatBlock', 'blockquote', '❝', 'Quote']
+  ];
 
   function noteRow(projectId) {
     return (FT.store.notes || []).filter(function (n) { return n.project_id === projectId; })[0] || null;
   }
 
+  function toolbarHtml() {
+    return '<div class="rtbar" id="nt-bar" role="toolbar" aria-label="Text formatting">' + TOOLS.map(function (t) {
+      return '<button type="button" data-cmd="' + t[0] + '"' + (t[1] ? ' data-val="' + t[1] + '"' : '') + ' title="' + t[3] + '" aria-label="' + t[3] + '">' + t[2] + '</button>';
+    }).join('') + '</div>';
+  }
+
   function panel(p) {
     var row = noteRow(p.id);
     var loaded = Object.prototype.hasOwnProperty.call(cache, p.id) || !row;
-    return '<section class="panel notes-panel" id="nt-panel"><div class="label">Notes</div>' +
-      '<div class="notes-bar"><strong>Notes</strong><span class="spacer"></span><button class="btn sm" type="button" data-act="notes.preview" id="nt-prevbtn">Preview</button><button class="btn sm primary" type="button" data-act="notes.done">Done</button></div>' +
-      '<textarea id="nt-text" aria-label="Notes" placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '"' + (loaded ? '' : ' disabled') + '>' + FT.esc(cache[p.id] || '') + '</textarea>' +
-      '<div class="notes-prev" id="nt-prev"></div><div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
+    return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel"><div class="label">Notes</div>' +
+      '<div class="notes-top"><button class="btn primary" type="button" data-act="notes.done">Done</button></div>' +
+      toolbarHtml() +
+      '<div class="rtedit notes-edit" id="nt-text" contenteditable="' + (loaded ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes" data-placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '">' + FT.mdToHtml(cache[p.id] || '') + '</div>' +
+      '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
   }
 
   function status(text) { var el = document.getElementById('nt-status'); if (el) el.textContent = text; }
@@ -63,42 +76,69 @@
       FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true }).then(function (r) {
         cache[projectId] = r.text || '';
         var el = document.getElementById('nt-text');
-        if (el && FT.state.projectId === projectId) { el.value = cache[projectId]; el.disabled = false; el.placeholder = 'Ideas, decisions, links. Saved as a markdown file in Drive.'; }
+        if (el && FT.state.projectId === projectId && !dirty[projectId]) {
+          el.innerHTML = FT.mdToHtml(cache[projectId]); el.setAttribute('contenteditable', 'true'); el.dataset.placeholder = 'Ideas, decisions, links. Saved as a markdown file in Drive.';
+        }
       }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
     }
+  });
+
+  function editor() { return document.getElementById('nt-text'); }
+
+  // The editor is rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
+  FT.onRender(function () {
+    var el = editor();
+    if (!el) fullOpen = false;
+    if (el && !el.dataset.md) { el.dataset.md = '1'; FT.richShortcuts(el); }
+    if (el && fullOpen && narrow.matches) fitToScreen();
   });
 
   document.addEventListener('input', function (e) {
     if (!e.target || e.target.id !== 'nt-text') return;
     var id = FT.state.projectId;
-    cache[id] = e.target.value; dirty[id] = true; status('Editing…');
+    cache[id] = FT.htmlToMd(e.target); dirty[id] = true; status('Editing…');
     clearTimeout(timers[id]);
     timers[id] = setTimeout(function () { save(id); }, 1200);
   });
-  var narrow = window.matchMedia('(max-width: 760px)');
-  function panelEl() { return document.getElementById('nt-panel'); }
-  document.addEventListener('focusin', function (e) {
-    if (e.target && e.target.id === 'nt-text' && narrow.matches && panelEl()) panelEl().classList.add('full');
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.target && e.target.id === 'nt-text') FT.listEnter(e, e.target);
-  });
-  FT.action('notes.preview', function () {
-    var p = panelEl(), area = document.getElementById('nt-text');
-    if (!p) return;
-    var on = p.classList.toggle('previewing');
-    document.getElementById('nt-prevbtn').textContent = on ? 'Edit' : 'Preview';
-    if (on) document.getElementById('nt-prev').innerHTML = FT.mdToHtml(area.value);
-  });
-  FT.action('notes.done', function () {
-    var p = panelEl();
-    if (!p) return;
-    p.classList.remove('full', 'previewing');
-    document.getElementById('nt-prevbtn').textContent = 'Preview';
-    document.getElementById('nt-text').blur();
-  });
   document.addEventListener('focusout', function (e) {
     if (e.target && e.target.id === 'nt-text') save(FT.state.projectId);
+  });
+  // Pasted text goes in as plain text, so it cannot bring in styles the markdown file cannot hold.
+  document.addEventListener('paste', function (e) {
+    if (!e.target || e.target.id !== 'nt-text') return;
+    e.preventDefault();
+    var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    document.execCommand('insertText', false, text);
+  });
+
+  // Toolbar buttons keep the text selection, like the card editor's.
+  document.addEventListener('mousedown', function (e) { if (e.target.closest && e.target.closest('#nt-bar button')) e.preventDefault(); });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('#nt-bar button');
+    if (!btn) return;
+    editor().focus();
+    document.execCommand(btn.dataset.cmd, false, btn.dataset.val || null);
+    editor().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  // Phone: tapping into the notes opens them full screen.
+  function fitToScreen() {
+    var p = document.getElementById('nt-panel'), vv = window.visualViewport;
+    if (p) p.style.setProperty('--vvh', (vv ? vv.height : window.innerHeight) + 'px');
+  }
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', fitToScreen); window.visualViewport.addEventListener('scroll', fitToScreen); }
+  document.addEventListener('focusin', function (e) {
+    var p = document.getElementById('nt-panel');
+    if (e.target && e.target.id === 'nt-text' && narrow.matches && p && !fullOpen) {
+      fullOpen = true; p.classList.add('full'); fitToScreen(); window.scrollTo(0, 0);
+    }
+  });
+  FT.action('notes.done', function () {
+    fullOpen = false;
+    var p = document.getElementById('nt-panel');
+    if (p) p.classList.remove('full');
+    if (editor()) editor().blur();
+    save(FT.state.projectId);
   });
 })();
 </script>
