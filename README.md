@@ -2,7 +2,7 @@
 
 A daily focus picker and project tracker that runs for free on Google Sheets and Apps Script. Open the web app on any device, see one project to work on, and park it with one line when you stop.
 
-Features: Today (focus pick, swap to a project you choose with an optional reminder, editable weekly rotation with away days, session timer with pause and an optional pomodoro, daily minimum), Projects (sortable and filterable), per-project Kanban (rename, add and delete columns, add tasks in any column, horizontal or vertical), notes saved as markdown files in Drive, Resources (links to Drive files per category or project) and a session Log with minutes worked, and Lists (groups and items edited like a vertical Kanban, optionally shown on Today). Click a card to give it a colour and a formatted note. On desktop, the grid icon at the top right lets you drag and resize panels, and the arrows icon stretches the page to full width.
+Features: Today (focus pick, swap to a project you choose with an optional reminder, editable weekly rotation with away days, session timer with pause and an optional pomodoro, daily minimum), Projects (sortable and filterable), per-project Kanban (rename, add and delete columns, add tasks in any column, horizontal or vertical), notes saved as markdown files in Drive, Resources (links to Drive files per category or project) and a session Log with minutes worked, and Lists (groups and items edited like a vertical Kanban, optionally shown on Today). Each project has an Excalidraw whiteboard (desktop), saved as a `.excalidraw` file in the mode's Drive folder. Click a card to give it a colour and a formatted note. On desktop, the grid icon at the top right lets you drag and resize panels, and the arrows icon stretches the page to full width.
 
 Modes: Personal and Work keep separate data. Each has its own spreadsheet and its own folder inside the "Focus Tracker" Drive folder; the folder icon in the header opens it. Categories are edited on the Projects tab. A new mode is an entry in `MODES` in `src/core/config.js`; its spreadsheet and folder are created the first time you switch to it.
 
@@ -68,5 +68,4 @@ Add: create `src/modules/<id>/server.js` with a function `<id>Module()` and `vie
 ## Known limits
 
 - Every action is a round trip to Apps Script, usually under a second. Kanban moves update the screen first and save in the background; everything else waits for the server.
-- No whiteboard yet. The plan is an Excalidraw page per project saving `.excalidraw` files into the Drive folder, as its own module.
 - Tests use fakes for Google services. File names with folders (`core/sheetdb`, `modules/kanban/view`) rely on clasp keeping the folder prefix in Apps Script file names, which it does, and on `HtmlService` accepting those names in `include()`. If the first load fails with a "file not found" error, that is the first place to look.

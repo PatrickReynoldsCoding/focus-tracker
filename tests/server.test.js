@@ -457,13 +457,33 @@ test('a pending import runs once, in its own mode, when that mode is first opene
   assert.ok(s.script._m['IMPORT_DONE.sample-1']);
 });
 
+test('a whiteboard is saved as an .excalidraw file in the mode folder, and bad scenes are refused', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'MIDI app', category: 'coding' }).result;
+  assert.deepStrictEqual(s.call('whiteboard', 'get', { projectId: p.id }).result, { json: '', url: '' });
+  const scene = (n) => JSON.stringify({ type: 'excalidraw', version: 2, elements: Array.from({ length: n }, (_, i) => ({ id: 'e' + i, type: 'rectangle' })), appState: {}, files: {} });
+  assert.throws(() => s.call('whiteboard', 'save', { projectId: p.id, json: '{not json' }), /could not be read/);
+  assert.throws(() => s.call('whiteboard', 'save', { projectId: p.id, json: '{"type":"other"}' }), /not an Excalidraw drawing/);
+  const first = s.call('whiteboard', 'save', { projectId: p.id, json: scene(1) });
+  assert.ok(first.result.url);
+  assert.strictEqual(first.slices.whiteboard.length, 1);
+  s.call('whiteboard', 'save', { projectId: p.id, json: scene(3) });
+  assert.strictEqual(JSON.parse(s.call('whiteboard', 'get', { projectId: p.id }).result.json).elements.length, 3);
+  const files = Object.values(s.drive.files).filter((f) => f.name.endsWith('.excalidraw'));
+  assert.strictEqual(files.length, 1, 'later saves update the same file');
+  assert.strictEqual(s.drive.pathOf(files[0]), 'Focus Tracker/Personal/Whiteboards/midi-app-' + p.id + '.excalidraw');
+  s.call('projects', 'remove', { id: p.id });
+  assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 0, 'the link goes with the project');
+  assert.ok(s.drive.files[files[0].id], 'the drawing file stays in Drive');
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'today']);
-  assert.strictEqual(b.modules.length, 9);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'today', 'whiteboard']);
+  assert.strictEqual(b.modules.length, 10);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

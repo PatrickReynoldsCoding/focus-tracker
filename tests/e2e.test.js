@@ -119,6 +119,8 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#nt-text') && !$('#nt-text').disabled && $('#nt-text').value.includes('100mm'), 'notes loaded');
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Resources: this project'));
     assert.ok(!$('#nt-link').hidden);
+    assert.ok($$('.lcell .label').some((l) => l.textContent === 'Whiteboard'), 'whiteboard panel');
+    assert.strictEqual($('[data-act="whiteboard.open"]').textContent, 'Start a whiteboard');
   });
 
   await step('each column has its own add-task control', async () => {

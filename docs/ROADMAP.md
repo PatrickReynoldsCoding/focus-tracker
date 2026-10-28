@@ -13,7 +13,7 @@ Paddy juggles several coding projects, job-search goals and house maintenance, a
 - Separation of concerns, plugin style: a small core and one folder per feature. Adding or removing a feature is a folder plus one config line. See AGENTS.md.
 - Data readable by humans and by Claude: sheet tabs and plain markdown notes, no opaque blobs.
 - Never link or copy sensitive Drive material. See AGENTS.md. Never commit his real links or ids.
-- Kept for later: an Excalidraw whiteboard per project that saves into the Drive folder and reopens where he left off. Desktop only is fine. Build it as its own module after the core is wired up. Embedding the full Excalidraw site inside an Apps Script page is unreliable; bundling the open-source library into the page is the likelier route.
+- Excalidraw whiteboard per project (done, 2026-10-28): whiteboard module. React 18.2.0 and @excalidraw/excalidraw 0.17.6 load from jsDelivr only when a whiteboard opens. Saves `<mode folder>/Whiteboards/<project>-<id>.excalidraw` two seconds after a change and on close; reopens where you left off. Desktop only. Checked in real Chrome (draw, autosave, close, reopen).
 
 ## Requested changes, in the suggested order
 

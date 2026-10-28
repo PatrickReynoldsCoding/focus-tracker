@@ -1,0 +1,152 @@
+<style>
+.wbfoot { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.wbshell { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; }
+.wbbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.wbbar h2 { font-size: 17px; }
+.wbbar .wbstatus { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.wbcanvas { flex: 1 1 auto; position: relative; min-height: 0; }
+.wbcanvas .wbmsg { padding: 24px; color: var(--muted); }
+@media (max-width: 760px) { .wbopen { display: none; } }
+@media (min-width: 761px) { .wbphone { display: none; } }
+</style>
+<script>
+/**
+ * Whiteboard: an Excalidraw canvas per project, opened full screen on desktop. React and Excalidraw (about 1.3 MB)
+ * load from the CDN the first time a whiteboard opens, not with the page. Changes save to Drive two seconds after
+ * you stop drawing, and again when you close it.
+ */
+(function () {
+  var CDN = 'https://cdn.jsdelivr.net/npm/';
+  var SCRIPTS = [CDN + 'react@18.2.0/umd/react.production.min.js', CDN + 'react-dom@18.2.0/umd/react-dom.production.min.js',
+    CDN + '@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js'];
+  var SAVE_DELAY_MS = 2000;
+  var libraryLoading = null, open = null; // open: { projectId, root, api, lastJson, timer, saving }
+
+  function row(projectId) {
+    return (FT.store.whiteboard || []).filter(function (w) { return w.project_id === projectId; })[0] || null;
+  }
+
+  function panel(p) {
+    var w = row(p.id);
+    return '<section class="panel"><div class="label">Whiteboard</div>' +
+      '<p style="margin:0;color:var(--muted)">' + (w ? 'Last saved ' + FT.fmtDate(w.updated) + '.' : 'A blank Excalidraw canvas for sketches and diagrams.') + '</p>' +
+      '<div class="wbfoot"><button class="btn sm primary wbopen" data-act="whiteboard.open" data-id="' + FT.esc(p.id) + '">' + (w ? 'Open whiteboard' : 'Start a whiteboard') + '</button>' +
+      '<span class="wbphone">Open on a computer to draw.</span>' +
+      (w ? '<a href="' + FT.esc(w.url) + '" target="_blank" rel="noopener noreferrer">File in Drive</a>' : '') + '</div></section>';
+  }
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src; s.onload = resolve;
+      s.onerror = function () { reject(new Error('Could not load the whiteboard from ' + src.split('/')[2] + '. Check your connection.')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function loadLibrary() {
+    if (window.ExcalidrawLib) return Promise.resolve();
+    if (!libraryLoading) {
+      window.EXCALIDRAW_ASSET_PATH = CDN + '@excalidraw/excalidraw@0.17.6/dist/';
+      libraryLoading = SCRIPTS.reduce(function (chain, src) { return chain.then(function () { return loadScript(src); }); }, Promise.resolve())
+        .catch(function (e) { libraryLoading = null; throw e; });
+    }
+    return libraryLoading;
+  }
+
+  function status(text) { var el = document.getElementById('wb-status'); if (el) el.textContent = text; }
+
+  function sceneJson() {
+    var api = open.api, lib = window.ExcalidrawLib;
+    return lib.serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), 'local');
+  }
+
+  /** Save if the drawing changed since the last save. Resolves when done. */
+  function save() {
+    if (!open || !open.api) return Promise.resolve();
+    clearTimeout(open.timer);
+    var current = open, json = sceneJson();
+    if (json === current.lastJson) return Promise.resolve();
+    status('Saving…');
+    return FT.rpc('whiteboard', 'save', { projectId: current.projectId, json: json }, { render: false, quiet: true })
+      .then(function () { current.lastJson = json; if (open === current) status('Saved'); })
+      .catch(function (e) { if (open === current) status('Not saved: ' + e.message); throw e; });
+  }
+
+  function scheduleSave() {
+    if (!open || !open.ready) return;
+    // Excalidraw reports every view change (cursor, zoom, selection) here; save() only writes when the drawing changed.
+    clearTimeout(open.timer);
+    open.timer = setTimeout(function () { save().catch(function () {}); }, SAVE_DELAY_MS);
+  }
+
+  function showShell(project) {
+    var shell = document.createElement('div');
+    shell.className = 'wbshell'; shell.id = 'wb-shell';
+    shell.setAttribute('role', 'dialog'); shell.setAttribute('aria-label', 'Whiteboard: ' + project.name);
+    shell.innerHTML = '<div class="wbbar"><h2>' + FT.esc(project.name) + ': whiteboard</h2><span class="wbstatus" id="wb-status" aria-live="polite">Loading…</span>' +
+      '<button class="btn sm primary" data-act="whiteboard.close">Save and close</button></div><div class="wbcanvas" id="wb-canvas"></div>';
+    document.body.appendChild(shell);
+    return document.getElementById('wb-canvas');
+  }
+
+  function mount(canvas, json) {
+    var lib = window.ExcalidrawLib, initial = null;
+    if (json) {
+      var scene = JSON.parse(json);
+      initial = { elements: scene.elements, appState: Object.assign({}, scene.appState, { collaborators: new Map() }), files: scene.files || {}, scrollToContent: true };
+    }
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    open.root = window.ReactDOM.createRoot(canvas);
+    open.root.render(window.React.createElement(lib.Excalidraw, {
+      initialData: initial,
+      theme: dark ? 'dark' : 'light',
+      excalidrawAPI: function (api) { if (open) open.api = api; },
+      onChange: scheduleSave,
+      UIOptions: { canvasActions: { loadScene: false, saveToActiveFile: false } }
+    }));
+    open.lastJson = null;
+    // Excalidraw fires onChange while it starts up; real edits only count after that settles.
+    setTimeout(function () {
+      if (!open || !open.api) return;
+      open.lastJson = sceneJson();
+      open.ready = true;
+      status(json ? 'Saved' : 'New drawing');
+    }, 800);
+  }
+
+  function closeShell() {
+    if (open && open.root) open.root.unmount();
+    var shell = document.getElementById('wb-shell');
+    if (shell) shell.remove();
+    open = null;
+    FT.render();
+  }
+
+  FT.module({ id: 'whiteboard', slots: { 'project.page': [{ id: 'whiteboard', order: 25, span: 'half', render: panel }] } });
+
+  FT.action('whiteboard.open', function (el) {
+    var project = FT.project(el.dataset.id);
+    if (!project || open) return;
+    open = { projectId: project.id, ready: false };
+    var canvas = showShell(project), mine = open;
+    Promise.all([loadLibrary(), FT.rpc('whiteboard', 'get', { projectId: project.id }, { render: false, quiet: true })])
+      .then(function (results) { if (open === mine) mount(canvas, results[1].json); })
+      .catch(function (e) {
+        if (open !== mine) return;
+        canvas.innerHTML = '<p class="wbmsg">' + FT.esc(e.message) + '</p>';
+        status('');
+      });
+  });
+
+  FT.action('whiteboard.close', function () {
+    if (!open) return;
+    var btn = document.querySelector('[data-act="whiteboard.close"]');
+    if (btn) btn.disabled = true;
+    save().then(closeShell).catch(function () { if (btn) btn.disabled = false; FT.toast('The drawing was not saved. Try again, or close the tab to discard the changes.', 'error'); });
+  });
+
+  // A closed or reloaded tab still saves what it can.
+  window.addEventListener('pagehide', function () { if (open && open.ready) save().catch(function () {}); });
+})();
+</script>
