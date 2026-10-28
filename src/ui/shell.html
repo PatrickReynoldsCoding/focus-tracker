@@ -296,10 +296,23 @@ var FT = (function () {
     }).join('');
   }
 
+  /** The moment a project's lock ends (a Date), or null when it is not locked. A bare date opens at the start of that day. */
+  FT.lockedUntil = function (p) {
+    var u = p && p.locked_until;
+    if (!u) return null;
+    var d = /^\d{4}-\d{2}-\d{2}$/.test(u) ? new Date(u + 'T00:00:00') : new Date(u);
+    return !isNaN(d.getTime()) && d.getTime() > Date.now() ? d : null;
+  };
+  FT.lockLabel = function (d) {
+    var hasTime = d.getHours() || d.getMinutes();
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) + (hasTime ? ' at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+  };
+
   function projectPage(id) {
     var project = FT.project(id);
     if (!project) return '<p class="empty">That project no longer exists.</p><button class="btn" data-act="core.tab" data-view="projects">Back to projects</button>';
-    var panels = FT.slots('project.page').map(function (s) {
+    var locked = FT.lockedUntil(project);
+    var panels = FT.slots('project.page').filter(function (s) { return !locked || s.id === 'header'; }).map(function (s) {
       return { id: s.id || 'slot' + s.order, title: s.title, html: s.render(project, FT), w: s.span === 'full' ? 12 : 6 };
     });
     return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div>' + FT.layout('project', panels);
@@ -455,6 +468,80 @@ var FT = (function () {
     if (mode.accent) { document.body.dataset.accent = mode.accent; document.body.style.setProperty('--mode-accent', 'var(--cat-' + mode.accent + ')'); }
     else { delete document.body.dataset.accent; document.body.style.removeProperty('--mode-accent'); }
   }
+
+  // ---------- markdown typing helpers (notes) ----------
+  /** Typing markdown in a rich-text box formats it as you go: "- " or "* " a list, "1. " a numbered list, "# " and "## " headings, **bold** and _italic_. */
+  FT.richShortcuts = function (editor) {
+    editor.addEventListener('input', function (e) {
+      if (e.inputType !== 'insertText' || !e.data) return;
+      var sel = window.getSelection();
+      if (!sel.rangeCount || !sel.isCollapsed || sel.anchorNode.nodeType !== 3 || !editor.contains(sel.anchorNode)) return;
+      var node = sel.anchorNode, before = node.data.slice(0, sel.anchorOffset).replace(/ /g, ' ');
+      var block = before.match(/^(-|\*|\d+\.|##|#) $/);
+      if (block && e.data === ' ' && !node.previousSibling) {
+        node.data = node.data.slice(sel.anchorOffset);
+        var r = document.createRange(); r.setStart(node, 0); r.collapse(true); sel.removeAllRanges(); sel.addRange(r);
+        var m = block[1];
+        if (m === '-' || m === '*') document.execCommand('insertUnorderedList');
+        else if (m === '#') document.execCommand('formatBlock', false, 'h3');
+        else if (m === '##') document.execCommand('formatBlock', false, 'h4');
+        else document.execCommand('insertOrderedList');
+        return;
+      }
+      var inline = before.match(/\*\*([^*\s](?:[^*]*[^*\s])?)\*\*$/) || before.match(/(?:^|\s)_([^_\s](?:[^_]*[^_\s])?)_$/);
+      if (inline && (e.data === '*' || e.data === '_')) {
+        var bold = inline[0].slice(-2) === '**', start = sel.anchorOffset - (bold ? inline[1].length + 4 : inline[1].length + 2);
+        var range = document.createRange(); range.setStart(node, start); range.setEnd(node, sel.anchorOffset);
+        sel.removeAllRanges(); sel.addRange(range);
+        document.execCommand('insertText', false, inline[1]);
+        var after = window.getSelection(), end = after.anchorOffset;
+        var back = document.createRange(); back.setStart(after.anchorNode, end - inline[1].length); back.setEnd(after.anchorNode, end);
+        after.removeAllRanges(); after.addRange(back);
+        document.execCommand(bold ? 'bold' : 'italic');
+        after.collapseToEnd();
+        if (document.queryCommandState(bold ? 'bold' : 'italic')) document.execCommand(bold ? 'bold' : 'italic');
+      }
+    });
+  };
+
+  /** In a markdown text box, Enter on a list line starts the next item; Enter on an empty item ends the list. */
+  FT.listEnter = function (e, area) {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || area.selectionStart !== area.selectionEnd) return false;
+    var pos = area.selectionStart, from = area.value.lastIndexOf('\n', pos - 1) + 1, line = area.value.slice(from, pos);
+    var m = line.match(/^(\s*)(- \[[ x]\] |[-*] |(\d+)\. )(.*)$/);
+    if (!m) return false;
+    e.preventDefault();
+    if (!m[4]) { area.setRangeText('', from, pos, 'end'); }
+    else {
+      var marker = m[3] ? (parseInt(m[3], 10) + 1) + '. ' : m[2].indexOf('[') > -1 ? '- [ ] ' : m[2];
+      area.setRangeText('\n' + m[1] + marker, pos, pos, 'end');
+    }
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  };
+
+  /** A small, safe markdown preview: headings, lists, bold, italic, code, links and paragraphs. Everything is escaped first. */
+  FT.mdToHtml = function (text) {
+    function inline(t) {
+      return FT.esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+        .replace(/(^|[\s(])_([^_]+)_(?=[\s).,;:!?]|$)/g, '$1<i>$2</i>').replace(/\*([^*\s][^*]*)\*/g, '<i>$1</i>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+    }
+    var out = [], list = '';
+    function close() { if (list) { out.push('</' + list + '>'); list = ''; } }
+    String(text || '').split('\n').forEach(function (line) {
+      var h = line.match(/^(#{1,6})\s+(.*)$/), ul = line.match(/^\s*[-*]\s+(?:\[([ x])\]\s+)?(.*)$/), ol = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (h) { close(); out.push('<h' + Math.min(6, h[1].length + 2) + '>' + inline(h[2]) + '</h' + Math.min(6, h[1].length + 2) + '>'); }
+      else if (ul || ol) {
+        var want = ul ? 'ul' : 'ol';
+        if (list !== want) { close(); out.push('<' + want + '>'); list = want; }
+        out.push('<li>' + (ul && ul[1] ? (ul[1] === 'x' ? '☑ ' : '☐ ') : '') + inline(ul ? ul[2] : ol[1]) + '</li>');
+      } else if (!line.trim()) { close(); } else { close(); out.push('<p>' + inline(line) + '</p>'); }
+    });
+    close();
+    return out.join('');
+  };
 
   // ---------- settings (⚙): Drive folder and theme ----------
   var THEME_KEY = 'ft.theme';

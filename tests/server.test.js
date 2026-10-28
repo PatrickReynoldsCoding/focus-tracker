@@ -18,7 +18,7 @@ function fresh() {
 test('setup creates a tab per table and a Drive folder', () => {
   const s = fresh();
   ['Projects', 'Columns', 'Tasks', 'Notes', 'Resources', 'Log'].forEach((n) => assert.ok(s.ss.sheets[n], 'missing tab ' + n));
-  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created']);
+  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until']);
   assert.ok(s.script._m.FOLDER_ID && s.script._m.SHEET_ID);
 });
 
@@ -135,6 +135,30 @@ test('a session saved before pauses existed still works', () => {
   s.call('today', 'start', { projectId: p.id });
   rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(12); delete session.pausedMs; delete session.pausedAt; delete session.pomodoro; });
   assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 12);
+});
+
+test('a locked project leaves the focus pick, cannot start a session, and lifting the lock early needs confirmation', () => {
+  const s = fresh();
+  s.mock.weekday = 7;
+  const a = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
+  const b = s.call('projects', 'create', { name: 'B', category: 'house' }).result;
+  s.run(`new Table('Projects',['id']).update('${a.id}', { last_touched: '${new Date(Date.now() - 9 * 86400000).toISOString()}' })`);
+  assert.strictEqual(s.call('today', 'state').result.focusId, a.id);
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: '2001-01-01' }), /future/);
+  assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: 'soon' }), /valid date/);
+  s.call('projects', 'setLock', { id: a.id, until: day(3) });
+  const state = s.call('today', 'state').result;
+  assert.strictEqual(state.focusId, b.id, 'the locked project is not picked');
+  assert.ok(state.ranked.indexOf(a.id) === -1, 'and is not in the ranking');
+  assert.throws(() => s.call('today', 'start', { projectId: a.id }), /locked/);
+  s.call('projects', 'setLock', { id: a.id, until: day(6) }); // longer is always allowed
+  assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: day(2) }), /confirmation/);
+  assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: '' }), /confirmation/);
+  s.call('projects', 'setLock', { id: a.id, until: '', early: true });
+  assert.strictEqual(s.call('today', 'state').result.focusId, a.id, 'lifted, it is the most neglected again');
+  s.call('projects', 'setLock', { id: a.id, until: new Date(Date.now() + 3600000).toISOString() }); // date and time
+  assert.throws(() => s.call('today', 'start', { projectId: a.id }), /locked/);
 });
 
 test('swap to a chosen project logs the skip, sets a reminder, and keeps the skipped project neglected', () => {

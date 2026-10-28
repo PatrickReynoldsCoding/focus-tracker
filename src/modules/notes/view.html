@@ -1,4 +1,20 @@
 <style>
+.notes-bar { display: none; }
+.notes-prev { display: none; }
+.notes-prev h3, .notes-prev h4, .notes-prev h5 { margin: 12px 0 4px; }
+.notes-prev p, .notes-prev ul, .notes-prev ol { margin: 6px 0; }
+.notes-prev ul, .notes-prev ol { padding-left: 22px; }
+.notes-prev code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+/* Phone: tapping the notes opens them full screen, with Edit and Preview. */
+@media (max-width: 760px) {
+  .notes-panel.full { position: fixed; inset: 0; z-index: 50; margin: 0; border-radius: 0; display: flex; flex-direction: column; padding: 12px max(16px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-bottom, 0px)); overflow: hidden; }
+  .notes-panel.full > .label { display: none; }
+  .notes-panel.full .notes-bar { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+  .notes-panel.full .notes-bar .spacer { flex: 1; }
+  .notes-panel.full #nt-text { flex: 1; min-height: 0; resize: none; font-size: 16px; line-height: 1.55; }
+  .notes-panel.full.previewing #nt-text { display: none; }
+  .notes-panel.full.previewing .notes-prev { display: block; flex: 1; overflow: auto; padding: 4px 2px; }
+}
 .notes-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
 </style>
 <script>
@@ -14,9 +30,10 @@
   function panel(p) {
     var row = noteRow(p.id);
     var loaded = Object.prototype.hasOwnProperty.call(cache, p.id) || !row;
-    return '<section class="panel"><div class="label">Notes</div>' +
+    return '<section class="panel notes-panel" id="nt-panel"><div class="label">Notes</div>' +
+      '<div class="notes-bar"><strong>Notes</strong><span class="spacer"></span><button class="btn sm" type="button" data-act="notes.preview" id="nt-prevbtn">Preview</button><button class="btn sm primary" type="button" data-act="notes.done">Done</button></div>' +
       '<textarea id="nt-text" aria-label="Notes" placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '"' + (loaded ? '' : ' disabled') + '>' + FT.esc(cache[p.id] || '') + '</textarea>' +
-      '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
+      '<div class="notes-prev" id="nt-prev"></div><div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
   }
 
   function status(text) { var el = document.getElementById('nt-status'); if (el) el.textContent = text; }
@@ -57,6 +74,28 @@
     cache[id] = e.target.value; dirty[id] = true; status('Editing…');
     clearTimeout(timers[id]);
     timers[id] = setTimeout(function () { save(id); }, 1200);
+  });
+  var narrow = window.matchMedia('(max-width: 760px)');
+  function panelEl() { return document.getElementById('nt-panel'); }
+  document.addEventListener('focusin', function (e) {
+    if (e.target && e.target.id === 'nt-text' && narrow.matches && panelEl()) panelEl().classList.add('full');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.target && e.target.id === 'nt-text') FT.listEnter(e, e.target);
+  });
+  FT.action('notes.preview', function () {
+    var p = panelEl(), area = document.getElementById('nt-text');
+    if (!p) return;
+    var on = p.classList.toggle('previewing');
+    document.getElementById('nt-prevbtn').textContent = on ? 'Edit' : 'Preview';
+    if (on) document.getElementById('nt-prev').innerHTML = FT.mdToHtml(area.value);
+  });
+  FT.action('notes.done', function () {
+    var p = panelEl();
+    if (!p) return;
+    p.classList.remove('full', 'previewing');
+    document.getElementById('nt-prevbtn').textContent = 'Preview';
+    document.getElementById('nt-text').blur();
   });
   document.addEventListener('focusout', function (e) {
     if (e.target && e.target.id === 'nt-text') save(FT.state.projectId);

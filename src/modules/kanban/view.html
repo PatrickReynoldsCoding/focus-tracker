@@ -45,6 +45,7 @@
 .rtedit { min-height: 180px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
 .rtedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rtedit:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rtedit h3, .rtedit h4 { margin: 8px 0 2px; }
 .rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
 .rtedit a { overflow-wrap: anywhere; }
 </style>
@@ -278,6 +279,7 @@
   function wireToolbar() {
     var bar = document.querySelector('.rtbar');
     if (!bar) return;
+    FT.richShortcuts(document.getElementById('dlg-note'));
     bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
     // Links in the note open with Cmd or Ctrl + click, so a plain click still places the cursor to edit the text.
     document.getElementById('dlg-note').addEventListener('click', function (e) {
@@ -308,7 +310,7 @@
       ],
       after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
         '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>' +
-        '<div class="hint" style="background:none;padding:4px 0 0">Web addresses become links when you save. Cmd or Ctrl + click a link to open it.</div>',
+        '<div class="hint" style="background:none;padding:4px 0 0">Type <b>- </b> for a list, <b># </b> for a heading, **bold** or _italic_ and they format as you go. Web addresses become links when you save.</div>',
       onOpen: wireToolbar,
       onSubmit: function (v) {
         assert(v.cardtitle, 'A card needs a title.');

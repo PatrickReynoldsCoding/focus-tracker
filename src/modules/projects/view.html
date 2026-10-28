@@ -1,4 +1,6 @@
 <style>
+.lockbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; gap: 4px; }
+.lockbox span { color: var(--ink); font-size: 14px; }
 .tophead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .tophead .label { margin: 0; }
 .status-paused, .status-done, .status-archived { color: var(--muted); }
@@ -79,7 +81,7 @@
     var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
-      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
+      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
         '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.linkify(p.next_action) +
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
@@ -104,16 +106,18 @@
 
   function headerHtml(p) {
     var n = FT.daysSince(p.last_touched);
-    var inactive = p.status !== 'active';
+    var inactive = p.status !== 'active', lockedUntil = FT.lockedUntil(p);
     return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + FT.pill(p.category) +
       '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
       skippedHtml(p) + '</div></div></div>' +
-      '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>' +
-      '<div class="actions" style="margin-top:0"><button class="btn sm" data-act="projects.edit">Edit</button>' +
-      (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
-      (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
-      (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
-      '<button class="btn sm" data-act="projects.delete">Delete</button></div></section>';
+      (lockedUntil ? '<div class="lockbox"><b>🔒 Locked until ' + FT.esc(FT.lockLabel(lockedUntil)) + '</b><span>You locked this project so it cannot take over. It is hidden from your focus pick and its boards, notes and whiteboards are closed until then.</span></div>' : '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>') +
+      '<div class="actions" style="margin-top:0">' +
+      (lockedUntil ? '<button class="btn sm" data-act="projects.lock">Change lock…</button>' : '<button class="btn sm" data-act="projects.edit">Edit</button><button class="btn sm" data-act="projects.lock">Lock…</button>') +
+      (lockedUntil ? '' :
+        (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
+        (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
+        (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
+        '<button class="btn sm" data-act="projects.delete">Delete</button>') + '</div></section>';
   }
 
   /** Today's skip count for this project, if the Today module is installed and it was ever skipped. */
@@ -206,6 +210,49 @@
         return FT.rpc('projects', 'update', args, { quiet: true });
       }
     });
+  });
+
+  // ---------- lock ----------
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function todayInput() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+
+  FT.action('projects.lock', function () {
+    var p = FT.project(FT.state.projectId), current = FT.lockedUntil(p);
+    FT.dialog({
+      title: current ? 'Change lock' : 'Lock this project',
+      subtitle: current ? 'Locked until ' + FT.lockLabel(current) + '. You can make it longer here.' : 'It will not be picked as your focus and its page is closed until the date you choose.',
+      after: '<label for="lk-date">Locked until</label><input type="date" id="lk-date" min="' + todayInput() + '">' +
+        '<label for="lk-time">Time (optional, otherwise it opens at the start of that day)</label><input type="time" id="lk-time">' +
+        (current ? '<div class="actions" style="margin-top:16px"><button class="btn danger sm" type="button" data-act="projects.liftlock">Lift the lock early…</button></div>' : ''),
+      submit: current ? 'Make it longer' : 'Lock it',
+      onSubmit: function () {
+        var date = document.getElementById('lk-date').value, time = document.getElementById('lk-time').value;
+        if (!date) throw new Error('Pick a date.');
+        var until = time ? new Date(date + 'T' + time).toISOString() : date;
+        return FT.rpc('projects', 'setLock', { id: p.id, until: until }, { quiet: true });
+      }
+    });
+  });
+
+  /** Lifting a running lock takes two separate warnings, then the server is told it was confirmed. */
+  FT.action('projects.liftlock', function () {
+    var p = FT.project(FT.state.projectId);
+    FT.closeDialog();
+    setTimeout(function () {
+      FT.dialog({
+        title: 'Lift the lock early?', danger: true, submit: 'Yes, lift it',
+        body: '<div class="err" style="display:block;margin:10px 0">You locked "' + FT.esc(p.name) + '" to protect your time. Lifting it now undoes that decision.</div>',
+        onSubmit: function () {
+          setTimeout(function () {
+            FT.dialog({
+              title: 'Are you really sure?', danger: true, submit: 'Lift the lock now',
+              body: '<div class="err" style="display:block;margin:10px 0">Last chance. This project will come back into your focus pick straight away.</div>',
+              onSubmit: function () { return FT.rpc('projects', 'setLock', { id: p.id, until: '', early: true }, { quiet: true }); }
+            });
+          }, 0);
+        }
+      });
+    }, 0);
   });
 
   FT.action('projects.status', function (el) {

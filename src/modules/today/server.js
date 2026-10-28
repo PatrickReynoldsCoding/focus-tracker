@@ -178,7 +178,7 @@ function todayModule() {
 
   function ranked_(ctx, lead) {
     return ctx.call('projects', 'list', {})
-      .filter(function (p) { return p.status === 'active'; })
+      .filter(function (p) { return p.status === 'active' && !projectLocked_(p); })
       .map(function (p) {
         return { id: p.id, score: daysSince_(p.last_touched) + (lead && p.category === lead ? 100 : 0) };
       })
@@ -293,6 +293,7 @@ function todayModule() {
 
       start: function (a, ctx) {
         assert_(a.projectId, 'No project to start.');
+        assert_(!projectLocked_(ctx.call('projects', 'list', {}).filter(function (p) { return p.id === a.projectId; })[0]), 'That project is locked.');
         var d = dayInfo_(), s = load_(d.key);
         s.session = { projectId: a.projectId, start: nowIso_(), pausedMs: 0, pausedAt: '', pomodoro: null };
         save_(s);
