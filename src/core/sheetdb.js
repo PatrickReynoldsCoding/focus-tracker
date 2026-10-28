@@ -4,12 +4,34 @@
  * Columns are matched by header name, so you can reorder columns or add your own by hand.
  */
 
+// Spreadsheets opened during this request, by mode id. Opening one is slow and every table read needs it.
+var openSpreadsheets_ = {};
+
+/** The active mode's spreadsheet. A mode other than the first gets a new spreadsheet in its folder on first use. */
 function getSpreadsheet_() {
-  var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  if (!openSpreadsheets_[modeId_()]) openSpreadsheets_[modeId_()] = openModeSpreadsheet_();
+  return openSpreadsheets_[modeId_()];
+}
+
+function openModeSpreadsheet_() {
+  var props = PropertiesService.getScriptProperties();
+  var key = modeKey_('SHEET_ID');
+  var id = props.getProperty(key);
   if (id) return SpreadsheetApp.openById(id);
-  var active = SpreadsheetApp.getActiveSpreadsheet();
-  if (!active) throw new Error('No spreadsheet linked yet. Open the Apps Script editor and run setup() once.');
-  return active;
+  if (modeId_() === MODES[0].id) {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    if (!active) throw new Error('No spreadsheet linked yet. Open the Apps Script editor and run setup() once.');
+    return active;
+  }
+  return withLock_(function () {
+    var again = props.getProperty(key);
+    if (again) return SpreadsheetApp.openById(again);
+    var ss = SpreadsheetApp.create(APP_NAME + ' - ' + activeMode_().label);
+    var folder = getModeFolder_();
+    DriveApp.getFileById(ss.getId()).moveTo(folder);
+    props.setProperty(key, ss.getId());
+    return ss;
+  });
 }
 
 /**
@@ -91,6 +113,23 @@ Table.prototype.insert = function (obj) {
   });
 };
 
+/** Insert several rows with one write. Returns the inserted rows in order. */
+Table.prototype.insertMany = function (objs) {
+  var self = this;
+  if (!objs.length) return [];
+  return withLock_(function () {
+    var d = self.read_();
+    var rows = objs.map(function (obj) {
+      var record = {};
+      self.headers.forEach(function (h) { record[h] = obj[h] === undefined ? '' : obj[h]; });
+      record.id = obj.id || newId_();
+      return d.headers.map(function (h) { return record[h] === undefined ? '' : record[h]; });
+    });
+    d.sh.getRange(d.sh.getLastRow() + 1, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+    return rows.map(function (row) { return self.toObject_(d.headers, row); });
+  });
+};
+
 Table.prototype.update = function (id, patch) {
   var self = this;
   return withLock_(function () {
@@ -135,8 +174,13 @@ Table.prototype.removeWhere = function (predicate) {
   });
 };
 
+// How many withLock_ calls are open in this request, so a locked step can call another without waiting on itself.
+var lockDepth_ = 0;
+
 function withLock_(fn) {
+  if (lockDepth_ > 0) return fn();
   var lock = LockService.getScriptLock();
   lock.waitLock(15000);
-  try { return fn(); } finally { lock.releaseLock(); }
+  lockDepth_++;
+  try { return fn(); } finally { lockDepth_--; lock.releaseLock(); }
 }

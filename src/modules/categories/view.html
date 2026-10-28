@@ -1,0 +1,70 @@
+<style>
+.catrows { display: grid; gap: 6px; }
+.catrow { display: flex; gap: 8px; align-items: center; }
+.catrow input { flex: 1 1 auto; min-width: 0; padding: 6px 9px; }
+.catrow select { width: auto; padding: 6px 8px; }
+.catrow .swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--c); flex: none; }
+.catrow .uses { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 64px; text-align: right; }
+</style>
+<script>
+(function () {
+  var COLORS = [['1', 'Teal'], ['2', 'Amber'], ['3', 'Blue'], ['4', 'Red'], ['5', 'Purple'], ['6', 'Green'], ['7', 'Grey'], ['8', 'Orange']];
+
+  function uses(categoryId) {
+    var projects = (FT.store.projects || []).filter(function (p) { return p.category === categoryId; }).length;
+    var links = (FT.store.resources || []).filter(function (r) { return r.category === categoryId; }).length;
+    return { projects: projects, total: projects + links };
+  }
+
+  function rowHtml(c, onlyOne) {
+    var id = FT.esc(c.id), used = uses(c.id);
+    var colors = COLORS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c.color ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
+    var blocked = used.total > 0 || onlyOne;
+    return '<div class="catrow"><span class="swatch" style="--c: var(--cat-' + FT.esc(c.color) + ')"></span>' +
+      '<input type="text" value="' + FT.esc(c.label) + '" aria-label="Category name" data-change="categories.rename" data-id="' + id + '">' +
+      '<select aria-label="Colour of ' + FT.esc(c.label) + '" data-change="categories.color" data-id="' + id + '">' + colors + '</select>' +
+      '<span class="uses">' + used.projects + (used.projects === 1 ? ' project' : ' projects') + '</span>' +
+      '<button class="rm" data-act="categories.remove" data-id="' + id + '"' + (blocked ? ' disabled title="' +
+        (onlyOne ? 'Keep at least one category' : 'Move its projects and links first') + '"' : '') + ' aria-label="Delete category ' + FT.esc(c.label) + '">Delete</button></div>';
+  }
+
+  function panel() {
+    var list = FT.categories();
+    return '<section class="panel"><div class="tophead"><div class="label">Categories</div>' +
+      '<button class="btn sm" data-act="categories.add">+ Add category</button></div>' +
+      '<div class="catrows">' + list.map(function (c) { return rowHtml(c, list.length < 2); }).join('') + '</div></section>';
+  }
+
+  FT.module({ id: 'categories', slots: { 'projects.tab': [{ order: 5, render: panel }] } });
+
+  FT.action('categories.add', function () {
+    FT.dialog({
+      title: 'Add category',
+      submit: 'Add category',
+      fields: [{ id: 'label', label: 'Name', placeholder: 'e.g. Garden' }],
+      onSubmit: function (v) { return FT.rpc('categories', 'add', { label: v.label }, { quiet: true }); }
+    });
+  });
+
+  FT.on('change', 'categories.rename', function (el) {
+    var label = el.value.trim();
+    if (!label) { FT.render(); return; }
+    FT.rpc('categories', 'update', { id: el.dataset.id, label: label }).catch(function () { FT.render(); });
+  });
+
+  FT.on('change', 'categories.color', function (el) {
+    FT.rpc('categories', 'update', { id: el.dataset.id, color: el.value }).catch(function () {});
+  });
+
+  FT.action('categories.remove', function (el) {
+    var c = FT.category(el.dataset.id);
+    FT.dialog({
+      title: 'Delete category',
+      body: '<p>Delete "' + FT.esc(c.label) + '"? Days in the weekly rotation that lead with it become "Any category".</p>',
+      submit: 'Delete category',
+      danger: true,
+      onSubmit: function () { return FT.rpc('categories', 'remove', { id: c.id }, { quiet: true }); }
+    });
+  });
+})();
+</script>

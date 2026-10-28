@@ -14,9 +14,10 @@
  * Modules are looked up by name at call time, so file load order does not matter.
  */
 
+/** The active mode's modules, by id. */
 function loadModules_() {
   var mods = {};
-  MODULES.forEach(function (id) {
+  modeModules_().forEach(function (id) {
     var factory = globalThis[id + 'Module'];
     assert_(typeof factory === 'function',
       'Module "' + id + '" is listed in MODULES but ' + id + 'Module() is not defined. Check src/modules/' + id + '/server.js.');

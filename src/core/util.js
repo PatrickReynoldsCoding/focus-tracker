@@ -24,7 +24,3 @@ function clean_(value, max) {
   var s = typeof value === 'string' ? value.trim() : '';
   return max ? s.slice(0, max) : s;
 }
-
-function categoryIds_() {
-  return CATEGORIES.map(function (c) { return c.id; });
-}

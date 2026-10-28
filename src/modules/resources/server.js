@@ -17,7 +17,7 @@ function resourcesModule() {
         var url = clean_(a.url, 500);
         assert_(title, 'Add a title.');
         assert_(/^https:\/\//i.test(url), 'Use a full link that starts with https://');
-        assert_(categoryIds_().indexOf(a.category) !== -1, 'Unknown category: ' + a.category);
+        assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category);
         var row = T.insert({
           category: a.category,
           project_id: a.projectId || '',
@@ -34,6 +34,10 @@ function resourcesModule() {
         T.remove(a.id);
         ctx.refresh('resources');
         return true;
+      },
+
+      countInCategory: function (a) {
+        return T.all().filter(function (r) { return r.category === a.category; }).length;
       },
 
       removeProject: function (a) {

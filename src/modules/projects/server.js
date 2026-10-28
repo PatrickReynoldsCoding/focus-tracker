@@ -16,7 +16,7 @@ function projectsModule() {
       create: function (a, ctx) {
         var name = clean_(a.name, 120);
         assert_(name, 'A project needs a name.');
-        assert_(categoryIds_().indexOf(a.category) !== -1, 'Unknown category: ' + a.category);
+        assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category);
         var now = nowIso_();
         var row = T.insert({
           name: name,
@@ -34,12 +34,16 @@ function projectsModule() {
       update: function (a, ctx) {
         var patch = {};
         if (a.name !== undefined) { patch.name = clean_(a.name, 120); assert_(patch.name, 'A project needs a name.'); }
-        if (a.category !== undefined) { assert_(categoryIds_().indexOf(a.category) !== -1, 'Unknown category: ' + a.category); patch.category = a.category; }
+        if (a.category !== undefined) { assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category); patch.category = a.category; }
         if (a.status !== undefined) { assert_(STATUSES.indexOf(a.status) !== -1, 'Unknown status: ' + a.status); patch.status = a.status; }
         if (a.next_action !== undefined) patch.next_action = clean_(a.next_action, 300);
         var row = T.update(a.id, patch);
         ctx.refresh('projects', 'today');
         return row;
+      },
+
+      countInCategory: function (a) {
+        return list().filter(function (p) { return p.category === a.category; }).length;
       },
 
       /** Record that work happened: bumps last_touched and optionally sets the next action. */

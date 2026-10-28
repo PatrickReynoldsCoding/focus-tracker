@@ -185,7 +185,7 @@ async function waitFor(fn, label, ms = 3000) {
     setVal(ta, 'Replacement needs to be 100mm.\nChecked the duct: 98mm.');
     ta.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
-    const file = Object.values(server.drive.files).find((f) => f.content.includes('98mm'));
+    const file = Object.values(server.drive.files).find((f) => f.content && f.content.includes('98mm'));
     assert.ok(file, 'file content updated');
   });
 
@@ -249,6 +249,49 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.dialog'), 'confirm');
     click($('#dlg-submit'));
     await waitFor(() => $$('tr.row').length === 6, '6 rows');
+  });
+
+  await step('categories can be added from the Projects tab and show in the project form', async () => {
+    assert.deepStrictEqual($$('.catrow input').map((i) => i.value), ['Coding', 'Job search', 'House']);
+    assert.ok($$('.catrow [data-act="categories.remove"]').every((b) => b.disabled), 'all in use');
+    click($('[data-act="categories.add"]'));
+    await waitFor(() => $('#dlg-label'), 'add dialog');
+    setVal($('#dlg-label'), 'Garden');
+    click($('#dlg-submit'));
+    await waitFor(() => $$('.catrow input').length === 4, 'new category');
+    const garden = $$('.catrow').find((r) => r.querySelector('input').value === 'Garden');
+    assert.ok(!garden.querySelector('[data-act="categories.remove"]').disabled, 'unused category can be deleted');
+    click($('[data-act="projects.add"]'));
+    await waitFor(() => $('#dlg-category'), 'project dialog');
+    assert.ok(Array.from($('#dlg-category').options).some((o) => o.textContent === 'Garden'));
+    click($('#dlg-cancel'));
+  });
+
+  await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {
+    const personalFolder = $('#driveLink').href;
+    assert.strictEqual(d.body.dataset.mode, 'personal');
+    assert.deepStrictEqual($$('.modebtn').map((b) => b.textContent), ['Personal', 'Work']);
+    click($$('.modebtn')[1]);
+    await waitFor(() => d.body.dataset.mode === 'work' && $('.panel .empty'), 'work loaded');
+    assert.strictEqual(w.localStorage.getItem('ft.mode'), 'work');
+    assert.notStrictEqual($('#driveLink').href, personalFolder);
+    assert.ok($('#driveLink').title.includes('Work folder'));
+    click(tab('Projects'));
+    await waitFor(() => $('[data-act="projects.add"]'), 'work projects tab');
+    assert.strictEqual($$('tr.row').length, 0);
+    assert.deepStrictEqual($$('.catrow input').map((i) => i.value), ['Delivery', 'Ops', 'Learning', 'Career', 'Admin']);
+    click($('[data-act="projects.add"]'));
+    await waitFor(() => $('#dlg-name'), 'add dialog');
+    setVal($('#dlg-name'), 'Wiz tickets');
+    click($('#dlg-submit'));
+    await waitFor(() => $('.board'), 'work project page');
+    click(tab('Today'));
+    await waitFor(() => $('.focus-name') && $('.focus-name').textContent === 'Wiz tickets', 'work focus');
+    assert.ok(!$('#app').textContent.includes('Daily minimum'), 'work mode has no daily minimum');
+    click($$('.modebtn')[0]);
+    await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name') && $('.focus-name').textContent !== 'Wiz tickets', 'personal back');
+    click(tab('Projects'));
+    await waitFor(() => $$('tr.row').length === 6, 'personal projects unchanged');
   });
 
   assert.deepStrictEqual(errors, [], 'no uncaught page errors');

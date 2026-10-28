@@ -4,6 +4,8 @@ A daily focus picker and project tracker that runs for free on Google Sheets and
 
 Features: Today (focus pick, session timer with pause and an optional pomodoro, daily job-search minimum), Projects (sortable and filterable), per-project Kanban (rename, add and delete columns, add tasks in any column, horizontal or vertical), notes saved as markdown files in Drive, Resources (links to Drive files per category or project) and a session Log with minutes worked. On desktop, the icon at the top right stretches the page to full width.
 
+Modes: Personal and Work keep separate data. Each has its own spreadsheet and its own folder inside the "Focus Tracker" Drive folder; the folder icon in the header opens it. Categories are edited on the Projects tab. A new mode is an entry in `MODES` in `src/core/config.js`; its spreadsheet and folder are created the first time you switch to it.
+
 Data lives in your own spreadsheet, one tab per table, readable and editable by hand. Notes are plain `.md` files in a Drive folder.
 
 ## Layout

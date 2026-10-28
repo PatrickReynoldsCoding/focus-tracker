@@ -30,12 +30,12 @@ function makeSheet(name) {
   return sh;
 }
 
-function makeSpreadsheet() {
+function makeSpreadsheet(id = 'sheet-1', name = 'Focus Tracker') {
   const sheets = {};
   return {
-    sheets,
-    getId: () => 'sheet-1',
-    getUrl: () => 'https://docs.google.com/spreadsheets/d/sheet-1',
+    sheets, name,
+    getId: () => id,
+    getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id,
     getSheetByName: (n) => sheets[n] || null,
     insertSheet: (n) => (sheets[n] = makeSheet(n))
   };
@@ -46,31 +46,47 @@ function props() {
   return { getProperty: (k) => (k in m ? m[k] : null), setProperty: (k, v) => { m[k] = String(v); }, _m: m };
 }
 
+/** Drive with parent tracking, so tests can check where files and folders end up. The top level is My Drive. */
 function makeDrive() {
   let n = 0;
   const files = {}, folders = {};
+  const myDrive = { name: 'My Drive', children: {} };
+  function place(node, parent) {
+    if (node.parent) delete node.parent.children[node.id];
+    parent.children[node.id] = node;
+    node.parent = parent;
+  }
+  function addFile(fid, nm, extra) {
+    const file = Object.assign({ id: fid, name: nm, getId: () => fid, getUrl: () => 'https://docs.google.com/file/' + fid,
+      moveTo: (dest) => { place(file, dest); return file; } }, extra);
+    files[fid] = file;
+    return file;
+  }
   function folder(name) {
     const id = 'folder-' + ++n;
     const f = {
       id, name, children: {},
       getId: () => id, getUrl: () => 'https://drive.google.com/drive/folders/' + id,
       getFoldersByName: (nm) => { const hit = Object.values(f.children).filter((c) => c.name === nm && c.children); let i = 0; return { hasNext: () => i < hit.length, next: () => hit[i++] }; },
-      createFolder: (nm) => { const c = folder(nm); f.children[c.id] = c; return c; },
+      createFolder: (nm) => { const c = folder(nm); place(c, f); return c; },
       createFile: (nm, content, mime) => {
-        const fid = 'file-' + ++n;
-        const file = { id: fid, name: nm, content, mime, getId: () => fid, getUrl: () => 'https://docs.google.com/file/' + fid,
-          setContent: (c) => { file.content = c; }, getBlob: () => ({ getDataAsString: () => file.content }) };
-        files[fid] = file; f.children[fid] = file; return file;
-      }
+        const file = addFile('file-' + ++n, nm, { content, mime,
+          setContent: (c) => { file.content = c; }, getBlob: () => ({ getDataAsString: () => file.content }) });
+        place(file, f);
+        return file;
+      },
+      moveTo: (dest) => { place(f, dest); return f; }
     };
     folders[id] = f;
     return f;
   }
-  const root = { top: {} };
   return {
-    files, folders,
-    createFolder: (nm) => { const f = folder(nm); root.top[f.id] = f; return f; },
-    getFoldersByName: (nm) => { const hit = Object.values(root.top).filter((c) => c.name === nm); let i = 0; return { hasNext: () => i < hit.length, next: () => hit[i++] }; },
+    files, folders, myDrive,
+    /** Register a spreadsheet as a file in My Drive, like SpreadsheetApp.create does. */
+    addSpreadsheetFile: (id, nm) => place(addFile(id, nm, {}), myDrive),
+    pathOf: (node) => { const parts = []; for (let x = node; x && x !== myDrive; x = x.parent) parts.unshift(x.name); return parts.join('/'); },
+    createFolder: (nm) => { const f = folder(nm); place(f, myDrive); return f; },
+    getFoldersByName: (nm) => { const hit = Object.values(myDrive.children).filter((c) => c.name === nm && c.children); let i = 0; return { hasNext: () => i < hit.length, next: () => hit[i++] }; },
     getFolderById: (id) => folders[id],
     getFileById: (id) => files[id]
   };
@@ -78,14 +94,31 @@ function makeDrive() {
 
 function loadServer(opts = {}) {
   const ss = makeSpreadsheet();
+  const spreadsheets = { [ss.getId()]: ss };
   const script = props(), user = props();
   const drive = makeDrive();
+  drive.addSpreadsheetFile(ss.getId(), ss.name);
   const mock = { weekday: null, logs: [] };
+  // One script lock. Waiting for it while this execution already holds it would hang on Google, so it throws here.
+  let lockHeld = false;
+  const lock = {
+    waitLock() { if (lockHeld) throw new Error('Deadlock: script lock already held'); lockHeld = true; },
+    releaseLock() { lockHeld = false; }
+  };
   const sandbox = {
     console,
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ss,
+      openById: (id) => spreadsheets[id],
+      create: (name) => {
+        const created = makeSpreadsheet('sheet-' + (Object.keys(spreadsheets).length + 1), name);
+        spreadsheets[created.getId()] = created;
+        drive.addSpreadsheetFile(created.getId(), name);
+        return created;
+      }
+    },
     PropertiesService: { getScriptProperties: () => script, getUserProperties: () => user },
-    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    LockService: { getScriptLock: () => lock },
     Utilities: {
       getUuid: () => crypto.randomUUID(),
       formatDate: (d, tz, fmt) => {
@@ -107,7 +140,7 @@ function loadServer(opts = {}) {
   files.forEach((f) => vm.runInContext(fs.readFileSync(f, 'utf8'), sandbox, { filename: path.relative(root, f) }));
   // Run helpers in the sandbox so results keep their own realm
   const run = (code) => vm.runInContext(code, sandbox);
-  return { sandbox, ss, script, user, drive, mock, run };
+  return { sandbox, ss, spreadsheets, script, user, drive, mock, run };
 }
 
 module.exports = { loadServer };

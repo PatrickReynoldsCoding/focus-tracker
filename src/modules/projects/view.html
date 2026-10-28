@@ -52,7 +52,7 @@
   function isFiltered() { return !!(view.category || view.status || view.text.trim()); }
 
   function filtersHtml() {
-    var categories = '<option value="">All categories</option>' + FT.config.categories.map(function (c) {
+    var categories = '<option value="">All categories</option>' + FT.categories().map(function (c) {
       return '<option value="' + FT.esc(c.id) + '"' + (c.id === view.category ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
     }).join('');
     var statuses = '<option value="">All statuses</option>' + STATUSES.map(function (s) {
@@ -115,7 +115,7 @@
   }
 
   function categoryOptions() {
-    return FT.config.categories.map(function (c) { return { value: c.id, label: c.label }; });
+    return FT.categories().map(function (c) { return { value: c.id, label: c.label }; });
   }
 
   FT.module({
@@ -145,7 +145,7 @@
       submit: 'Add project',
       fields: [
         { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes' },
-        { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: FT.config.categories[0].id },
+        { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: FT.categories()[0].id },
         { id: 'next', label: 'Next action', placeholder: 'The first small step' }
       ],
       onSubmit: function (v) {

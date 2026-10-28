@@ -1,9 +1,9 @@
 /**
  * Today module: picks the day's focus project and tracks the working session.
  *
- * Rule: the category that leads today (see LEAD) gets a 100 day head start, then the project
+ * Rule: the category that leads today (the mode's rotation) gets a 100 day head start, then the project
  * untouched for longest wins. "Swap focus" skips to the next candidate for the rest of the day.
- * Session state is per user and lives in user properties, so it follows you across devices.
+ * Session state is per user and per mode and lives in user properties, so it follows you across devices.
  *
  * A session is { projectId, start, pausedMs, pausedAt, pomodoro }. Worked time is wall time minus pauses.
  * pomodoro is null when off, else { phase: 'work' | 'break', phaseStartMs, lengthMin } where phaseStartMs is the
@@ -12,13 +12,12 @@
  */
 
 function todayModule() {
-  var KEY = 'today.state';
+  var KEY = modeKey_('today.state');
   var POMODORO_KEY = 'today.pomodoro';
   var POMODORO_DEFAULTS = { work: 25, break: 5 };
   var NEXT_PHASE = { work: 'break', break: 'work' };
-  // ISO weekday: 1 = Monday ... 7 = Sunday. null means any category.
-  var LEAD = { 1: 'coding', 2: 'coding', 3: 'job', 4: 'coding', 5: 'house', 6: 'house', 7: null };
-  var LABELS = { 1: 'Coding', 2: 'Coding', 3: 'Job search', 4: 'Coding', 5: 'House', 6: 'House', 7: 'Rest or catch up' };
+  var ANY_LABEL = 'Any category';
+  var WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 
   function dayInfo_() {
     var tz = Session.getScriptTimeZone();
@@ -72,6 +71,32 @@ function todayModule() {
     return s.session;
   }
 
+  /** Lead category per ISO weekday, leaving out categories that no longer exist. */
+  function rotation_(categories) {
+    var ids = categories.map(function (c) { return c.id; });
+    var rotation = {};
+    WEEKDAYS.forEach(function (day) {
+      var lead = activeMode_().rotation[day];
+      rotation[day] = ids.indexOf(lead) !== -1 ? lead : null;
+    });
+    return rotation;
+  }
+
+  function labels_(rotation, categories) {
+    var labels = {};
+    WEEKDAYS.forEach(function (day) {
+      var category = categories.filter(function (c) { return c.id === rotation[day]; })[0];
+      labels[day] = category ? category.label : ANY_LABEL;
+    });
+    return labels;
+  }
+
+  /** The daily-minimum category, or null when the mode has none or it was deleted. */
+  function dailyMinimum_(categories) {
+    var id = activeMode_().dailyMinimum;
+    return categories.some(function (c) { return c.id === id; }) ? id : null;
+  }
+
   function ranked_(ctx, lead) {
     return ctx.call('projects', 'list', {})
       .filter(function (p) { return p.status === 'active'; })
@@ -83,13 +108,15 @@ function todayModule() {
   }
 
   function compute_(ctx) {
-    var d = dayInfo_(), s = load_(d.key), lead = LEAD[d.weekday];
+    var d = dayInfo_(), s = load_(d.key);
+    var categories = ctx.call('categories', 'list');
+    var rotation = rotation_(categories), lead = rotation[d.weekday];
     var ranked = ranked_(ctx, lead);
     var pool = ranked.filter(function (id) { return s.skipped.indexOf(id) === -1; });
     if (!pool.length) pool = ranked;
     var focusId = s.session ? s.session.projectId : (pool[0] || null);
-    return { day: d.key, weekday: d.weekday, lead: lead, labels: LABELS, focusId: focusId, jobDone: s.jobDone, session: s.session,
-      pomodoroSettings: pomodoroSettings_() };
+    return { day: d.key, weekday: d.weekday, lead: lead, labels: labels_(rotation, categories), focusId: focusId,
+      dailyMinimum: dailyMinimum_(categories), jobDone: s.jobDone, session: s.session, pomodoroSettings: pomodoroSettings_() };
   }
 
   return {
@@ -103,7 +130,7 @@ function todayModule() {
         assert_(!s.session, 'Finish the current session before swapping focus.');
         var snap = compute_(ctx);
         if (snap.focusId) s.skipped.push(snap.focusId);
-        var ranked = ranked_(ctx, LEAD[d.weekday]);
+        var ranked = ranked_(ctx, snap.lead);
         var everyoneSkipped = ranked.every(function (id) { return s.skipped.indexOf(id) !== -1; });
         if (everyoneSkipped) s.skipped = snap.focusId ? [snap.focusId] : [];
         save_(s);

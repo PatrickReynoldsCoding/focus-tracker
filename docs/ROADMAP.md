@@ -43,13 +43,21 @@ Original requests:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
-### Batch 4: modes
+### Batch 4: modes (done, 2026-10-28)
+Built as planned, with these decisions from Paddy:
+- One Drive folder "Focus Tracker" with a subfolder per mode (`Personal/`, `Work/`). Each holds that mode's spreadsheet and `Notes/`. The spreadsheet and Notes from before modes moved into `Personal/` on first load.
+- The header has a mode switcher and a folder icon that opens the mode's Drive folder. Work mode uses a blue accent.
+- Categories are editable in the app (Projects tab), per mode. Work starts with Delivery, Ops, Learning, Career, Admin. A category in use cannot be deleted.
+- Work mode has no daily minimum and no lead categories by default (Batch 2 makes the rotation editable).
+- PR notifications: dropped, not wanted.
+
+Original plan:
 - Modes are a parent concept above categories. Everything built so far is "Personal" mode. Add a "Work" mode with the same features and separate data.
 - Decision: one spreadsheet and one Drive folder per mode, so work data stays apart and can be deleted cleanly.
 - Suggested design: a `MODES` config where each mode has an id, label, its own categories, its own module list, and the property keys for its spreadsheet and folder. `getSpreadsheet_` and the Drive helpers take the mode. A mode switcher in the header. `rpc` and `bootstrap` carry the mode. Modules stay unchanged where possible; Table gets the mode from the context.
 - Work mode has an extra tab, PRs (see below). That is just a module listed only in Work's module list.
 
-### Separate project: PR notifications
+### Separate project: PR notifications (dropped 2026-10-28, not wanted)
 - Wanted: search work GitHub for his open PRs and notify him when someone comments, as a macOS notification on his work Mac.
 - Apps Script cannot show native macOS notifications. Recommendation: a small local tool on the work Mac using the `gh` CLI (already signed in) run by a scheduled job (launchd) that checks for new comments and calls the macOS notification command. This also keeps a work token out of his personal Google account.
 - Check his employer's policy before putting work PR data or tokens in a personal Google account.

@@ -39,7 +39,7 @@
       ],
       'projects.tab': [
         { order: 10, render: function () {
-          return '<div class="cats">' + FT.config.categories.map(function (c) { return section('Resources: ' + c.label, c.id, null); }).join('') + '</div>';
+          return '<div class="cats">' + FT.categories().map(function (c) { return section('Resources: ' + c.label, c.id, null); }).join('') + '</div>';
         } }
       ]
     }

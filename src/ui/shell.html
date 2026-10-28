@@ -16,8 +16,9 @@
  *   data-enter="module.name"   Enter key in an input
  */
 var FT = (function () {
-  var modules = {}, renderHooks = [], handlers = { act: {}, change: {}, input: {}, enter: {} }, pending = 0, syncTimer = null;
-  var FT = { store: {}, config: { categories: [], staleDays: 5 }, state: { view: null, projectId: null }, ready: false };
+  var modules = {}, loaded = {}, renderHooks = [], handlers = { act: {}, change: {}, input: {}, enter: {} }, pending = 0, syncTimer = null;
+  var MODE_KEY = 'ft.mode';
+  var FT = { store: {}, config: { staleDays: 5, modes: [] }, state: { view: null, projectId: null, mode: null }, ready: false };
 
   function $(id) { return document.getElementById(id); }
 
@@ -34,12 +35,16 @@ var FT = (function () {
   FT.ageLabel = function (n) { return n >= 9999 ? 'never' : n === 0 ? 'today' : n === 1 ? 'yesterday' : n + ' days ago'; };
   FT.ageClass = function (n) { return n >= FT.config.staleDays ? 'age-stale' : n >= 3 ? 'age-soon' : 'age-fresh'; };
   FT.fmtDate = function (iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+  FT.categories = function () { return FT.store.categories || []; };
   FT.category = function (id) {
-    var list = FT.config.categories || [];
+    var list = FT.categories();
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
-    return { id: id, label: id };
+    return { id: id, label: id, color: '' };
   };
-  FT.pill = function (id) { return '<span class="pill ' + FT.esc(id) + '">' + FT.esc(FT.category(id).label) + '</span>'; };
+  FT.pill = function (id) {
+    var c = FT.category(id);
+    return '<span class="pill" style="--c: var(--cat-' + FT.esc(c.color || 'none') + ')">' + FT.esc(c.label) + '</span>';
+  };
   FT.project = function (id) {
     var list = FT.store.projects || [];
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
@@ -52,9 +57,11 @@ var FT = (function () {
 
   // ---------- module registry ----------
   FT.module = function (def) { modules[def.id] = def; };
+  /** A module's client code is always on the page; it only shows when the current mode loads its server side. */
+  function isLoaded(id) { return !!loaded[id]; }
   FT.slots = function (name) {
     var out = [];
-    Object.keys(modules).forEach(function (id) {
+    Object.keys(modules).filter(isLoaded).forEach(function (id) {
       var s = modules[id].slots && modules[id].slots[name];
       if (s) (Array.isArray(s) ? s : [s]).forEach(function (x) { out.push(x); });
     });
@@ -74,14 +81,19 @@ var FT = (function () {
     syncTimer = setTimeout(function () { el.textContent = ''; }, 1500);
   }
 
-  /** Call a module's server api. Merges any refreshed slices into the store and re-renders unless opts.render === false. */
+  /**
+   * Call a module's server api in the current mode. Merges any refreshed slices into the store and re-renders
+   * unless opts.render === false. Slices that arrive after a mode switch belong to the old mode, so they are dropped.
+   */
   FT.rpc = function (moduleId, fn, args, opts) {
     opts = opts || {};
+    var mode = FT.state.mode;
     setPending(1);
     return new Promise(function (resolve, reject) {
       google.script.run
         .withSuccessHandler(function (res) {
           setPending(-1);
+          if (mode !== FT.state.mode) { resolve(res ? res.result : null); return; }
           var slices = (res && res.slices) || {};
           Object.keys(slices).forEach(function (k) { FT.store[k] = slices[k]; });
           if (opts.render !== false) FT.render();
@@ -93,7 +105,7 @@ var FT = (function () {
           if (!opts.quiet) FT.toast(msg, 'error');
           reject(new Error(msg));
         })
-        .rpc(moduleId, fn, args || {});
+        .rpc(moduleId, fn, args || {}, mode);
     });
   };
 
@@ -101,7 +113,7 @@ var FT = (function () {
     return new Promise(function (resolve) {
       google.script.run.withSuccessHandler(function (b) {
         FT.store = b.data; FT.render(); resolve();
-      }).withFailureHandler(function (e) { FT.toast(FT.errorText(e), 'error'); resolve(); }).bootstrap();
+      }).withFailureHandler(function (e) { FT.toast(FT.errorText(e), 'error'); resolve(); }).bootstrap(FT.state.mode);
     });
   };
 
@@ -162,7 +174,7 @@ var FT = (function () {
 
   // ---------- navigation and rendering ----------
   function tabs() {
-    return Object.keys(modules).map(function (id) { return modules[id]; })
+    return Object.keys(modules).filter(isLoaded).map(function (id) { return modules[id]; })
       .filter(function (m) { return m.tab; })
       .sort(function (a, b) { return (a.tab.order || 0) - (b.tab.order || 0); });
   }
@@ -206,20 +218,59 @@ var FT = (function () {
     renderHooks.forEach(function (fn) { fn(); });
   };
 
-  FT.boot = function () {
+  // ---------- modes ----------
+  function renderModeBar() {
+    var modes = FT.config.modes || [];
+    $('modes').innerHTML = modes.length < 2 ? '' : modes.map(function (m) {
+      return '<button class="modebtn" data-act="core.mode" data-mode="' + FT.esc(m.id) + '" aria-pressed="' + (m.id === FT.state.mode ? 'true' : 'false') + '">' + FT.esc(m.label) + '</button>';
+    }).join('');
+    var link = $('driveLink'), label = (modes.filter(function (m) { return m.id === FT.state.mode; })[0] || {}).label || '';
+    link.hidden = !FT.config.folderUrl;
+    link.href = FT.config.folderUrl || '#';
+    link.title = 'Open the ' + label + ' folder in Google Drive';
+    link.setAttribute('aria-label', link.title);
+    document.body.dataset.mode = FT.state.mode || '';
+  }
+
+  function applyBootstrap(b) {
+    FT.config = b.config; FT.store = b.data; FT.state.mode = b.config.mode; FT.ready = true;
+    loaded = {};
+    b.modules.forEach(function (m) { loaded[m.id] = true; });
+    document.title = b.config.appName || document.title;
+    var first = tabs()[0];
+    FT.state.view = first ? first.id : null;
+    renderModeBar();
+    FT.render();
+  }
+
+  function savedMode() {
+    try { return localStorage.getItem(MODE_KEY); } catch (e) { return null; }
+  }
+
+  /** Load a mode. A remembered mode that no longer exists falls back to the default one. */
+  function loadMode(mode) {
     google.script.run
-      .withSuccessHandler(function (b) {
-        FT.config = b.config; FT.store = b.data; FT.ready = true;
-        document.title = b.config.appName || document.title;
-        var first = tabs()[0];
-        FT.state.view = first ? first.id : null;
-        FT.render();
-      })
+      .withSuccessHandler(applyBootstrap)
       .withFailureHandler(function (err) {
+        if (mode && /Unknown mode/.test(FT.errorText(err))) { FT.state.mode = null; loadMode(null); return; }
         $('app').innerHTML = '<div class="panel"><div class="label">Could not load</div><p>' + FT.esc(FT.errorText(err)) +
           '</p><button class="btn" data-act="core.reload">Try again</button></div>';
       })
-      .bootstrap();
+      .bootstrap(mode);
+  }
+
+  FT.switchMode = function (mode) {
+    if (mode === FT.state.mode) return;
+    try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
+    FT.state.mode = mode; FT.state.projectId = null; FT.ready = false;
+    renderModeBar();
+    $('app').innerHTML = '<p class="empty">Loading…</p>';
+    loadMode(mode);
+  };
+
+  FT.boot = function () {
+    FT.state.mode = savedMode();
+    loadMode(FT.state.mode);
   };
 
   // ---------- full width (desktop) ----------
@@ -240,6 +291,7 @@ var FT = (function () {
   // ---------- event delegation ----------
   FT.action('core.tab', function (el) { FT.go(el.dataset.view); });
   FT.action('core.reload', function () { location.reload(); });
+  FT.action('core.mode', function (el) { FT.switchMode(el.dataset.mode); });
   FT.action('core.wide', function () {
     var on = !document.body.classList.contains('wide');
     applyWide(on);

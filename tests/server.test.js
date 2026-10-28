@@ -182,10 +182,12 @@ test('notes are stored as a markdown file and read back', () => {
   assert.ok(saved.url);
   s.call('notes', 'save', { projectId: p.id, text: '# hello again' });
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# hello again');
-  const file = Object.values(s.drive.files)[0];
+  const mdFiles = Object.values(s.drive.files).filter((f) => f.name.endsWith('.md'));
+  const file = mdFiles[0];
   assert.ok(/^my-project-[0-9a-f]{8}\.md$/.test(file.name), file.name);
   assert.strictEqual(file.mime, 'text/markdown');
-  assert.strictEqual(Object.keys(s.drive.files).length, 1, 'second save updates the same file');
+  assert.strictEqual(mdFiles.length, 1, 'second save updates the same file');
+  assert.strictEqual(s.drive.pathOf(file), 'Focus Tracker/Personal/Notes/' + file.name);
 });
 
 test('resources only accept https links and attach to a category or a project', () => {
@@ -215,13 +217,89 @@ test('deleting a project removes its board, links and log lines', () => {
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '');
 });
 
+test('data from before modes moves into the Personal folder on first load', () => {
+  const s = loadServer();
+  // The layout before modes: spreadsheet in My Drive, Notes/ directly in the tracker folder
+  const root = s.drive.createFolder('Focus Tracker');
+  const oldNote = root.createFolder('Notes').createFile('fan-1.md', 'hello', 'text/markdown');
+  s.script._m.SHEET_ID = s.ss.getId();
+  s.script._m.FOLDER_ID = root.getId();
+  const b = json(s.run('bootstrap()'));
+  assert.strictEqual(b.config.mode, 'personal');
+  assert.strictEqual(s.drive.pathOf(s.drive.getFileById(s.ss.getId())), 'Focus Tracker/Personal/Focus Tracker');
+  assert.strictEqual(s.drive.pathOf(oldNote), 'Focus Tracker/Personal/Notes/fan-1.md');
+  assert.strictEqual(b.config.folderUrl, s.drive.getFolderById(s.script._m['MODE_FOLDER_ID.personal']).getUrl());
+  json(s.run('bootstrap()'));
+  assert.strictEqual(Object.keys(root.children).length, 1, 'a second load moves nothing');
+});
+
+test('work mode gets its own spreadsheet, folder, categories and Today state', () => {
+  const s = fresh();
+  const personal = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  s.call('today', 'start', { projectId: personal.id });
+  const work = (fn, args, m = 'projects') => json(s.run('rpc')(m, fn, json(args || {}), 'work'));
+  assert.throws(() => work('create', { name: 'X', category: 'house' }), /Unknown category/);
+  const ticket = work('create', { name: 'Ticket', category: 'delivery' }).result;
+  const workSheetId = s.script._m['SHEET_ID.work'];
+  assert.ok(workSheetId && workSheetId !== s.ss.getId());
+  assert.strictEqual(s.drive.pathOf(s.drive.getFileById(workSheetId)), 'Focus Tracker/Work/Focus Tracker - Work');
+  assert.ok(s.spreadsheets[workSheetId].sheets.Projects, 'tabs are created in the work spreadsheet');
+
+  const wb = json(s.run("bootstrap('work')"));
+  assert.deepStrictEqual(wb.data.projects.map((p) => p.name), ['Ticket']);
+  assert.deepStrictEqual(wb.data.categories.map((c) => c.id), ['delivery', 'ops', 'learning', 'career', 'admin']);
+  assert.strictEqual(wb.data.today.session, null, 'the personal session does not show in work');
+  assert.strictEqual(wb.data.today.dailyMinimum, null);
+  assert.strictEqual(wb.data.today.focusId, ticket.id);
+  assert.notStrictEqual(wb.config.folderUrl, json(s.run('bootstrap()')).config.folderUrl);
+  assert.deepStrictEqual(wb.config.modes.map((m) => m.id), ['personal', 'work']);
+
+  const pb = json(s.run('bootstrap()'));
+  assert.deepStrictEqual(pb.data.projects.map((p) => p.name), ['Fan']);
+  assert.strictEqual(pb.data.today.session.projectId, personal.id);
+  assert.throws(() => s.run("bootstrap('nope')"), /Unknown mode/);
+});
+
+test('categories can be added, renamed, recoloured and deleted only when unused', () => {
+  const s = fresh();
+  const added = s.call('categories', 'add', { label: '  Garden  ' });
+  assert.strictEqual(added.result.label, 'Garden');
+  assert.ok(added.result.color, 'gets a colour');
+  const garden = added.result.id;
+  const p = s.call('projects', 'create', { name: 'Shed', category: garden }).result;
+  s.call('categories', 'update', { id: garden, label: 'Garden and shed', color: '6' });
+  assert.throws(() => s.call('categories', 'update', { id: garden, color: '9' }), /Unknown colour/);
+  assert.throws(() => s.call('categories', 'update', { id: garden, label: ' ' }), /needs a name/);
+  assert.throws(() => s.call('categories', 'remove', { id: garden }), /Move its projects/);
+  s.call('projects', 'update', { id: p.id, category: 'house' });
+  s.call('resources', 'add', { category: garden, title: 'Plan', url: 'https://example.com' });
+  assert.throws(() => s.call('categories', 'remove', { id: garden }), /Move its projects and links/);
+  s.call('resources', 'remove', { id: s.call('resources', 'add', { category: 'house', title: 'x', url: 'https://example.com' }).result.id });
+  const linkId = json(s.run('bootstrap()')).data.resources.find((r) => r.category === garden).id;
+  s.call('resources', 'remove', { id: linkId });
+  const after = s.call('categories', 'remove', { id: garden }).slices.categories;
+  assert.deepStrictEqual(after.map((c) => c.label), ['Coding', 'Job search', 'House']);
+});
+
+test('a deleted lead category makes that day "Any category" and drops the daily minimum', () => {
+  const s = fresh();
+  s.mock.weekday = 3;
+  assert.strictEqual(s.call('today', 'state').result.lead, 'job');
+  s.call('categories', 'remove', { id: 'job' });
+  const t = s.call('today', 'state').result;
+  assert.strictEqual(t.lead, null);
+  assert.strictEqual(t.labels[3], 'Any category');
+  assert.strictEqual(t.dailyMinimum, null);
+  assert.strictEqual(t.labels[1], 'Coding');
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['kanban', 'log', 'notes', 'projects', 'resources', 'today']);
-  assert.strictEqual(b.modules.length, 6);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'log', 'notes', 'projects', 'resources', 'today']);
+  assert.strictEqual(b.modules.length, 7);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {
