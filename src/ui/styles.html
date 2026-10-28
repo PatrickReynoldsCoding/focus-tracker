@@ -74,6 +74,8 @@ body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in sr
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; overscroll-behavior-x: none; }
 body { overscroll-behavior-x: none; }
+body.dlg-open { overflow: hidden; }
+main, .dialog, .toast, .panel { overflow-wrap: anywhere; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
   padding: 0 max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
 .wrap { max-width: 1080px; margin: 0 auto; }
@@ -83,7 +85,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
 a.textlink { overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 2px; }
 
-.bar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--line); }
+.bar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--line); }
+.menupanel { display: contents; }
+.brand { flex: none; }
+.backbtn { order: 0; } .brand { order: 1; } .tabs { order: 2; } .sync { order: 3; } .modes { order: 4; } #settingsBtn { order: 5; } #undoBtn { order: 6; } #redoBtn { order: 7; } .layoutbtn { order: 8; } .widebtn { order: 9; }
+.iconbtn:disabled { opacity: 0.35; cursor: default; }
+/* Narrow desktop and tablet: the views get their own row under the name and buttons, so none are cut off. */
+@media (min-width: 761px) and (max-width: 1000px) { .bar { flex-wrap: wrap; } .brand { flex: 1 1 auto; } .tabs { order: 20; flex: 1 1 100%; } }
 .brand { font-family: var(--font-display); font-weight: 700; font-size: 19px; }
 .tabs { display: flex; gap: 4px; overflow-x: auto; min-width: 0; flex: 1 1 auto; }
 .tab { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-weight: 500; }
@@ -98,21 +106,25 @@ a.iconbtn[hidden] { display: none; }
 .modes { flex: none; }
 .modeselect { width: auto; padding: 6px 30px 6px 12px; font-weight: 600; font-size: 13.5px; border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft); cursor: pointer; }
 @media (max-width: 760px) { .widebtn, .layoutbtn { display: none; } body.wide .wrap { max-width: 1080px; } }
-.backbtn[hidden] { display: none; }
 .backbtn { display: inline-flex; align-items: center; justify-content: center; }
-/* Phone: the bar is only the menu button, the name, sync and undo. Views, mode and Settings sit in the menu. */
+/* Phone: the bar is one row: back, menu, name, a status dot, undo, redo. Views, mode and Settings are in the menu, a panel that opens over the page. */
 .menubtn, .menulabel { display: none; }
 @media (max-width: 760px) {
-  .bar { flex-wrap: wrap; gap: 6px 10px; padding: 8px 0; }
-  .menubtn { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
-  .brand { font-size: 17px; flex: 1 1 auto; }
-  #undoBtn, #redoBtn { width: 40px; height: 40px; }
-  .sync { min-width: 0; }
+  .bar { flex-wrap: nowrap; gap: 6px; padding: 8px 0; }
+  .backbtn, .menubtn, #undoBtn, #redoBtn { width: 40px; height: 40px; }
+  .menubtn { display: inline-flex; align-items: center; justify-content: center; }
+  .brand { font-size: 17px; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .backbtn { order: 0; } .menubtn { order: 1; } .brand { order: 2; } .sync { order: 3; } #undoBtn { order: 5; } #redoBtn { order: 6; }
+  /* The saved / saving words are a small dot here (the words stay for screen readers). */
+  .sync { flex: none; min-width: 0; font-size: 0; display: inline-flex; align-items: center; }
+  .sync:not(:empty)::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+  .sync[data-state="saving"]::before { background: var(--warn); }
+  .menupanel { display: none; }
+  body.menuopen .menupanel { display: grid; gap: 8px; position: absolute; top: 100%; left: 0; right: 0; z-index: 30; padding: 10px 0 14px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 14px 24px rgba(0, 0, 0, 0.18); }
   .tabs, .modes, #settingsBtn { display: none; }
-  .backbtn { order: -1; width: 40px; height: 40px; } .menubtn { order: 0; } .brand { order: 1; } .sync { order: 2; } #undoBtn { order: 3; } #redoBtn { order: 4; } .tabs { order: 10; } .modes { order: 11; } #settingsBtn { order: 12; }
-  body.menuopen .tabs { display: flex; flex-direction: column; flex: 1 1 100%; overflow: visible; gap: 2px; }
-  body.menuopen .tab { text-align: left; padding: 12px 14px; font-size: 16px; }
-  body.menuopen .modes { display: block; flex: 1 1 100%; }
+  body.menuopen .tabs { display: flex; flex-direction: column; overflow: visible; gap: 2px; }
+  body.menuopen .tab { text-align: left; padding: 12px 14px; font-size: 16px; min-height: 44px; }
+  body.menuopen .modes { display: block; }
   body.menuopen .modeselect { width: 100%; min-height: 44px; font-size: 16px; }
   body.menuopen #settingsBtn { display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 14px; font-size: 16px; color: var(--ink); }
   body.menuopen .menulabel { display: inline; }
@@ -182,7 +194,7 @@ select, input[type="text"], textarea { width: 100%; background: var(--surface); 
 select.auto { width: auto; max-width: 100%; }
 textarea { min-height: 150px; resize: vertical; }
 
-.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(8, 14, 13, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.scrim { overscroll-behavior: contain; position: fixed; inset: 0; z-index: 40; background: rgba(8, 14, 13, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; width: min(460px, 100%); max-height: 100%; overflow: auto; }
 .dialog.wide { width: min(640px, 100%); }
 /* Phone: a wide dialog (the card and its note) fills the screen, so the note has a large canvas. */
@@ -200,12 +212,16 @@ textarea { min-height: 150px; resize: vertical; }
 .dialog h2 { font-size: 22px; margin-bottom: 4px; }
 .dialog label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 5px; }
 .dialog p { margin: 8px 0 0; color: var(--muted); }
-.dialog .actions { margin-top: 20px; }
+.dialog .actions { margin-top: 20px; position: sticky; bottom: -20px; margin-bottom: -20px; padding: 12px 0 20px; background: var(--surface); }
 .hint { font-size: 13px; color: var(--muted); background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 14px; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; max-width: min(92vw, 520px); font-size: 14px; }
 .toast.error { background: var(--bad); color: #fff; }
-.toastbtn { margin-left: 12px; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast .toastbtn, .toast .toastx { flex: none; }
+.toastx { border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer; }
+@media (max-width: 760px) { .toast { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 68px)); } }
+.toastbtn { margin-left: 0; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
 .hidebtn { position: absolute; top: 14px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .back { margin-bottom: 4px; }

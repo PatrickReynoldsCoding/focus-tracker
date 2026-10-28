@@ -87,8 +87,8 @@ var FT = (function () {
     pending += delta;
     var el = $('sync');
     clearTimeout(syncTimer);
-    if (pending > 0) { el.textContent = 'Saving…'; return; }
-    el.textContent = 'Saved';
+    if (pending > 0) { el.textContent = 'Saving…'; el.dataset.state = 'saving'; return; }
+    el.textContent = 'Saved'; el.dataset.state = 'saved';
     syncTimer = setTimeout(function () { el.textContent = ''; }, 1500);
   }
 
@@ -245,15 +245,23 @@ var FT = (function () {
   /** A short message at the bottom. action: optional { label, run } for a button in it, such as Undo. */
   FT.toast = function (msg, kind, action) {
     var el = $('toast');
-    el.textContent = msg; el.className = 'toast' + (kind ? ' ' + kind : ''); el.hidden = false;
+    el.textContent = ''; el.className = 'toast' + (kind ? ' ' + kind : ''); el.hidden = false;
+    el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    var text = document.createElement('span'); text.textContent = msg; text.style.flex = '1 1 auto'; el.appendChild(text);
     if (action) {
       var btn = document.createElement('button');
       btn.className = 'toastbtn'; btn.textContent = action.label;
       btn.onclick = function () { el.hidden = true; action.run(); };
       el.appendChild(btn);
     }
+    if (kind === 'error') {
+      var x = document.createElement('button');
+      x.className = 'toastx'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '×';
+      x.onclick = function () { el.hidden = true; };
+      el.appendChild(x);
+    }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.hidden = true; }, action ? 7000 : 4500);
+    toastTimer = setTimeout(function () { el.hidden = true; }, kind === 'error' ? 9000 : action ? 7000 : 4500);
   };
 
   /** After a delete: say what went and offer Undo. */
@@ -262,7 +270,15 @@ var FT = (function () {
   };
 
   // ---------- dialog ----------
-  FT.closeDialog = function () { $('dialogRoot').innerHTML = ''; };
+  var dialogOpener = null;
+  FT.closeDialog = function () {
+    $('dialogRoot').innerHTML = '';
+    document.body.classList.remove('dlg-open');
+    var wrap = document.querySelector('.wrap');
+    if (wrap) wrap.removeAttribute('inert');
+    var back = dialogOpener; dialogOpener = null;
+    if (back && document.body.contains(back) && back.focus) { try { back.focus(); } catch (e) {} }
+  };
   /**
    * opts: { title, subtitle, body (html), fields: [{id,label,type,value,placeholder,options}], after (html), hint (text), submit, danger,
    *         wide (true for a wider dialog), cancel (false: no Cancel button, for dialogs that apply changes at once),
@@ -276,7 +292,7 @@ var FT = (function () {
       else if (f.type === 'select') ctl = '<select id="' + id + '">' + f.options.map(function (o) {
         return '<option value="' + FT.esc(o.value) + '"' + (o.value === f.value ? ' selected' : '') + '>' + FT.esc(o.label) + '</option>';
       }).join('') + '</select>';
-      else ctl = '<input type="text" id="' + id + '" value="' + FT.esc(f.value || '') + '" placeholder="' + FT.esc(f.placeholder || '') + '">';
+      else ctl = '<input type="text" id="' + id + '" value="' + FT.esc(f.value || '') + '" placeholder="' + FT.esc(f.placeholder || '') + '"' + (f.maxlength ? ' maxlength="' + f.maxlength + '"' : '') + '>';
       return '<label for="' + id + '">' + FT.esc(f.label) + '</label>' + ctl;
     }).join('');
     $('dialogRoot').innerHTML = '<div class="scrim" id="dlg-scrim"><div class="dialog' + (opts.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-labelledby="dlg-heading">' +
@@ -294,7 +310,8 @@ var FT = (function () {
       return v;
     }
     function submit() {
-      var btn = $('dlg-submit'); btn.disabled = true; $('dlg-err').textContent = '';
+      var btn = $('dlg-submit'); if (!btn || btn.disabled) return; // a second Enter or tap while saving does nothing
+      btn.disabled = true; $('dlg-err').textContent = '';
       Promise.resolve().then(function () { return opts.onSubmit(values()); })
         .then(function () { FT.closeDialog(); })
         .catch(function (e) { btn.disabled = false; $('dlg-err').textContent = FT.errorText(e); });
@@ -304,9 +321,25 @@ var FT = (function () {
     $('dlg-scrim').onclick = function (e) { if (e.target.id === 'dlg-scrim') FT.closeDialog(); };
     $('dialogRoot').onkeydown = function (e) {
       if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submit(); }
+      if (e.key === 'Tab') {
+        var items = Array.prototype.filter.call($('dialogRoot').querySelectorAll('a[href], button, input, select, textarea, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'),
+          function (n) { return !n.disabled && n.offsetParent !== null; });
+        if (!items.length) return;
+        var firstItem = items[0], lastItem = items[items.length - 1];
+        if (e.shiftKey && (document.activeElement === firstItem || document.activeElement === $('dialogRoot').querySelector('.dialog'))) { e.preventDefault(); lastItem.focus(); }
+        else if (!e.shiftKey && document.activeElement === lastItem) { e.preventDefault(); firstItem.focus(); }
+      }
     };
+    // Keep the page behind the dialog still: it cannot be tabbed into or scrolled, and focus comes back to where it was.
+    if (!dialogOpener) dialogOpener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    document.body.classList.add('dlg-open');
+    var wrap = document.querySelector('.wrap');
+    if (wrap) wrap.setAttribute('inert', '');
+    var box = $('dialogRoot').querySelector('.dialog');
+    box.setAttribute('tabindex', '-1');
+    // On a phone the keyboard should not pop up before the dialog has been read, so focus the dialog itself there.
     var first = $('dialogRoot').querySelector('input, textarea, select');
-    if (first) first.focus(); else $('dlg-submit').focus();
+    if (first && !narrow.matches) first.focus(); else box.focus();
     if (opts.onOpen) opts.onOpen();
   };
 
@@ -327,7 +360,7 @@ var FT = (function () {
     return Array.isArray(backStack) ? backStack : (backStack = []);
   }
   function keepBack() { try { localStorage.setItem(BACK_KEY + FT.state.mode, JSON.stringify(backPages())); } catch (e) {} }
-  function showBackButton() { var b = $('backBtn'); if (b) b.hidden = !FT.ready || backPages().length === 0; }
+  function showBackButton() { var b = $('backBtn'); if (b) b.disabled = !FT.ready || backPages().length === 0; }
 
   // The phone's own back button: each in-app step also adds a browser history entry (this page load only), and going back through
   // one of them takes the same step as the Back button. A panel that is open on top of a page (the full screen notes) can add an
@@ -1029,19 +1062,29 @@ var FT = (function () {
     var ids = viewIds(), from = currentIndex(), to = ids.indexOf(el.dataset.view);
     if (narrow.matches && from >= 0 && to >= 0 && to !== from) slideTo(el.dataset.view, to > from ? 1 : -1); else FT.go(el.dataset.view);
   });
+  function closeMenu() {
+    document.body.classList.remove('menuopen');
+    $('menuBtn').setAttribute('aria-expanded', 'false');
+  }
   FT.action('core.menu', function () {
     var open = document.body.classList.toggle('menuopen');
     $('menuBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
   });
+  // The menu closes on a tap outside it, with Escape, and when it has done its job (Settings, a mode change, a view).
+  document.addEventListener('click', function (e) {
+    if (document.body.classList.contains('menuopen') && !(e.target.closest && e.target.closest('#menupanel, #menuBtn'))) closeMenu();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.body.classList.contains('menuopen')) closeMenu(); });
   FT.action('core.back', function () { FT.back(); });
   FT.action('core.reload', function () { location.reload(); });
   FT.on('change', 'core.mode', function (el) {
+    closeMenu();
     if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
   });
   FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
   FT.action('core.undo', function () { FT.undo(); });
   FT.action('core.redo', function () { FT.redo(); });
-  FT.action('core.settings', function () { settingsDialog(); });
+  FT.action('core.settings', function () { closeMenu(); settingsDialog(); });
   FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
   FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });
   FT.action('core.layoutReset', function () {

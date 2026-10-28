@@ -401,7 +401,7 @@
       submit: 'Save and park it',
       fields: [
         { id: 'where', label: 'Where did you stop?', type: 'textarea', placeholder: 'One line is enough' },
-        { id: 'next', label: 'What is the very next action?', value: p ? p.next_action : '' }
+        { id: 'next', label: 'What is the very next action?', value: p ? p.next_action : '', maxlength: 300 }
       ],
       onSubmit: function (v) {
         return FT.rpc('today', 'finish', { projectId: p && p.id, where: v.where, next: v.next }, { quiet: true });

@@ -1,4 +1,6 @@
 <style>
+.rowlink { border: 0; background: none; padding: 0; margin: 0; font: inherit; font-weight: 700; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.rowlink:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* Phone: each project is a card (name and age, next action, category and status) instead of a table wider than the screen. The header becomes a row of sort buttons. */
 @media (max-width: 760px) {
   .scroll table.ptable { min-width: 0; }
@@ -96,7 +98,7 @@
     var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
-      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
+      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b><button class="rowlink" data-act="projects.open" data-id="' + FT.esc(p.id) + '">' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</button></b></td><td>' + FT.pill(p.category) +
         '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.linkify(p.next_action) +
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
@@ -195,10 +197,10 @@
       title: 'Add project',
       submit: 'Add project',
       fields: [
-        { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes' },
+        { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes', maxlength: 120 },
         { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: FT.categories()[0].id },
         { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
-        { id: 'next', label: 'Next action', placeholder: 'The first small step' }
+        { id: 'next', label: 'Next action', placeholder: 'The first small step', maxlength: 300 }
       ],
       onOpen: wireNewCategory,
       onSubmit: function (v) {
@@ -214,10 +216,10 @@
     FT.dialog({
       title: 'Edit project',
       fields: [
-        { id: 'name', label: 'Name', value: p.name },
+        { id: 'name', label: 'Name', value: p.name, maxlength: 120 },
         { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: p.category },
         { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
-        { id: 'next', label: 'Next action', value: p.next_action }
+        { id: 'next', label: 'Next action', value: p.next_action, maxlength: 300 }
       ],
       onOpen: wireNewCategory,
       onSubmit: function (v) {
