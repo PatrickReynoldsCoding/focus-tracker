@@ -1,0 +1,374 @@
+<style>
+#offstat { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+#offstat.warn { color: var(--warn); font-weight: 600; }
+#offstat:empty { display: none; }
+@media (max-width: 760px) { #offstat { order: 2; } .bar .brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+</style>
+<script>
+/**
+ * Local copy and offline changes (FT.offline). Plugs into the client core without the modules knowing:
+ *  - a copy of each mode's data is kept in this browser (IndexedDB, or localStorage if that is unavailable, or memory),
+ *    so the page can show it at once while the fresh data loads;
+ *  - when Google cannot be reached, the changes the user makes (cards, checklists, notes, project edits...) are kept in a queue
+ *    on this device, shown as "Offline, N waiting", and sent in order when the connection returns;
+ *  - edits that find the stored row changed since the browser last saw it are settled on the server (core/conflicts.js).
+ * Limits: Apps Script serves this page, so it cannot open from nothing with no signal. This covers a page that is already
+ * open (or opened with a saved copy while Google is slow or unreachable), not a cold start offline. Everything here is a
+ * cache or a queue: the sheet stays the single source of truth.
+ * Privacy: the saved copy holds the same project data the page shows (no Drive file contents) in this browser's storage.
+ */
+(function () {
+  var SCHEMA = 1;            // bump when the shape of the saved copy or the queue changes: older ones are then ignored
+  var QUEUE_TIMEOUT = 30000; // a queued kind of change that has not been answered after this long is treated as offline
+  var OTHER_TIMEOUT = 60000;
+  var RETRY_MS = 8000;
+  var FRIENDLY = 'You are offline. That needs a connection, so try again when you are back online.';
+  var noop = function () {};
+
+  // ---------- storage: IndexedDB, then localStorage, then memory. Never throws; storage may be blocked. ----------
+  var kv = (function () {
+    var dbPromise = null, memory = {};
+    function open() {
+      if (dbPromise) return dbPromise;
+      dbPromise = new Promise(function (resolve) {
+        try {
+          var req = window.indexedDB.open('focus-tracker', 1);
+          req.onupgradeneeded = function () { req.result.createObjectStore('kv'); };
+          req.onsuccess = function () { resolve(req.result); };
+          req.onerror = req.onblocked = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+      });
+      return dbPromise;
+    }
+    function idb(mode, fn) {
+      return open().then(function (db) {
+        if (!db) throw new Error('no indexedDB');
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction('kv', mode), req = fn(tx.objectStore('kv'));
+          tx.oncomplete = function () { resolve(req ? req.result : undefined); };
+          tx.onerror = tx.onabort = function () { reject(tx.error || new Error('indexedDB failed')); };
+        });
+      });
+    }
+    function lsGet(key) { try { var v = localStorage.getItem('ft.kv.' + key); return v === null ? undefined : JSON.parse(v); } catch (e) { return memory[key]; } }
+    function lsSet(key, value) { try { localStorage.setItem('ft.kv.' + key, JSON.stringify(value)); } catch (e) { memory[key] = value; } }
+    function lsDel(key) { try { localStorage.removeItem('ft.kv.' + key); } catch (e) {} delete memory[key]; }
+    return {
+      get: function (key) { return idb('readonly', function (s) { return s.get(key); }).catch(function () { return lsGet(key); }); },
+      set: function (key, value) { return idb('readwrite', function (s) { return s.put(value, key); }).catch(function () { lsSet(key, value); }).then(noop, noop); },
+      del: function (key) { return idb('readwrite', function (s) { return s['delete'](key); }).catch(function () { lsDel(key); }).then(noop, noop); }
+    };
+  })();
+
+  // ---------- what a network failure looks like ----------
+  var NETWORK_WORDS = /network|offline|internet|connection|timed? ?out|timeout|unreachable|unavailable|failed to fetch|load failed|err_|could not reach|too many times/i;
+
+  /** True when a failure means "could not reach the server" (worth keeping the change and trying again), not "the server said no". */
+  function isNetworkError(err) {
+    if (err && err.network) return true;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    return NETWORK_WORDS.test(String(err && err.message ? err.message : err || ''));
+  }
+
+  // ---------- state ----------
+  var state = null;        // { key, list: [queued changes, oldest first], loaded: Promise } for the mode on screen
+  var down = false;        // the last attempt to reach Google failed
+  var updating = false;    // a saved copy is showing and the fresh data has not arrived yet
+  var pumping = null;      // the promise of the send-the-queue run in progress
+  var retryTimer = null;
+  var baseRpc = FT.rpc;
+
+  function persist(st) {
+    return kv.set('queue:' + st.key, { v: SCHEMA, list: st.list });
+  }
+
+  // ---------- the indicator in the header ----------
+  var badge = document.createElement('span');
+  badge.id = 'offstat';
+  badge.setAttribute('aria-live', 'polite');
+  var sync = document.getElementById('sync');
+  if (sync && sync.parentNode) sync.parentNode.insertBefore(badge, sync.nextSibling);
+
+  var narrow = window.matchMedia ? window.matchMedia('(max-width: 760px)') : { matches: false };
+
+  function showStatus() {
+    var n = state ? state.list.length : 0, text = '', warn = false, title = '';
+    var waitingWord = narrow.matches ? '' : ' waiting'; // short on a phone, where the header is crowded
+    if (pumping && n) text = 'Sending ' + n + '…';
+    else if (down) { text = n ? 'Offline · ' + n + waitingWord : 'Offline'; warn = true; title = 'You are offline. Your changes are kept on this device and will be sent when the connection returns.'; }
+    else if (n) { text = n + ' waiting'; warn = true; }
+    else if (updating) text = 'Updating…';
+    badge.textContent = text;
+    badge.className = warn ? 'warn' : '';
+    badge.title = title;
+    if (text && sync) sync.textContent = ''; // "Saved" would be wrong while changes are waiting
+  }
+
+  // ---------- the saved copy of the data ----------
+  var lastBoot = null, saveTimer = null;
+
+  function loadSnapshot(key) {
+    return kv.get('snap:' + key).then(function (v) {
+      if (!v || v.v !== SCHEMA || !v.b || !v.b.config || !v.b.data || !Array.isArray(v.b.modules)) { if (v) kv.del('snap:' + key); return null; }
+      return v.b;
+    }).catch(function () { return null; });
+  }
+
+  function saveSnapshot(key, b) {
+    lastBoot = { key: key, config: b.config, modules: b.modules };
+    return kv.set('snap:' + key, { v: SCHEMA, at: Date.now(), b: b });
+  }
+
+  // After changes the copy is saved again shortly, so a reload shows them. Not while the page still shows a saved (older) copy.
+  FT.onRender(function () {
+    if (!lastBoot || updating || !FT.ready) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      if (!lastBoot || updating || !FT.ready) return;
+      kv.set('snap:' + lastBoot.key, { v: SCHEMA, at: Date.now(), b: { config: lastBoot.config, modules: lastBoot.modules, data: FT.store } });
+    }, 2000);
+  });
+
+  // ---------- the queue of changes made offline ----------
+  // Calls that can wait: the screen has already been updated (or is updated here), the server only has to catch up.
+  var QUEUEABLE = {
+    'kanban.addTask': 1, 'kanban.moveTask': 1, 'kanban.updateTask': 1, 'kanban.deleteTask': 1, 'kanban.addColumn': 1, 'kanban.renameColumn': 1,
+    'criteria.add': 1, 'criteria.update': 1, 'criteria.remove': 1,
+    'stickies.add': 1, 'stickies.update': 1, 'stickies.remove': 1,
+    'lists.rename': 1, 'lists.setColor': 1, 'lists.showToday': 1, 'lists.setDisplay': 1,
+    'notes.save': 1, 'projects.update': 1
+  };
+  // Of those, the ones where a newer call to the same row replaces an older one still waiting right behind it.
+  var MERGEABLE = /\.(update|updateTask|moveTask|rename|renameColumn|save|setColor|showToday|setDisplay)$/;
+
+  function canQueue(key, args) {
+    if (!QUEUEABLE[key]) return false;
+    if (key === 'projects.update' && args && args.newCategory) return false; // makes a category on the server
+    return true;
+  }
+
+  /** The row a call changes, so two waiting calls on it are chained and conflicts are checked once per row. */
+  function entityOf(m, f, a) {
+    var id = a && (a.id || a.projectId);
+    if (m === 'kanban' && /Task$/.test(f)) return 'task:' + id;
+    if (m === 'notes') return 'notes:' + id;
+    return m + ':' + (id || f);
+  }
+
+  function find(list, pred) {
+    for (var i = 0; list && i < list.length; i++) if (pred(list[i])) return list[i];
+    return null;
+  }
+
+  /** The updated_at (or, for notes, updated) of the row as this browser last saw it. undefined: nothing to check against. */
+  function baseFor(key, a) {
+    var s = FT.store || {}, row;
+    if (key === 'projects.update') { row = FT.project(a.id); return row ? row.updated_at || '' : undefined; }
+    if (key === 'kanban.updateTask' || key === 'kanban.moveTask') { row = find((s.kanban || {}).tasks, function (t) { return t.id === a.id; }); return row ? row.updated_at || '' : undefined; }
+    if (key === 'criteria.update') { row = find(s.criteria, function (c) { return c.id === a.id; }); return row ? row.updated_at || '' : undefined; }
+    if (key === 'notes.save') { row = find(s.notes, function (n) { return n.project_id === a.projectId; }); return row ? row.updated || '' : undefined; }
+    return undefined;
+  }
+
+  /** Show a queued change on screen when the page has not already (most views update the store themselves first). */
+  function applyLocally(key, a) {
+    if (key !== 'projects.update') return;
+    var p = FT.project(a.id);
+    if (!p) return;
+    ['name', 'category', 'status', 'next_action'].forEach(function (f) { if (a[f] !== undefined) p[f] = a[f]; });
+    FT.render();
+  }
+
+  function clone(x) { return JSON.parse(JSON.stringify(x === undefined ? null : x)); }
+
+  function enqueue(key, m, f, args) {
+    var st = state;
+    return st.loaded.then(function () {
+      var entry = { m: m, f: f, a: clone(args), at: new Date().toISOString(), e: entityOf(m, f, args), base: baseFor(key, args) };
+      var tail = st.list[st.list.length - 1];
+      if (tail && tail.e === entry.e && tail.m === m && tail.f === f && MERGEABLE.test(key)) {
+        Object.assign(tail.a, entry.a); tail.at = entry.at; // same row, same kind of change: keep the first version seen, the latest values
+      } else {
+        st.list.push(entry);
+      }
+      if (st === state) applyLocally(key, args);
+      persist(st);
+      showStatus();
+      scheduleRetry();
+      return null;
+    });
+  }
+
+  /** After a queued change is sent, the next waiting change to the same row builds on the version it produced. */
+  function chain(list, sent, version) {
+    if (!version) return;
+    list.forEach(function (e) { if (e.e === sent.e && e.base !== undefined) e.base = version; });
+  }
+
+  // ---------- sending the queue ----------
+  function markDown() {
+    down = true;
+    showStatus();
+    scheduleRetry();
+  }
+
+  function noteOnline() {
+    if (!down) return;
+    down = false;
+    showStatus();
+    if (state && state.list.length) pump();
+  }
+
+  function scheduleRetry() {
+    if (retryTimer) return;
+    retryTimer = setInterval(function () {
+      if (!down && !(state && state.list.length) && !pumping) { clearInterval(retryTimer); retryTimer = null; return; }
+      retryNow();
+    }, RETRY_MS);
+  }
+
+  /** Ask Google something cheap, to find out whether it can be reached again. */
+  function probe() {
+    return new Promise(function (resolve) {
+      var timer = setTimeout(resolve, 15000);
+      google.script.run
+        .withSuccessHandler(function () { clearTimeout(timer); noteOnline(); resolve(); })
+        .withFailureHandler(function (err) { clearTimeout(timer); if (!isNetworkError(err)) noteOnline(); resolve(); })
+        .ping();
+    });
+  }
+
+  function retryNow() {
+    if (pumping) return pumping;
+    if (state && state.list.length) return pump();
+    if (down) return probe();
+    return Promise.resolve();
+  }
+
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+  function pump() {
+    if (pumping) return pumping;
+    var st = state;
+    if (!st || !st.list.length) return Promise.resolve();
+    var sent = 0, conflicts = [], rejected = [];
+    function step() {
+      if (state !== st) return Promise.resolve('mode');
+      if (!st.list.length) return Promise.resolve('done');
+      var e = st.list[0], args = Object.assign({}, e.a);
+      if (e.base !== undefined) { args._base = e.base; args._editedAt = e.at; }
+      return baseRpc(e.m, e.f, args, { render: false, quiet: true, raw: true, noMerge: true, timeout: QUEUE_TIMEOUT }).then(function (res) {
+        down = false; sent++;
+        st.list.shift();
+        chain(st.list, e, res && res.version);
+        ((res && res.conflicts) || []).forEach(function (c) { conflicts.push(c); });
+        persist(st); showStatus();
+        return step();
+      }, function (err) {
+        if (isNetworkError(err)) { down = true; return 'stalled'; }
+        st.list.shift();
+        // The server already has an item this change was creating (an earlier attempt got through): nothing to do.
+        if (!(/^add/.test(e.f) && /already exists/.test(err.message))) rejected.push(err.message);
+        persist(st);
+        return step();
+      });
+    }
+    showStatus();
+    pumping = step().then(function (outcome) {
+      pumping = null;
+      showStatus();
+      if (outcome === 'stalled') { scheduleRetry(); return; }
+      if (outcome === 'mode' || state !== st) return;
+      if (!sent && !rejected.length) return;
+      // Everything waiting has been sent: load the server's true state, then say what happened.
+      var parts = [];
+      if (sent) parts.push('Back online: ' + plural(sent, 'change', 'changes') + ' saved.');
+      if (conflicts.length) parts.push(plural(conflicts.length, 'change', 'changes') + ' clashed with newer edits on another device. The older versions are kept in the Log.');
+      if (rejected.length) parts.push(plural(rejected.length, 'change', 'changes') + ' could not be applied: ' + rejected[0]);
+      return FT.reload().then(function () { FT.toast(parts.join(' '), conflicts.length || rejected.length ? 'error' : undefined); });
+    });
+    return pumping;
+  }
+
+  // ---------- FT.rpc, with the queue in front of it ----------
+  FT.rpc = function (moduleId, fn, args, opts) {
+    opts = opts || {};
+    args = args || {};
+    var key = moduleId + '.' + fn, queueable = canQueue(key, args) && !opts.parallel && !opts.raw;
+    // A change made while others are still waiting goes in behind them, so the server sees them in the order they were made.
+    if (queueable && state && (down || state.list.length || pumping)) return enqueue(key, moduleId, fn, args);
+    var callerQuiet = !!opts.quiet;
+    var sendOpts = Object.assign({}, opts, { quiet: true, timeout: opts.timeout || (queueable ? QUEUE_TIMEOUT : OTHER_TIMEOUT) });
+    return baseRpc(moduleId, fn, args, sendOpts).then(function (result) {
+      noteOnline();
+      if (key === 'notes.save' && result && result.updated) {
+        var row = find((FT.store || {}).notes, function (n) { return n.project_id === args.projectId; });
+        if (row) row.updated = result.updated; // the version this browser now holds, for the next offline check
+      }
+      return result;
+    }, function (err) {
+      if (isNetworkError(err)) {
+        markDown();
+        if (queueable) return enqueue(key, moduleId, fn, args);
+        if (!callerQuiet) FT.toast(FRIENDLY, 'error');
+        throw new Error(FRIENDLY);
+      }
+      if (!callerQuiet) FT.toast(err.message, 'error');
+      throw err;
+    });
+  };
+
+  // Undo goes straight to the server; say so plainly when there is no connection.
+  var baseUndo = FT.undo;
+  FT.undo = function () {
+    if (down || (state && state.list.length)) { FT.toast('Undo needs a connection, and changes are still waiting to be sent.'); return Promise.resolve(); }
+    return baseUndo();
+  };
+
+  // ---------- connection events ----------
+  window.addEventListener('online', function () { retryNow(); });
+  window.addEventListener('offline', function () { markDown(); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && (down || (state && state.list.length))) retryNow(); });
+
+  // ---------- what the client core uses ----------
+  FT.offline = {
+    isNetworkError: isNetworkError,
+    markDown: markDown,
+    /** Point the queue at a mode (its saved key), loading what a previous visit left waiting, and send it. */
+    useMode: function (key) {
+      if (state && state.key === key) return;
+      var st = { key: key, list: [], ready: false };
+      st.loaded = kv.get('queue:' + key).then(function (v) {
+        if (v && v.v === SCHEMA && Array.isArray(v.list)) st.list = v.list.concat(st.list);
+      }).catch(noop).then(function () {
+        st.ready = true;
+        if (state !== st) return;
+        showStatus();
+        if (st.list.length) { scheduleRetry(); pump(); }
+      });
+      state = st;
+      showStatus();
+    },
+    setUpdating: function (on) { updating = !!on; showStatus(); },
+    loadSnapshot: loadSnapshot,
+    saveSnapshot: saveSnapshot,
+    /** Fresh data has just arrived, so Google is reachable. */
+    onFresh: function (key) {
+      if (key && state && state.key !== key) { // the very first load knew the default mode only as "_default"
+        var old = state.key;
+        state.key = key;
+        if (state.list.length) persist(state);
+        kv.del('queue:' + old);
+      }
+      down = false;
+      showStatus();
+      if (state && state.list.length) pump();
+    },
+    /** True while changes are waiting to be sent: fresh data must not be drawn over them. */
+    busy: function () { return !!(state && (!state.ready || state.list.length || pumping)); },
+    waiting: function () { return state ? state.list.length : 0; },
+    isDown: function () { return down; },
+    retryNow: retryNow
+  };
+})();
+</script>

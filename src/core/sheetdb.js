@@ -135,6 +135,7 @@ Table.prototype.rowFor_ = function (headers, obj) {
   this.headers.forEach(function (h) { record[h] = obj[h] === undefined ? '' : obj[h]; });
   Object.keys(obj).forEach(function (h) { if (record[h] === undefined) record[h] = obj[h]; });
   record.id = obj.id || newId_();
+  if (this.headers.indexOf('updated_at') !== -1 && obj.updated_at === undefined) record.updated_at = nowIso_();
   return headers.map(function (h) { return record[h] === undefined ? '' : record[h]; });
 };
 
@@ -175,6 +176,8 @@ Table.prototype.update = function (id, patch) {
     for (var i = 0; i < d.rows.length; i++) {
       if (String(d.rows[i][idCol]) !== id) continue;
       var before = d.rows[i], row = before.slice();
+      // A table with an updated_at column stamps it on every change, so a device can tell the row changed since it last looked.
+      if (self.headers.indexOf('updated_at') !== -1 && patch.updated_at === undefined) patch = Object.assign({}, patch, { updated_at: nowIso_() });
       Object.keys(patch).forEach(function (k) {
         var c = d.headers.indexOf(k);
         if (c !== -1) row[c] = patch[k];

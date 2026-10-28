@@ -32,16 +32,32 @@ function notesModule() {
         assert_(a.projectId, 'No project given.');
         var text = typeof a.text === 'string' ? a.text : '';
         var row = rowFor_(a.projectId);
-        if (row) {
-          DriveApp.getFileById(row.file_id).setContent(text);
-          T.update(row.id, { updated: nowIso_() });
-          return { url: row.file_url };
-        }
         var project = ctx.call('projects', 'list', {}).filter(function (p) { return p.id === a.projectId; })[0];
+        if (row) {
+          var existing = DriveApp.getFileById(row.file_id);
+          // Notes saved after waiting offline carry the version the browser last saw (_base) and when it was edited (_editedAt).
+          // If the file changed since, the newest edit wins and the older text is kept as a conflict copy next to it.
+          if (a._base !== undefined && row.updated && row.updated !== String(a._base)) {
+            var serverNewer = timeOf_(row.updated) >= timeOf_(a._editedAt);
+            var stamp = nowIso_().slice(0, 16).replace(/[-:T]/g, '');
+            var copyName = slug_(project ? project.name : 'project') + '-' + a.projectId + '-conflict-' + stamp + '.md';
+            var copy = getSubfolder_('Notes').createFile(copyName, serverNewer ? text : existing.getBlob().getDataAsString(), 'text/markdown');
+            reportConflict_({ what: 'notes', kept: serverNewer ? 'server' : 'yours', copyUrl: copy.getUrl() });
+            ctx.optional('log', 'conflict', { projectId: a.projectId, text: 'Conflict: the notes were changed on another device. ' +
+              (serverNewer ? 'The newer notes were kept; your offline text' : 'Your offline text was newer and replaced them; the other text') +
+              ' is saved as ' + copyName + ' in the Notes folder.' });
+            if (serverNewer) return { url: row.file_url, updated: row.updated };
+          }
+          existing.setContent(text);
+          var stampNow = nowIso_();
+          T.update(row.id, { updated: stampNow });
+          return { url: row.file_url, updated: stampNow };
+        }
         assert_(project, 'Project not found.');
         var file = getSubfolder_('Notes').createFile(slug_(project.name) + '-' + project.id + '.md', text, 'text/markdown');
-        T.insert({ project_id: a.projectId, file_id: file.getId(), file_url: file.getUrl(), updated: nowIso_() });
-        return { url: file.getUrl() };
+        var created = nowIso_();
+        T.insert({ project_id: a.projectId, file_id: file.getId(), file_url: file.getUrl(), updated: created });
+        return { url: file.getUrl(), updated: created };
       },
 
       /** Forget the link. The markdown file stays in Drive. */
