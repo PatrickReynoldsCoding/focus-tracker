@@ -493,9 +493,10 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#app .rotq .rq') && $('#app .rotq .rq').textContent !== first, 'next item', 1500);
     assert.strictEqual($('#app .rotq [data-pos]').textContent, '2 / ' + items);
     while (!$('#app .rotq .rq').textContent.includes('Sleep on big decisions')) {
-      const before = $('#app .rotq .rq').textContent;
+      // Compare the position, not the text: when a full round ends the order is reshuffled, and the same item can come up again.
+      const before = $('#app .rotq [data-pos]').textContent;
       click($('#app .rotq [data-act="lists.rotate"][data-d="1"]'));
-      await waitFor(() => $('#app .rotq .rq').textContent !== before, 'rotating', 1500);
+      await waitFor(() => $('#app .rotq [data-pos]').textContent !== before, 'rotating', 1500);
     }
     const desc = $('#app .rotq .rotdesc');
     assert.ok(desc.textContent.includes('Wait one night. Then decide'), 'the whole description shows');
@@ -664,8 +665,9 @@ async function waitFor(fn, label, ms = 3000) {
       setVal($('#dlg-boardname'), name);
       $('#dlg-boardname').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await waitFor(() => !$('.dialog') && $$('.wblist .wbname').some((b) => b.textContent === name), name + ' listed');
-      const shell = $('#wb-shell');
-      if (shell) click(shell.querySelector('[data-act="whiteboard.close"]'));
+      // Creating a board opens it from a setTimeout(0) once the server replies, so wait for the shell instead of checking once.
+      const shell = await waitFor(() => $('#wb-shell'), 'whiteboard opened');
+      click(shell.querySelector('[data-act="whiteboard.close"]'));
       await waitFor(() => !$('#wb-shell'), 'whiteboard closed');
     }
     click($$('.wblist li').find((li) => li.textContent.includes('Wiring')).querySelector('[data-act="whiteboard.rename"]'));
