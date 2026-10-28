@@ -28,7 +28,7 @@ test('creating a project validates input and gives it default Kanban columns', (
   assert.throws(() => s.call('projects', 'create', { name: 'x', category: 'nope' }), /Unknown category/);
   const r = s.call('projects', 'create', { name: 'Loft', category: 'house', next_action: 'Get quotes' });
   assert.strictEqual(r.result.name, 'Loft');
-  assert.deepStrictEqual(Object.keys(r.slices).sort(), ['kanban', 'projects', 'today']);
+  assert.deepStrictEqual(Object.keys(r.slices).sort(), ['categories', 'kanban', 'projects', 'today']);
   const cols = r.slices.kanban.columns.filter((c) => c.project_id === r.result.id).map((c) => c.name);
   assert.deepStrictEqual(cols, ['To do', 'Doing', 'Done']);
 });
@@ -497,6 +497,88 @@ test('a whiteboard is saved as an .excalidraw file in the mode folder, and bad s
   s.call('projects', 'remove', { id: p.id });
   assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 0, 'the link goes with the project');
   assert.ok(s.drive.files[files[0].id], 'the drawing file stays in Drive');
+});
+
+test('undo puts back the newest change: a deleted project with its board, an edit, an add', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Measure' }).result;
+  const cols = json(s.run('bootstrap()')).data.kanban.columns.filter((c) => c.project_id === p.id);
+  const add = s.call('kanban', 'addTask', { projectId: p.id, columnId: cols[1].id, title: 'Order fan' });
+  assert.deepStrictEqual(add.undo.action, 'kanban.addTask');
+  s.call('kanban', 'updateTask', { id: add.result.id, title: 'Order the 100mm fan', color: '4', noteHtml: '<b>Screwfix</b>' });
+  s.call('projects', 'update', { id: p.id, next_action: 'Buy screws' });
+  s.call('projects', 'remove', { id: p.id });
+  let data = json(s.run('bootstrap()')).data;
+  assert.strictEqual(data.projects.length, 0);
+  assert.strictEqual(data.kanban.tasks.length, 0);
+
+  const undo = () => json(s.run('undo')());
+  let r = undo();
+  assert.strictEqual(r.undone, 'projects.remove');
+  assert.deepStrictEqual(r.data.projects.map((x) => [x.id, x.next_action]), [[p.id, 'Buy screws']], 'same id, last value');
+  const back = r.data.kanban.tasks.find((t) => t.id === add.result.id);
+  assert.deepStrictEqual([back.title, back.color, back.column_id], ['Order the 100mm fan', '4', cols[1].id], 'the board comes back as it was');
+  assert.strictEqual(r.data.kanban.columns.filter((c) => c.project_id === p.id).length, 3);
+  assert.strictEqual(undo().undone, 'projects.update');
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects[0].next_action, 'Measure');
+  r = undo();
+  assert.strictEqual(r.undone, 'kanban.updateTask');
+  assert.deepStrictEqual([r.data.kanban.tasks[0].title, r.data.kanban.tasks[0].color, r.data.kanban.tasks[0].note_html], ['Order fan', '', '']);
+  assert.strictEqual(undo().undone, 'kanban.addTask');
+  assert.strictEqual(undo().undone, 'projects.create');
+  assert.strictEqual(undo().undone, null, 'nothing left');
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects.length, 0);
+});
+
+test('undo is per mode, skips calls that change nothing, and keeps a bounded history', () => {
+  const s = fresh();
+  s.call('projects', 'create', { name: 'Home', category: 'house' });
+  json(s.run('rpc')('projects', 'create', { name: 'Ticket', category: 'delivery' }, 'work'));
+  assert.strictEqual(s.call('projects', 'list').undo, null, 'reads are not undoable');
+  assert.strictEqual(json(s.run("undo('work')")).undone, 'projects.create');
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.projects.map((p) => p.name), ['Home'], 'personal untouched');
+  for (let i = 0; i < 45; i++) s.call('categories', 'add', { label: 'C' + i });
+  assert.ok(s.ss.sheets.Undo.rows.length - 1 <= 40, 'old undo steps are dropped');
+});
+
+test('browser-made ids are used, checked and never doubled; cards move to an exact place', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'K', category: 'coding' }).result;
+  const cols = json(s.run('bootstrap()')).data.kanban.columns.filter((c) => c.project_id === p.id);
+  const a = s.call('kanban', 'addTask', { id: 'aaaa0001', projectId: p.id, columnId: cols[0].id, title: 'A' }).result;
+  assert.strictEqual(a.id, 'aaaa0001');
+  assert.throws(() => s.call('kanban', 'addTask', { id: 'aaaa0001', projectId: p.id, columnId: cols[0].id, title: 'A again' }), /already exists/);
+  assert.throws(() => s.call('kanban', 'addTask', { id: '<script>', projectId: p.id, title: 'x' }), /Bad id/);
+  s.call('kanban', 'addTask', { id: 'aaaa0002', projectId: p.id, columnId: cols[1].id, title: 'B' });
+  s.call('kanban', 'addTask', { id: 'aaaa0003', projectId: p.id, columnId: cols[1].id, title: 'C' });
+  const moved = s.call('kanban', 'moveTask', { id: 'aaaa0001', columnId: cols[1].id, order: 1.5 });
+  const order = moved.slices.kanban.tasks.filter((t) => t.column_id === cols[1].id).sort((x, y) => x.order - y.order).map((t) => t.title);
+  assert.deepStrictEqual(order, ['B', 'A', 'C']);
+  const other = s.call('projects', 'create', { name: 'Other', category: 'coding' }).result;
+  const otherCol = json(s.run('bootstrap()')).data.kanban.columns.find((c) => c.project_id === other.id);
+  assert.throws(() => s.call('kanban', 'moveTask', { id: 'aaaa0001', columnId: otherCol.id }), /not on this board/);
+  const col = s.call('kanban', 'addColumn', { id: 'bbbb0001', projectId: p.id, name: 'Review' }).result;
+  assert.strictEqual(col.id, 'bbbb0001');
+});
+
+test('a project can be made with a new category; lists get a colour; panels can be hidden', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Shed', newCategory: 'Garden' });
+  const garden = p.slices.categories.find((c) => c.label === 'Garden');
+  assert.strictEqual(p.result.category, garden.id);
+  const q = s.call('projects', 'update', { id: p.result.id, newCategory: 'Outdoor' });
+  assert.strictEqual(q.result.category, q.slices.categories.find((c) => c.label === 'Outdoor').id);
+  const l = s.call('lists', 'create', { name: 'Reading' }).result;
+  assert.strictEqual(s.call('lists', 'setColor', { id: l.id, color: '5' }).result.color, '5');
+  assert.throws(() => s.call('lists', 'setColor', { id: l.id, color: 'red' }), /Unknown colour/);
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }] });
+  let layout = s.call('layout', 'setHidden', { page: 'today', id: 'rotation', hidden: true }).slices.layout;
+  assert.deepStrictEqual(layout.today.rotation, { x: 0, y: 10000, w: 12, hidden: true });
+  s.call('layout', 'setHidden', { page: 'today', id: 'focus', hidden: true });
+  layout = s.call('layout', 'setHidden', { page: 'today', id: 'focus', hidden: false }).slices.layout;
+  assert.deepStrictEqual(layout.today.focus, { x: 0, y: 0, w: 7 }, 'showing keeps its old place');
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }, { id: 'rotation', x: 0, y: 0, w: 5, hidden: true }] });
+  assert.strictEqual(json(s.run('bootstrap()')).data.layout.today.rotation.hidden, true);
 });
 
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {

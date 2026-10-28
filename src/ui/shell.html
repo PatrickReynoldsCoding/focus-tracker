@@ -82,32 +82,102 @@ var FT = (function () {
     syncTimer = setTimeout(function () { el.textContent = ''; }, 1500);
   }
 
+  /** An id for a new item, made here so the item can show before the server answers. 8 hex characters, like the server's. */
+  FT.newId = function () {
+    var bytes = new Uint8Array(4);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    return Array.prototype.map.call(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  };
+
+  // Changes go to the server one at a time, in the order they were made. A reply's fresh data is only used when no
+  // later change is still waiting: the screen already shows that later change, and older data would undo it.
+  var queue = Promise.resolve(), waiting = 0;
+
   /**
    * Call a module's server api in the current mode. Merges any refreshed slices into the store and re-renders
-   * unless opts.render === false. Slices that arrive after a mode switch belong to the old mode, so they are dropped.
+   * unless opts.render === false. opts.parallel: a read that need not wait for earlier changes.
+   * Slices that arrive after a mode switch belong to the old mode, so they are dropped.
    */
   FT.rpc = function (moduleId, fn, args, opts) {
     opts = opts || {};
     var mode = FT.state.mode;
-    setPending(1);
-    return new Promise(function (resolve, reject) {
-      google.script.run
-        .withSuccessHandler(function (res) {
-          setPending(-1);
-          if (mode !== FT.state.mode) { resolve(res ? res.result : null); return; }
-          var slices = (res && res.slices) || {};
-          Object.keys(slices).forEach(function (k) { FT.store[k] = slices[k]; });
-          if (opts.render !== false) FT.render();
-          resolve(res ? res.result : null);
-        })
-        .withFailureHandler(function (err) {
-          setPending(-1);
-          var msg = FT.errorText(err);
-          if (!opts.quiet) FT.toast(msg, 'error');
-          reject(new Error(msg));
-        })
-        .rpc(moduleId, fn, args || {}, mode);
+    function send() {
+      setPending(1);
+      return new Promise(function (resolve, reject) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            setPending(-1);
+            if (!opts.parallel) waiting--;
+            if (mode !== FT.state.mode) { resolve(res ? res.result : null); return; }
+            if (res && res.undo) FT.state.canUndo = true;
+            if (opts.parallel || waiting === 0) {
+              var slices = (res && res.slices) || {};
+              Object.keys(slices).forEach(function (k) { FT.store[k] = slices[k]; });
+              if (opts.render !== false) FT.render();
+            }
+            resolve(res ? res.result : null);
+          })
+          .withFailureHandler(function (err) {
+            setPending(-1);
+            if (!opts.parallel) waiting--;
+            var msg = FT.errorText(err);
+            if (!opts.quiet) FT.toast(msg, 'error');
+            reject(new Error(msg));
+          })
+          .rpc(moduleId, fn, args || {}, mode);
+      });
+    }
+    if (opts.parallel) return send();
+    waiting++;
+    var done = queue.then(send);
+    queue = done.catch(function () {});
+    return done;
+  };
+
+  // Closing or reloading the tab while changes are still on their way would lose them, so the browser asks first.
+  window.addEventListener('beforeunload', function (e) {
+    if (waiting > 0) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  /** A change shown on screen before the server answered failed: tell the user and reload the true state. */
+  FT.saveFailed = function () {
+    queue.then(function () { if (waiting === 0) FT.reload(); });
+  };
+
+  // Words for the undo message, by module.function. Anything else is "Last change".
+  var UNDO_WORDS = {
+    'kanban.addTask': 'Card added', 'kanban.deleteTask': 'Card deleted', 'kanban.moveTask': 'Card moved', 'kanban.updateTask': 'Card edit',
+    'kanban.addColumn': 'Column added', 'kanban.renameColumn': 'Column rename', 'kanban.deleteColumn': 'Column deleted',
+    'projects.create': 'Project added', 'projects.update': 'Project edit', 'projects.remove': 'Project deleted',
+    'lists.create': 'List added', 'lists.rename': 'List rename', 'lists.remove': 'List deleted', 'lists.setColor': 'List colour',
+    'categories.add': 'Category added', 'categories.update': 'Category edit', 'categories.remove': 'Category deleted',
+    'resources.add': 'Link added', 'resources.remove': 'Link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap'
+  };
+  FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
+
+  /** Undo the newest change in this mode (after any changes still being saved). */
+  FT.undo = function () {
+    var mode = FT.state.mode;
+    waiting++;
+    var done = queue.then(function () {
+      setPending(1);
+      return new Promise(function (resolve) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            setPending(-1); waiting--;
+            if (mode !== FT.state.mode) { resolve(); return; }
+            if (!res.undone) { FT.toast('Nothing to undo.'); resolve(); return; }
+            FT.store = res.data;
+            FT.render();
+            FT.toast('Undone: ' + FT.undoWords(res.undone));
+            resolve();
+          })
+          .withFailureHandler(function (err) { setPending(-1); waiting--; FT.toast(FT.errorText(err), 'error'); resolve(); })
+          .undo(mode);
+      });
     });
+    queue = done;
+    return done;
   };
 
   FT.reload = function () {
@@ -120,11 +190,23 @@ var FT = (function () {
 
   // ---------- toast ----------
   var toastTimer = null;
-  FT.toast = function (msg, kind) {
+  /** A short message at the bottom. action: optional { label, run } for a button in it, such as Undo. */
+  FT.toast = function (msg, kind, action) {
     var el = $('toast');
     el.textContent = msg; el.className = 'toast' + (kind ? ' ' + kind : ''); el.hidden = false;
+    if (action) {
+      var btn = document.createElement('button');
+      btn.className = 'toastbtn'; btn.textContent = action.label;
+      btn.onclick = function () { el.hidden = true; action.run(); };
+      el.appendChild(btn);
+    }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.hidden = true; }, 4500);
+    toastTimer = setTimeout(function () { el.hidden = true; }, action ? 7000 : 4500);
+  };
+
+  /** After a delete: say what went and offer Undo. */
+  FT.deleted = function (what) {
+    FT.toast(what + ' deleted.', null, { label: 'Undo', run: FT.undo });
   };
 
   // ---------- dialog ----------
@@ -203,7 +285,7 @@ var FT = (function () {
     var project = FT.project(id);
     if (!project) return '<p class="empty">That project no longer exists.</p><button class="btn" data-act="core.tab" data-view="projects">Back to projects</button>';
     var panels = FT.slots('project.page').map(function (s) {
-      return { id: s.id || 'slot' + s.order, html: s.render(project, FT), w: s.span === 'full' ? 12 : 6 };
+      return { id: s.id || 'slot' + s.order, title: s.title, html: s.render(project, FT), w: s.span === 'full' ? 12 : 6 };
     });
     return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div>' + FT.layout('project', panels);
   }
@@ -212,7 +294,7 @@ var FT = (function () {
   // Desktop pages are a 12-column grid (GridStack, loaded from a CDN). In "Edit layout" mode panels can be dragged
   // and their left or right edge dragged to change the width; heights follow the content. Places are saved per page.
   // On a phone, or if the grid library did not load, panels flow in order.
-  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null;
+  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null, layoutHidden = [];
   var narrow = window.matchMedia('(max-width: 760px)');
   if (narrow.addEventListener) narrow.addEventListener('change', function () { FT.state.editLayout = false; FT.render(); });
 
@@ -234,7 +316,8 @@ var FT = (function () {
   FT.layout = function (page, panels) {
     layoutPage = page;
     var saved = (FT.store.layout || {})[page] || {};
-    var shown = panels.filter(function (p) { return p.html; });
+    layoutHidden = panels.filter(function (p) { return p.html && saved[p.id] && saved[p.id].hidden; });
+    var shown = panels.filter(function (p) { return p.html && !(saved[p.id] && saved[p.id].hidden); });
     if (!canArrange()) {
       return '<div class="lflow">' + readingOrder(shown, saved).map(function (p) {
         var w = saved[p.id] ? saved[p.id].w : (p.w || LAYOUT_COLUMNS);
@@ -244,14 +327,19 @@ var FT = (function () {
     return '<div class="grid-stack" data-page="' + FT.esc(page) + '">' + shown.map(function (p) {
       var s = saved[p.id];
       var place = s ? ' gs-x="' + s.x + '" gs-y="' + s.y + '" gs-w="' + s.w + '"' : ' gs-w="' + (p.w || LAYOUT_COLUMNS) + '" gs-auto-position="true"';
-      return '<div class="grid-stack-item" gs-id="' + FT.esc(p.id) + '"' + place + '><div class="grid-stack-item-content">' + p.html + '</div></div>';
+      var hide = FT.state.editLayout ? '<button class="hidebtn" data-act="core.hidePanel" data-id="' + FT.esc(p.id) + '" aria-label="Hide this panel">Hide</button>' : '';
+      return '<div class="grid-stack-item" gs-id="' + FT.esc(p.id) + '"' + place + '><div class="grid-stack-item-content">' + p.html + '</div>' + hide + '</div>';
     }).join('') + '</div>';
   };
 
   function saveLayout(page, grid) {
+    var previous = (FT.store.layout || {})[page] || {};
     var items = grid.engine.nodes.map(function (n) { return { id: n.id, x: n.x, y: n.y, w: n.w }; });
+    Object.keys(previous).forEach(function (id) {
+      if (previous[id].hidden) items.push({ id: id, x: previous[id].x, y: previous[id].y, w: previous[id].w, hidden: true });
+    });
     var positions = {};
-    items.forEach(function (it) { positions[it.id] = { x: it.x, y: it.y, w: it.w }; });
+    items.forEach(function (it) { positions[it.id] = { x: it.x, y: it.y, w: it.w }; if (it.hidden) positions[it.id].hidden = true; });
     FT.store.layout = FT.store.layout || {};
     FT.store.layout[page] = positions;
     FT.rpc('layout', 'save', { page: page, items: items }, { render: false }).catch(function () {});
@@ -279,22 +367,45 @@ var FT = (function () {
     btn.setAttribute('aria-pressed', FT.state.editLayout ? 'true' : 'false');
   }
 
+  function setPanelHidden(id, hidden) {
+    if (!layoutPage) return;
+    var page = layoutPage;
+    FT.store.layout = FT.store.layout || {};
+    var pageLayout = FT.store.layout[page] = FT.store.layout[page] || {};
+    var place = pageLayout[id] || { x: 0, y: 10000, w: 12 };
+    if (hidden) place.hidden = true; else delete place.hidden;
+    pageLayout[id] = place;
+    FT.render();
+    FT.rpc('layout', 'setHidden', { page: page, id: id, hidden: hidden }, { render: false }).catch(FT.saveFailed);
+  }
+
+  function hiddenListHtml() {
+    if (!layoutHidden.length) return '';
+    return '<span class="hiddenlist">Hidden: ' + layoutHidden.map(function (p) {
+      return '<button class="btn sm" data-act="core.showPanel" data-id="' + FT.esc(p.id) + '">Show ' + FT.esc(p.title || p.id) + '</button>';
+    }).join(' ') + '</span>';
+  }
+
   function editBarHtml() {
     if (!FT.state.editLayout || !canArrange() || !layoutPage) return '';
-    return '<div class="editbar" role="status"><span><b>Editing layout.</b> Drag a panel to move it. Drag its left or right edge to change its width.</span>' +
+    return '<div class="editbar" role="status"><span><b>Editing layout.</b> Drag a panel to move it. Drag its left or right edge to change its width. "Hide" takes a panel off the page.</span>' + hiddenListHtml() +
       '<span class="actions" style="margin:0"><button class="btn sm" data-act="core.layoutReset">Reset this page</button>' +
       '<button class="btn sm primary" data-act="core.layout">Done</button></span></div>';
   }
 
+  var renderWaiting = false;
   FT.render = function () {
     if (!FT.ready) return;
+    // While a card is being dragged, a redraw would pull it out from under the pointer; draw once the drag ends.
+    if (FT.state.dragging) { renderWaiting = true; return; }
+    renderWaiting = false;
     renderTabs();
     layoutPage = null;
     var html = '';
     if (FT.state.view === 'project') html = projectPage(FT.state.projectId);
     else if (modules[FT.state.view] && modules[FT.state.view].tab) html = modules[FT.state.view].tab.render(FT);
     var y = window.scrollY;
-    $('app').innerHTML = editBarHtml() + html;
+    $('app').innerHTML = editBarHtml() + html; // after the page html, so the bar knows the page's hidden panels
     document.body.classList.toggle('editing-layout', !!(FT.state.editLayout && canArrange() && layoutPage));
     initGrids();
     renderLayoutButton();
@@ -374,6 +485,12 @@ var FT = (function () {
       .bootstrap(mode);
   }
 
+  /** Call when a drag ends: draws any update that arrived during it. */
+  FT.dragEnded = function () {
+    FT.state.dragging = false;
+    FT.render();
+  };
+
   FT.switchMode = function (mode) {
     if (mode === FT.state.mode) return;
     try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
@@ -410,6 +527,9 @@ var FT = (function () {
     if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
   });
   FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
+  FT.action('core.undo', function () { FT.undo(); });
+  FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
+  FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });
   FT.action('core.layoutReset', function () {
     if (!layoutPage) return;
     if (FT.store.layout) delete FT.store.layout[layoutPage];
@@ -435,11 +555,22 @@ var FT = (function () {
     var el = e.target.closest ? e.target.closest('[data-input]') : null;
     if (el && handlers.input[el.dataset.input]) handlers.input[el.dataset.input](el, e);
   });
+  function isTyping(el) {
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+  }
+
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') FT.closeDialog();
     if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-enter]')) {
       var fn = handlers.enter[e.target.dataset.enter];
       if (fn) { e.preventDefault(); fn(e.target, e); }
+      return;
+    }
+    // Enter saves an inline name field (column, list, category): it commits the change by leaving the field.
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('input[type="text"][data-change]')) { e.preventDefault(); e.target.blur(); return; }
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !isTyping(e.target) && !$('dialogRoot').innerHTML) {
+      e.preventDefault();
+      FT.undo();
     }
   });
 

@@ -40,7 +40,7 @@
 
   FT.module({
     id: 'notes',
-    slots: { 'project.page': [{ id: 'notes', order: 20, span: 'half', render: panel }] },
+    slots: { 'project.page': [{ id: 'notes', title: 'Notes', order: 20, span: 'half', render: panel }] },
     onProject: function (projectId) {
       if (!noteRow(projectId) || Object.prototype.hasOwnProperty.call(cache, projectId)) return;
       FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true }).then(function (r) {

@@ -39,13 +39,14 @@ function kanbanModule() {
       addColumn: function (a, ctx) {
         var name = clean_(a.name, 60) || 'New column';
         var cols = columnsOf_(a.projectId);
-        var row = COLUMNS.insert({ project_id: a.projectId, name: name, order: nextOrder_(cols) });
+        var row = COLUMNS.insert({ id: clientId_(a.id), project_id: a.projectId, name: name, order: nextOrder_(cols) });
         ctx.refresh('kanban');
         return row;
       },
 
-      renameColumn: function (a) {
+      renameColumn: function (a, ctx) {
         var name = clean_(a.name, 60) || 'Untitled';
+        ctx.refresh('kanban');
         return COLUMNS.update(a.id, { name: name });
       },
 
@@ -75,7 +76,7 @@ function kanbanModule() {
         var colId = a.columnId || cols[0].id;
         assert_(cols.some(function (c) { return c.id === colId; }), 'That column is not on this board. Reload and try again.');
         var inCol = TASKS.all().filter(function (t) { return t.column_id === colId; });
-        var row = TASKS.insert({ project_id: a.projectId, column_id: colId, title: title, order: nextOrder_(inCol), created: nowIso_() });
+        var row = TASKS.insert({ id: clientId_(a.id), project_id: a.projectId, column_id: colId, title: title, order: nextOrder_(inCol), created: nowIso_() });
         ctx.refresh('kanban');
         return row;
       },
@@ -122,14 +123,21 @@ function kanbanModule() {
         return rows.length;
       },
 
-      moveTask: function (a) {
-        var inCol = TASKS.all().filter(function (t) { return t.column_id === a.columnId; });
-        return TASKS.update(a.id, { column_id: a.columnId, order: nextOrder_(inCol) });
+      /** Move a card to a column. a.order: its place (any number, for example between two neighbours); last if left out. */
+      moveTask: function (a, ctx) {
+        var task = TASKS.get(a.id);
+        assert_(task, 'That card no longer exists.');
+        assert_(columnsOf_(task.project_id).some(function (c) { return c.id === a.columnId; }), 'That column is not on this board.');
+        var inCol = TASKS.all().filter(function (t) { return t.column_id === a.columnId && t.id !== a.id; });
+        var order = typeof a.order === 'number' && isFinite(a.order) ? a.order : nextOrder_(inCol);
+        ctx.refresh('kanban');
+        return TASKS.update(a.id, { column_id: a.columnId, order: order });
       },
 
-      renameTask: function (a) {
+      renameTask: function (a, ctx) {
         var title = clean_(a.title, 200);
         assert_(title, 'A task needs a title.');
+        ctx.refresh('kanban');
         return TASKS.update(a.id, { title: title });
       },
 

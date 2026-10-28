@@ -4,14 +4,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// Counts calls into the fake Sheets service, which are the slow part of a request on Google.
+const sheetCalls = { n: 0 };
+
 function makeSheet(name) {
   const sh = { name, rows: [], maxRows: 1000 };
+  const counted = (fn) => (...args) => { sheetCalls.n++; return fn(...args); };
   sh.getMaxRows = () => sh.maxRows;
-  sh.getLastRow = () => sh.rows.length;
-  sh.getLastColumn = () => sh.rows.reduce((m, r) => Math.max(m, r.length), 0);
+  sh.getLastRow = counted(() => sh.rows.length);
+  sh.getLastColumn = counted(() => sh.rows.reduce((m, r) => Math.max(m, r.length), 0));
   sh.setFrozenRows = () => sh;
-  sh.deleteRow = (i) => { sh.rows.splice(i - 1, 1); };
-  sh.getRange = (r, c, nr = 1, nc = 1) => {
+  sh.deleteRow = counted((i) => { sh.rows.splice(i - 1, 1); });
+  sh.getRange = counted((r, c, nr = 1, nc = 1) => {
     const range = {
       getValues: () => Array.from({ length: nr }, (_, i) =>
         Array.from({ length: nc }, (_, j) => { const v = (sh.rows[r - 1 + i] || [])[c - 1 + j]; return v === undefined ? '' : v; })),
@@ -26,7 +30,7 @@ function makeSheet(name) {
       setFontWeight: () => range
     };
     return range;
-  };
+  });
   return sh;
 }
 
@@ -36,7 +40,7 @@ function makeSpreadsheet(id = 'sheet-1', name = 'Focus Tracker') {
     sheets, name,
     getId: () => id,
     getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id,
-    getSheetByName: (n) => sheets[n] || null,
+    getSheetByName: (n) => { sheetCalls.n++; return sheets[n] || null; },
     insertSheet: (n) => (sheets[n] = makeSheet(n))
   };
 }
@@ -144,4 +148,4 @@ function loadServer(opts = {}) {
   return { sandbox, ss, spreadsheets, script, user, drive, mock, run };
 }
 
-module.exports = { loadServer };
+module.exports = { loadServer, sheetCalls };

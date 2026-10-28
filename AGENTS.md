@@ -23,6 +23,8 @@ The Resources feature stores links to Google Drive files. Before adding, suggest
 - Modes (`MODES` in `src/core/config.js`, helpers in `src/core/mode.js`): each mode has its own spreadsheet and its own subfolder of the "Focus Tracker" Drive folder. `bootstrap(mode)` and `rpc(module, fn, args, mode)` set the mode first, so `Table`, `getSpreadsheet_()` and `getSubfolder_()` always work on the active mode. Per-user state that belongs to a mode uses `modeKey_('name')`. A mode-only feature is a module listed in that mode's `modules`.
 - Categories are data, not config: each mode's Categories tab, edited in the app. Check them through `ctx.call('categories', 'ids')`.
 - Pages lay out their panels with `FT.layout(page, [{ id, html, w }])` (shell.html), so they can be moved in "Edit layout" mode. Slots that add panels give each one a stable `id`.
+- Speed matters: every sheet call is slow on Google. Read tables through `Table` (cached per request) and prefer `insertMany`. On the client, changes the user makes often (cards, list items) update `FT.store` and render first, then call `FT.rpc` with `{ render: false }` and `.catch(FT.saveFailed)`; new items get `FT.newId()` and the server accepts it through `clientId_()`.
+- Undo works on sheet rows only. A call whose row changes are bookkeeping goes in `NOT_UNDOABLE_` (core/undo.js).
 - Rich text from the browser is cleaned on the server with `sanitizeRichText_` before it is stored. Never store or render browser HTML without it.
 - Cells are plain text. Dates are ISO strings. Numbers are listed in a table's `numeric` argument.
 

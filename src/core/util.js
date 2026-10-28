@@ -8,6 +8,13 @@ function newId_() {
   return Utilities.getUuid().replace(/-/g, '').slice(0, 8);
 }
 
+/** An id made by the browser (so it can show a new item before the server answers), or a new one. */
+function clientId_(value) {
+  if (!value) return newId_();
+  assert_(/^[0-9a-f]{8}$/.test(String(value)), 'Bad id: ' + value);
+  return String(value);
+}
+
 function daysSince_(iso) {
   if (!iso) return 9999;
   var t = new Date(iso).getTime();

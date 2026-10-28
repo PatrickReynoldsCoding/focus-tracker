@@ -2,7 +2,7 @@
 
 /** Everything the page needs on first load, for one mode (the first mode if none is given). */
 function bootstrap(modeId) {
-  var mode = setMode_(modeId);
+  var mode = startRequest_(modeId);
   var mods = loadModules_();
   var ctx = makeCtx_(mods);
   runPendingImport_(ctx);
@@ -28,16 +28,31 @@ function bootstrap(modeId) {
  * Returns { result, slices } where slices holds fresh snapshots for any modules the handler refreshed.
  */
 function rpc(moduleId, fn, args, modeId) {
-  setMode_(modeId);
+  startRequest_(modeId);
   var mods = loadModules_();
   var ctx = makeCtx_(mods);
-  var result = ctx.call(moduleId, fn, args);
+  var run = withChangeJournal_(function () { return ctx.call(moduleId, fn, args); });
+  var undo = saveUndo_(moduleId + '.' + fn, run.changes);
   var slices = {};
   ctx.refreshed_().forEach(function (id) { slices[id] = mods[id].snapshot(ctx); });
-  return { result: result === undefined ? null : result, slices: slices };
+  return { result: run.result === undefined ? null : run.result, slices: slices, undo: undo };
+}
+
+/** Undo the last change made in this mode. Returns fresh data for every module, like bootstrap. */
+function undo(modeId) {
+  startRequest_(modeId);
+  var undone = undoLast_();
+  var mods = loadModules_();
+  var ctx = makeCtx_(mods);
+  var data = {};
+  Object.keys(mods).forEach(function (id) {
+    if (typeof mods[id].snapshot === 'function') data[id] = mods[id].snapshot(ctx);
+  });
+  return { undone: undone, data: data };
 }
 
 /** Make a new mode from the mode menu. Returns { id, label, accent }; the browser then opens it. */
 function createMode(label) {
+  startRequest_();
   return addMode_(label);
 }

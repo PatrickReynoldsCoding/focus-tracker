@@ -53,6 +53,13 @@ Original plan:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
+### Speed, undo and editing (done, 2026-10-28, requested by Paddy)
+- Duplicate cards were real: while a save was slow (about 1.5 s on Apps Script) the text stayed in the box, so a second Enter saved it twice. Now new cards show at once with an id made in the browser, the box clears, and the server refuses a repeated id.
+- Speed: each sheet tab is read once per request and writes keep that copy up to date (sheetdb.js), header and rows come in one read. Sheet calls fell from 86 to 44 to open the app and from 44 to 12 to add a card. Card add, move, edit and delete show on screen first and save in the background, one save at a time and in order; a reply's data is only used when no later save is waiting. The browser warns before closing the tab while saves are pending.
+- Undo: every call records its row changes; they are kept in the mode's Undo tab (last 30) and the header button or Cmd/Ctrl+Z puts the newest back. Deletes are immediate with an Undo button in the message. Notes, whiteboards and the Today session are not undone.
+- Drag and drop (SortableJS 1.15.2 from jsDelivr, short press on touch) replaces the move arrows on boards and lists, including order inside a column. The card dialog has a Column/Group choice as well.
+- Panels can be hidden in Edit layout ("Hide", then "Show ..." in the bar). Lists have a background colour. The project form has "+ New category…". Enter saves inline name fields.
+
 ### Todoist import into Work (pushed 2026-10-28)
 - Paddy chose to import all 54 open Todoist tasks as they are, accepting that iManage-internal content goes into his personal Google account.
 - Mapping: "Current Stuff" becomes project "Current work" (sections are columns) except "keep in mind" (list "Keep in mind", shown on Today) and "todo" (project "Admin"). "Read and Watch" becomes a list with its sections as groups. Subtasks are their own cards ("parent → child"), descriptions and due dates go into card notes, Todoist P1/P2/P3 become red/orange/blue cards.

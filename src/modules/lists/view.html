@@ -7,18 +7,34 @@
 .toggle input { width: auto; margin: 0; }
 .listpanel .board.vertical { gap: 8px; }
 .listpanel .col { min-height: 0; }
+/* A list's colour tints its panel and groups, on the Lists tab and on Today. */
+.listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); border-color: color-mix(in srgb, var(--list-c) 45%, var(--line)); }
+.listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 16%, var(--surface-2)); }
+.listpanel .listcolor { width: auto; padding: 5px 8px; font-size: 13px; }
 </style>
 <script>
 (function () {
+  var COLORS = [['', 'No colour'], ['1', 'Teal'], ['2', 'Amber'], ['3', 'Blue'], ['4', 'Red'], ['5', 'Purple'], ['6', 'Green'], ['7', 'Grey'], ['8', 'Orange']];
+
   function lists() { return FT.store.lists || []; }
 
-  function listPanel(l, i, count) {
+  /** Opening tag of a list's panel, tinted with its colour. */
+  function panelOpen(l) {
+    return l.color ? '<section class="panel listpanel tinted" style="--list-c: var(--cat-' + FT.esc(l.color) + ')">' : '<section class="panel listpanel">';
+  }
+
+  function colorSelect(l) {
+    return '<select class="listcolor" aria-label="Colour of ' + FT.esc(l.name) + '" data-change="lists.color" data-id="' + FT.esc(l.id) + '">' + COLORS.map(function (c) {
+      return '<option value="' + c[0] + '"' + ((l.color || '') === c[0] ? ' selected' : '') + '>' + c[1] + '</option>';
+    }).join('') + '</select>';
+  }
+
+  function listPanel(l) {
     var id = FT.esc(l.id);
-    return '<section class="panel listpanel"><div class="listhead">' +
+    return panelOpen(l) + '<div class="listhead">' +
       '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="List name" data-change="lists.rename" data-id="' + id + '">' +
       '<label class="toggle"><input type="checkbox" data-change="lists.today" data-id="' + id + '"' + (l.show_today ? ' checked' : '') + '> Show on Today</label>' +
-      '<button class="mvb" data-act="lists.move" data-id="' + id + '" data-d="-1" aria-label="Move list earlier"' + (i === 0 ? ' disabled' : '') + '>‹</button>' +
-      '<button class="mvb" data-act="lists.move" data-id="' + id + '" data-d="1" aria-label="Move list later"' + (i === count - 1 ? ' disabled' : '') + '>›</button>' +
+      colorSelect(l) +
       '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete list ' + FT.esc(l.name) + '">Delete</button></div>' +
       FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
   }
@@ -28,8 +44,8 @@
     var head = '<section class="panel"><div class="tophead"><div class="label">Lists</div><button class="btn sm primary" data-act="lists.add">+ New list</button></div>' +
       (all.length ? '<p class="empty" style="padding:0">Lists are for things that are not projects: reading, ideas, things to keep in mind. Tick "Show on Today" to see one on the Today tab.</p>'
                   : '<p class="empty">No lists yet. Make one for reading, ideas or things to keep in mind.</p>') + '</section>';
-    return FT.layout('lists', [{ id: 'head', html: head, w: 12 }].concat(all.map(function (l, i) {
-      return { id: 'list-' + l.id, html: listPanel(l, i, all.length), w: 6 };
+    return FT.layout('lists', [{ id: 'head', title: 'Lists intro', html: head, w: 12 }].concat(all.map(function (l) {
+      return { id: 'list-' + l.id, title: l.name, html: listPanel(l), w: 6 };
     })));
   }
 
@@ -37,8 +53,8 @@
   function todayPanels() {
     return lists().filter(function (l) { return l.show_today; }).map(function (l) {
       return {
-        id: 'list-' + l.id, w: 6,
-        html: '<section class="panel listpanel"><div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' +
+        id: 'list-' + l.id, title: l.name, w: 6,
+        html: panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' +
           '<button class="btn sm" data-act="lists.open" aria-label="Open Lists tab">Edit list</button></div>' +
           FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>'
       };
@@ -72,8 +88,12 @@
     FT.rpc('lists', 'showToday', { id: el.dataset.id, on: el.checked }).catch(function () {});
   });
 
-  FT.action('lists.move', function (el) {
-    FT.rpc('lists', 'move', { id: el.dataset.id, d: Number(el.dataset.d) }).catch(function () {});
+  FT.on('change', 'lists.color', function (el) {
+    var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (!l) return;
+    l.color = el.value;
+    FT.render();
+    FT.rpc('lists', 'setColor', { id: l.id, color: el.value }, { render: false }).catch(FT.saveFailed);
   });
 
   FT.action('lists.remove', function (el) {
@@ -81,9 +101,9 @@
     if (!l) return;
     FT.dialog({
       title: 'Delete list',
-      body: '<p>Delete "' + FT.esc(l.name) + '" and everything in it?</p>',
+      body: '<p>Delete "' + FT.esc(l.name) + '" and everything in it? You can undo this.</p>',
       submit: 'Delete list', danger: true,
-      onSubmit: function () { return FT.rpc('lists', 'remove', { id: l.id }, { quiet: true }); }
+      onSubmit: function () { return FT.rpc('lists', 'remove', { id: l.id }, { quiet: true }).then(function () { FT.deleted('List'); }); }
     });
   });
 })();

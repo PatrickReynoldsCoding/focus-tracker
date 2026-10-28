@@ -34,11 +34,11 @@
     id: 'resources',
     slots: {
       'project.page': [
-        { id: 'links-project', order: 30, span: 'half', render: function (p) { return section('Resources: this project', p.category, p.id); } },
-        { id: 'links-shared', order: 31, span: 'half', render: function (p) { return section('Resources: ' + FT.category(p.category).label + ' (shared)', p.category, null); } }
+        { id: 'links-project', title: 'Resources: this project', order: 30, span: 'half', render: function (p) { return section('Resources: this project', p.category, p.id); } },
+        { id: 'links-shared', title: 'Resources: shared', order: 31, span: 'half', render: function (p) { return section('Resources: ' + FT.category(p.category).label + ' (shared)', p.category, null); } }
       ],
       'projects.tab': [
-        { id: 'links', order: 10, render: function () {
+        { id: 'links', title: 'Resources', order: 10, render: function () {
           return '<div class="cats">' + FT.categories().map(function (c) { return section('Resources: ' + c.label, c.id, null); }).join('') + '</div>';
         } }
       ]

@@ -138,15 +138,43 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!$$('.col')[0].textContent.includes('Old fan in the bin'));
   });
 
-  await step('moving a card updates the screen immediately and the sheet afterwards', async () => {
+  await step('moving a card (from its dialog) updates the screen immediately and the sheet afterwards', async () => {
+    assert.strictEqual($$('.kcard [data-d]').length, 0, 'no move arrows: cards are dragged');
     const card = $$('.kcard').find((c) => c.textContent.includes('Buy duct tape'));
-    click(card.querySelector('[data-d="1"]'));
-    assert.ok($$('.col')[1].textContent.includes('Buy duct tape'), 'optimistic move');
-    await sleep(50);
-    const tasks = JSON.parse(JSON.stringify(server.run('rpc')('kanban', 'addColumn', { projectId: 'none' }).slices.kanban.tasks));
-    const saved = tasks.find((t) => t.title === 'Buy duct tape');
-    const cols = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban.columns)).filter((c) => c.project_id === saved.project_id);
-    assert.strictEqual(saved.column_id, cols[1].id);
+    click(card.querySelector('[data-act="kanban.open-card"]'));
+    await waitFor(() => $('#dlg-cardcolumn'), 'card dialog');
+    setVal($('#dlg-cardcolumn'), $('#dlg-cardcolumn').options[1].value, 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $$('.col')[1].textContent.includes('Buy duct tape'), 'shown at once', 200);
+    const serverTask = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban)).tasks.find((t) => t.title === 'Buy duct tape');
+    const cols = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban.columns)).filter((c) => c.project_id === serverTask().project_id).sort((a, b) => a.order - b.order);
+    await waitFor(() => serverTask().column_id === cols[1].id, 'saved');
+  });
+
+  await step('a new card shows at once, and a second Enter while saving cannot add it twice', async () => {
+    const input = $$('.col .coladd input')[1];
+    setVal(input, 'Check the fuse');
+    input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert.ok($$('.col')[1].textContent.includes('Check the fuse'), 'shown before the server answers');
+    const again = $$('.col .coladd input')[1];
+    assert.strictEqual(again.value, '', 'the box is cleared');
+    again.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await sleep(100);
+    const copies = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban.tasks)).filter((t) => t.title === 'Check the fuse');
+    assert.strictEqual(copies.length, 1);
+  });
+
+  await step('deleting a card is immediate and Undo brings it back', async () => {
+    const card = $$('.kcard').find((c) => c.textContent.includes('Check the fuse'));
+    click(card.querySelector('[data-act="kanban.del-task"]'));
+    assert.ok(!$$('.kcard').some((c) => c.textContent.includes('Check the fuse')), 'gone at once');
+    await waitFor(() => !$('#toast').hidden && $('#toast').textContent.includes('Card deleted'), 'undo message');
+    click($('#toast .toastbtn'));
+    await waitFor(() => $$('.kcard').some((c) => c.textContent.includes('Check the fuse')), 'back after undo');
+    assert.ok($('#toast').textContent.includes('Undone: Card deleted'));
+    click($('#undoBtn'));
+    await waitFor(() => $('#toast').textContent.includes('Undone: Card added'), 'the header button undoes the add before it');
+    assert.ok(!$$('.kcard').some((c) => c.textContent.includes('Check the fuse')));
   });
 
   await step('renaming and adding columns, and the direction toggle', async () => {
@@ -321,10 +349,12 @@ async function waitFor(fn, label, ms = 3000) {
     click(list().querySelector('[data-act="kanban.add-col"]'));
     await waitFor(() => list().querySelectorAll('.colname').length === 2, 'group added');
     assert.strictEqual(list().querySelectorAll('.colname')[1].value, 'New group');
-    const down = list().querySelector('.kcard [data-d="1"]');
-    assert.strictEqual(down.textContent, '↓');
-    click(down);
-    assert.strictEqual(list().querySelectorAll('.col')[1].querySelectorAll('.kcard').length, 1, 'moved to the second group');
+    click(list().querySelector('.kcard [data-act="kanban.open-card"]'));
+    await waitFor(() => $('#dlg-cardcolumn'), 'item dialog');
+    assert.strictEqual($('label[for="dlg-cardcolumn"]').textContent, 'Group');
+    setVal($('#dlg-cardcolumn'), $('#dlg-cardcolumn').options[1].value, 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => list().querySelectorAll('.col')[1].querySelectorAll('.kcard').length === 1, 'moved to the second group', 200);
     const toggle = list().querySelector('[data-change="lists.today"]');
     toggle.checked = true;
     toggle.dispatchEvent(new w.Event('change', { bubbles: true }));
@@ -356,6 +386,32 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-cancel'));
   });
 
+  await step('the Add project form can make a new category, and Enter submits it', async () => {
+    click(tab('Projects'));
+    click(await waitFor(() => $('[data-act="projects.add"]'), 'add button'));
+    await waitFor(() => $('#dlg-category'), 'project dialog');
+    assert.ok($('#dlg-newcategory').hidden, 'name box hidden until asked for');
+    setVal($('#dlg-name'), 'Shed roof');
+    setVal($('#dlg-category'), '__new', 'change');
+    assert.ok(!$('#dlg-newcategory').hidden);
+    setVal($('#dlg-newcategory'), 'Outdoor');
+    $('#dlg-newcategory').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await waitFor(() => !$('.dialog') && $('.phead') && $('.phead').textContent.includes('Outdoor'), 'project with new category');
+    click(tab('Projects'));
+    await waitFor(() => $$('.catrow input').some((i) => i.value === 'Outdoor'), 'category listed');
+  });
+
+  await step('a list can be given a colour, shown on the Lists tab and on Today', async () => {
+    click(tab('Lists'));
+    const select = await waitFor(() => $('.listpanel [data-change="lists.color"]'), 'colour menu');
+    setVal(select, '6', 'change');
+    await waitFor(() => $('.listpanel.tinted'), 'tinted on Lists');
+    assert.ok($('.listpanel.tinted').getAttribute('style').includes('--cat-6'));
+    click(tab('Today'));
+    await waitFor(() => $('#app .listpanel.tinted'), 'tinted on Today');
+    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0].color === '6', 'saved');
+  });
+
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {
     const personalFolder = $('#driveLink').href;
     assert.strictEqual(d.body.dataset.mode, 'personal');
@@ -380,7 +436,7 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name') && $('.focus-name').textContent !== 'Wiz tickets', 'personal back');
     click(tab('Projects'));
-    await waitFor(() => $$('tr.row').length === 6, 'personal projects unchanged');
+    await waitFor(() => $$('tr.row').length === 7, 'personal projects unchanged');
   });
 
   await step('a new mode can be made from the mode menu and opens with its own data and accent', async () => {

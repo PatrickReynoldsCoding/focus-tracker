@@ -13,9 +13,11 @@ function projectsModule() {
     api: {
       list: list,
 
+      /** a.newCategory: the name of a category to make and use, instead of a.category. */
       create: function (a, ctx) {
         var name = clean_(a.name, 120);
         assert_(name, 'A project needs a name.');
+        if (a.newCategory) a.category = ctx.call('categories', 'add', { label: a.newCategory }).id;
         assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category);
         var now = nowIso_();
         var row = T.insert({
@@ -27,18 +29,19 @@ function projectsModule() {
           created: now
         });
         ctx.optional('kanban', 'initProject', { projectId: row.id, columns: a.columns });
-        ctx.refresh('projects', 'kanban', 'today');
+        ctx.refresh('projects', 'kanban', 'today', 'categories');
         return row;
       },
 
       update: function (a, ctx) {
         var patch = {};
+        if (a.newCategory) a.category = ctx.call('categories', 'add', { label: a.newCategory }).id;
         if (a.name !== undefined) { patch.name = clean_(a.name, 120); assert_(patch.name, 'A project needs a name.'); }
         if (a.category !== undefined) { assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category); patch.category = a.category; }
         if (a.status !== undefined) { assert_(STATUSES.indexOf(a.status) !== -1, 'Unknown status: ' + a.status); patch.status = a.status; }
         if (a.next_action !== undefined) patch.next_action = clean_(a.next_action, 300);
         var row = T.update(a.id, patch);
-        ctx.refresh('projects', 'today');
+        ctx.refresh('projects', 'today', 'categories');
         return row;
       },
 

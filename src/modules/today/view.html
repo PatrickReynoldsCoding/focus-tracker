@@ -146,9 +146,9 @@
       : f ? focusHtml(t, f)
       : '<section class="panel"><p class="empty">No active projects yet. Add one on the Projects tab to get a focus for the day.</p></section>';
     return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [
-      { id: 'focus', html: focus, w: 7 },
-      { id: 'minimum', html: f && minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '', w: 5 },
-      { id: 'rotation', html: f ? rotationHtml(t) : '', w: 5 }
+      { id: 'focus', title: 'Today\'s focus', html: focus, w: 7 },
+      { id: 'minimum', title: 'Daily minimum', html: f && minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '', w: 5 },
+      { id: 'rotation', title: 'Weekly rotation', html: f ? rotationHtml(t) : '', w: 5 }
     ].concat(extraPanels()));
   }
 

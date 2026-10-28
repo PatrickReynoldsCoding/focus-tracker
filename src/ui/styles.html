@@ -26,6 +26,7 @@ body[data-mode="work"] { --accent: #2f5aa8; --accent-soft: #dfe7f6; }
 body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in srgb, var(--mode-accent) 16%, var(--surface)); }
 @media (prefers-color-scheme: dark) { body[data-accent] { --accent-ink: #0d1413; } }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
   padding: 0 max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
@@ -113,6 +114,9 @@ textarea { min-height: 150px; resize: vertical; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; max-width: min(92vw, 520px); font-size: 14px; }
 .toast.error { background: var(--bad); color: #fff; }
+.toastbtn { margin-left: 12px; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
+.hidebtn { position: absolute; top: 14px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .back { margin-bottom: 4px; }
 @media (prefers-reduced-motion: no-preference) { .btn, .tab { transition: background 0.12s, color 0.12s; } }
 </style>

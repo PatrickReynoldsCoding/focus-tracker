@@ -88,8 +88,8 @@
       : '<p class="empty">' + (all.length ? 'No projects match these filters.' : 'No projects yet. Add the first one.') + '</p>';
     var main = '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
       (all.length ? filtersHtml() : '') + table + '</section>';
-    var extra = FT.slots('projects.tab').map(function (s) { return { id: s.id || 'slot' + s.order, html: s.render(FT), w: s.w || 12 }; });
-    return FT.layout('projects', [{ id: 'projects', html: main, w: 12 }].concat(extra));
+    var extra = FT.slots('projects.tab').map(function (s) { return { id: s.id || 'slot' + s.order, title: s.title, html: s.render(FT), w: s.w || 12 }; });
+    return FT.layout('projects', [{ id: 'projects', title: 'All projects', html: main, w: 12 }].concat(extra));
   }
 
   /** Re-render after a keystroke in the search box, then put the caret back where it was. */
@@ -123,14 +123,37 @@
     return n ? '<span>Skipped ' + n + (n === 1 ? ' time' : ' times') + '</span>' : '';
   }
 
+  var NEW_CATEGORY = '__new';
+
   function categoryOptions() {
-    return FT.categories().map(function (c) { return { value: c.id, label: c.label }; });
+    return FT.categories().map(function (c) { return { value: c.id, label: c.label }; })
+      .concat([{ value: NEW_CATEGORY, label: '+ New category…' }]);
+  }
+
+  /** The "new category" name box shows only when "+ New category…" is picked. */
+  function wireNewCategory() {
+    var select = document.getElementById('dlg-category'), input = document.getElementById('dlg-newcategory');
+    var label = document.querySelector('label[for="dlg-newcategory"]');
+    function sync() {
+      var on = select.value === NEW_CATEGORY;
+      input.hidden = !on; label.hidden = !on;
+      if (on) input.focus();
+    }
+    select.addEventListener('change', sync);
+    sync();
+  }
+
+  /** The category fields of a project form as rpc arguments: an existing id, or a new category's name. */
+  function categoryArgs(v) {
+    if (v.category !== NEW_CATEGORY) return { category: v.category };
+    if (!v.newcategory) throw new Error('Type a name for the new category.');
+    return { newCategory: v.newcategory };
   }
 
   FT.module({
     id: 'projects',
     tab: { title: 'Projects', order: 20, render: tabHtml },
-    slots: { 'project.page': [{ id: 'header', order: 0, span: 'full', render: headerHtml }] }
+    slots: { 'project.page': [{ id: 'header', title: 'Project', order: 0, span: 'full', render: headerHtml }] }
   });
 
   FT.action('projects.open', function (el) { FT.go('project', { id: el.dataset.id }); });
@@ -155,10 +178,13 @@
       fields: [
         { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes' },
         { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: FT.categories()[0].id },
+        { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
         { id: 'next', label: 'Next action', placeholder: 'The first small step' }
       ],
+      onOpen: wireNewCategory,
       onSubmit: function (v) {
-        return FT.rpc('projects', 'create', { name: v.name, category: v.category, next_action: v.next }, { quiet: true })
+        var args = Object.assign({ name: v.name, next_action: v.next }, categoryArgs(v));
+        return FT.rpc('projects', 'create', args, { quiet: true })
           .then(function (row) { FT.go('project', { id: row.id }); });
       }
     });
@@ -171,10 +197,13 @@
       fields: [
         { id: 'name', label: 'Name', value: p.name },
         { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: p.category },
+        { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
         { id: 'next', label: 'Next action', value: p.next_action }
       ],
+      onOpen: wireNewCategory,
       onSubmit: function (v) {
-        return FT.rpc('projects', 'update', { id: p.id, name: v.name, category: v.category, next_action: v.next }, { quiet: true });
+        var args = Object.assign({ id: p.id, name: v.name, next_action: v.next }, categoryArgs(v));
+        return FT.rpc('projects', 'update', args, { quiet: true });
       }
     });
   });
@@ -187,11 +216,11 @@
     var p = FT.project(FT.state.projectId);
     FT.dialog({
       title: 'Delete project',
-      body: '<p>This removes "' + FT.esc(p.name) + '" with its Kanban board, resource links and log lines from the tracker. The notes file stays in Drive. To keep the project but hide it, use Mark done instead.</p>',
+      body: '<p>This removes "' + FT.esc(p.name) + '" with its Kanban board, resource links and log lines from the tracker. The notes file stays in Drive. To keep the project but hide it, use Mark done instead. You can undo this.</p>',
       submit: 'Delete project',
       danger: true,
       onSubmit: function () {
-        return FT.rpc('projects', 'remove', { id: p.id }, { quiet: true }).then(function () { FT.go('projects'); });
+        return FT.rpc('projects', 'remove', { id: p.id }, { quiet: true }).then(function () { FT.go('projects'); FT.deleted('Project'); });
       }
     });
   });

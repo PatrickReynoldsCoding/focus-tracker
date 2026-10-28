@@ -14,6 +14,10 @@
 .rm[disabled] { opacity: 0.3; cursor: default; }
 .kcard { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; font-size: 14px; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; overflow-wrap: anywhere; }
 .kcard .mv { display: flex; gap: 2px; flex: none; }
+.cards { min-height: 8px; }
+.kcard { cursor: grab; touch-action: manipulation; }
+.kghost { opacity: 0.4; }
+.kchosen { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); }
 .mvb { border: 1px solid var(--line); background: transparent; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; color: var(--muted); }
 .mvb:hover { background: var(--surface-2); color: var(--ink); }
 .mvb[disabled] { opacity: 0.3; cursor: default; }
@@ -49,6 +53,9 @@
  * Kanban boards. A board belongs to an owner: a project (shown on its page) or any other module's item, such as a list.
  * Other modules draw a board with FT.kanban.boardHtml(ownerId, opts). Every control finds its board through the
  * nearest [data-owner], so several boards can share a page.
+ *
+ * Cards move by drag and drop (SortableJS from the CDN; a short press on touch screens) or with "Column" in the card
+ * dialog. Adding, moving, editing and deleting cards show on screen at once and save in the background.
  */
 (function () {
   var userDir = null;
@@ -58,19 +65,19 @@
   function onPhoneChange() { if (!userDir && FT.state.view === 'project') FT.render(); }
   if (phone.addEventListener) phone.addEventListener('change', onPhoneChange);
 
-  // Words and arrows for each layout. A vertical board moves cards up and down between columns.
-  var MOVE = {
-    horizontal: { back: ['‹', 'Move left'], forward: ['›', 'Move right'] },
-    vertical: { back: ['↑', 'Move up'], forward: ['↓', 'Move down'] }
-  };
+  var sortables = [], lastDragEnd = 0;
+
+  function byOrder(a, b) { return a.order - b.order; }
 
   function board(ownerId) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
     return {
-      cols: k.columns.filter(function (c) { return c.project_id === ownerId; }),
-      tasks: k.tasks.filter(function (t) { return t.project_id === ownerId; })
+      cols: k.columns.filter(function (c) { return c.project_id === ownerId; }).sort(byOrder),
+      tasks: k.tasks.filter(function (t) { return t.project_id === ownerId; }).sort(byOrder)
     };
   }
+
+  function taskById(id) { return (FT.store.kanban.tasks || []).filter(function (t) { return t.id === id; })[0] || null; }
 
   function ownerOf(el) {
     var host = el.closest('[data-owner]');
@@ -81,23 +88,21 @@
     return (host && host.dataset.word) || 'column';
   }
 
-  function cardHtml(t, ci, colCount, move) {
+  function cardHtml(t) {
     var id = FT.esc(t.id);
     var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
     var note = t.note_text ? '<span class="knote">' + FT.esc(t.note_text.slice(0, 160)) + '</span>' : '';
-    return '<div class="kcard"' + color + '><button class="ktitle" data-act="kanban.open-card" data-id="' + id + '" aria-label="Open ' + FT.esc(t.title) + '">' +
+    return '<div class="kcard" data-id="' + id + '"' + color + '><button class="ktitle" data-act="kanban.open-card" data-id="' + id + '" aria-label="Open ' + FT.esc(t.title) + '">' +
       '<span class="kt">' + FT.esc(t.title) + '</span>' + note + '</button><span class="mv">' +
-      '<button class="mvb" data-act="kanban.move" data-id="' + id + '" data-d="-1" aria-label="' + move.back[1] + '"' + (ci === 0 ? ' disabled' : '') + '>' + move.back[0] + '</button>' +
-      '<button class="mvb" data-act="kanban.move" data-id="' + id + '" data-d="1" aria-label="' + move.forward[1] + '"' + (ci === colCount - 1 ? ' disabled' : '') + '>' + move.forward[0] + '</button>' +
-      '<button class="mvb" data-act="kanban.del-task" data-id="' + id + '" aria-label="Remove">×</button></span></div>';
+      '<button class="mvb kdel" data-act="kanban.del-task" data-id="' + id + '" aria-label="Delete ' + FT.esc(t.title) + '">×</button></span></div>';
   }
 
-  function columnHtml(c, ci, b, word, move) {
+  function columnHtml(c, b, word) {
     var mine = b.tasks.filter(function (t) { return t.column_id === c.id; });
     var name = FT.esc(c.name);
     return '<div class="col"><div class="colhead"><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
       '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete ' + word + ' ' + name + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' +
-      mine.map(function (t) { return cardHtml(t, ci, b.cols.length, move); }).join('') + addTaskHtml(c) + '</div>';
+      '<div class="cards" data-col="' + FT.esc(c.id) + '">' + mine.map(cardHtml).join('') + '</div>' + addTaskHtml(c) + '</div>';
   }
 
   /**
@@ -106,9 +111,8 @@
   function boardHtml(ownerId, opts) {
     opts = opts || {};
     var b = board(ownerId), vertical = !!opts.vertical, word = opts.word || 'column';
-    var move = MOVE[vertical ? 'vertical' : 'horizontal'];
     return '<div class="board' + (vertical ? ' vertical' : '') + '" data-owner="' + FT.esc(ownerId) + '" data-word="' + word + '">' +
-      b.cols.map(function (c, ci) { return columnHtml(c, ci, b, word, move); }).join('') +
+      b.cols.map(function (c) { return columnHtml(c, b, word); }).join('') +
       '<button class="col addcol" data-act="kanban.add-col">+ Add ' + word + '</button></div>';
   }
 
@@ -125,8 +129,51 @@
       boardHtml(p.id, { vertical: vertical }) + '</section>';
   }
 
+  // ---------- moving cards ----------
+  /** A place for a card between two neighbours: halfway between their orders, so no other card has to change. */
+  function orderBetween(before, after) {
+    if (before && after) return (before.order + after.order) / 2;
+    if (before) return before.order + 1;
+    if (after) return after.order - 1;
+    return 1;
+  }
+
+  /** Move a card on screen now and save it in the background. index: its place in the target column. */
+  function moveCard(task, columnId, index) {
+    var others = board(task.project_id).tasks.filter(function (t) { return t.column_id === columnId && t.id !== task.id; });
+    var at = index === undefined ? others.length : index;
+    task.column_id = columnId;
+    task.order = orderBetween(others[at - 1], others[at]);
+    FT.render();
+    FT.rpc('kanban', 'moveTask', { id: task.id, columnId: columnId, order: task.order }, { render: false }).catch(FT.saveFailed);
+  }
+
+  function makeSortable(list) {
+    var owner = list.closest('[data-owner]').dataset.owner;
+    return window.Sortable.create(list, {
+      group: 'board-' + owner, animation: 150, delay: 180, delayOnTouchOnly: true,
+      filter: '.kdel', preventOnFilter: false, ghostClass: 'kghost', chosenClass: 'kchosen',
+      onStart: function () { FT.state.dragging = true; },
+      onEnd: function (evt) {
+        lastDragEnd = Date.now();
+        var task = taskById(evt.item.dataset.id);
+        var moved = evt.from !== evt.to || evt.oldIndex !== evt.newIndex;
+        FT.state.dragging = false;
+        if (task && moved) moveCard(task, evt.to.dataset.col, evt.newIndex);
+        else FT.dragEnded();
+      }
+    });
+  }
+
+  FT.onRender(function () {
+    sortables.forEach(function (sortable) { sortable.destroy(); });
+    sortables = [];
+    if (!window.Sortable) return;
+    Array.prototype.forEach.call(document.querySelectorAll('#app .board .cards'), function (list) { sortables.push(makeSortable(list)); });
+  });
+
   FT.kanban = { boardHtml: boardHtml };
-  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', order: 10, span: 'full', render: panel }] } });
+  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', title: 'Kanban', order: 10, span: 'full', render: panel }] } });
 
   FT.action('kanban.dir', function () {
     userDir = dir() === 'vertical' ? 'horizontal' : 'vertical';
@@ -134,26 +181,33 @@
     FT.render();
   });
 
+  /** A new card shows at once and the box clears, so pressing Enter again cannot add it twice. */
   function addTask(el) {
     var columnId = el.dataset.col, inputId = 'kb-new-' + columnId;
     var input = document.getElementById(inputId), title = input ? input.value.trim() : '';
     if (!title) { if (input) input.focus(); return; }
-    FT.rpc('kanban', 'addTask', { projectId: ownerOf(el), columnId: columnId, title: title }).then(function () {
-      var again = document.getElementById(inputId); if (again) again.focus();
-    }).catch(function () {});
+    var ownerId = ownerOf(el), others = board(ownerId).tasks.filter(function (t) { return t.column_id === columnId; });
+    var task = {
+      id: FT.newId(), project_id: ownerId, column_id: columnId, title: title.slice(0, 200), order: orderBetween(others[others.length - 1], null),
+      created: new Date().toISOString(), color: '', note_html: '', note_text: ''
+    };
+    FT.store.kanban.tasks.push(task);
+    FT.render();
+    var again = document.getElementById(inputId);
+    if (again) again.focus();
+    FT.rpc('kanban', 'addTask', { id: task.id, projectId: ownerId, columnId: columnId, title: task.title }, { render: false }).catch(FT.saveFailed);
   }
   FT.action('kanban.add-task', addTask);
   FT.on('enter', 'kanban.add-task', addTask);
 
   FT.action('kanban.add-col', function (el) {
-    var ownerId = ownerOf(el), word = wordOf(el);
-    var name = 'New ' + word;
-    FT.rpc('kanban', 'addColumn', { projectId: ownerId, name: name }).then(function () {
-      var host = document.querySelector('[data-owner="' + ownerId + '"]');
-      var inputs = host ? host.querySelectorAll('.colname') : [];
-      var last = inputs[inputs.length - 1];
-      if (last) { last.focus(); last.select(); }
-    }).catch(function () {});
+    var ownerId = ownerOf(el), word = wordOf(el), cols = board(ownerId).cols;
+    var col = { id: FT.newId(), project_id: ownerId, name: 'New ' + word, order: orderBetween(cols[cols.length - 1], null) };
+    FT.store.kanban.columns.push(col);
+    FT.render();
+    var input = document.querySelector('.colname[data-id="' + col.id + '"]');
+    if (input) { input.focus(); input.select(); }
+    FT.rpc('kanban', 'addColumn', { id: col.id, projectId: ownerId, name: col.name }, { render: false }).catch(FT.saveFailed);
   });
 
   FT.on('change', 'kanban.rename-col', function (el) {
@@ -161,7 +215,7 @@
     var col = FT.store.kanban.columns.filter(function (c) { return c.id === el.dataset.id; })[0];
     if (!col) return;
     col.name = name; el.value = name;
-    FT.rpc('kanban', 'renameColumn', { id: col.id, name: name }, { render: false }).catch(function () { FT.reload(); });
+    FT.rpc('kanban', 'renameColumn', { id: col.id, name: name }, { render: false }).catch(FT.saveFailed);
   });
 
   FT.action('kanban.del-col', function (el) {
@@ -172,22 +226,26 @@
     var count = b.tasks.filter(function (t) { return t.column_id === col.id; }).length;
     FT.dialog({
       title: 'Delete ' + word,
-      body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count ? count + (count === 1 ? ' card moves' : ' cards move') + ' to "' + FT.esc(target.name) + '".' : 'It has no cards.') + '</p>',
+      body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count ? count + (count === 1 ? ' card moves' : ' cards move') + ' to "' + FT.esc(target.name) + '".' : 'It has no cards.') + ' You can undo this.</p>',
       submit: 'Delete ' + word, danger: true,
-      onSubmit: function () { return FT.rpc('kanban', 'deleteColumn', { id: col.id }, { quiet: true }); }
+      onSubmit: function () {
+        return FT.rpc('kanban', 'deleteColumn', { id: col.id }, { quiet: true }).then(function () { FT.deleted(word.charAt(0).toUpperCase() + word.slice(1)); });
+      }
     });
   });
 
+  /** Deleting a card is immediate; the message offers Undo. */
   FT.action('kanban.del-task', function (el) {
-    var t = FT.store.kanban.tasks.filter(function (x) { return x.id === el.dataset.id; })[0];
+    var t = taskById(el.dataset.id);
     if (!t) return;
-    FT.dialog({
-      title: 'Remove card', body: '<p>Remove "' + FT.esc(t.title) + '"?</p>', submit: 'Remove', danger: true,
-      onSubmit: function () { return FT.rpc('kanban', 'deleteTask', { id: t.id }, { quiet: true }); }
-    });
+    FT.store.kanban.tasks = FT.store.kanban.tasks.filter(function (x) { return x.id !== t.id; });
+    FT.render();
+    FT.rpc('kanban', 'deleteTask', { id: t.id }, { render: false })
+      .then(function () { FT.deleted('Card'); })
+      .catch(FT.saveFailed);
   });
 
-  // ---------- card dialog: title, colour and a rich-text note ----------
+  // ---------- card dialog: title, column, colour and a rich-text note ----------
   var CARD_COLORS = [['', 'No colour'], ['1', 'Teal'], ['2', 'Amber'], ['3', 'Blue'], ['4', 'Red'], ['5', 'Purple'], ['6', 'Green'], ['7', 'Grey'], ['8', 'Orange']];
   // execCommand needs real colours, not CSS variables. These read well on light and dark backgrounds.
   var TEXT_COLORS = [['#d64545', 'Red'], ['#2f7fd6', 'Blue'], ['#2b9a5b', 'Green'], ['#c27a00', 'Amber']];
@@ -230,36 +288,35 @@
   }
 
   FT.action('kanban.open-card', function (el) {
-    var t = FT.store.kanban.tasks.filter(function (x) { return x.id === el.dataset.id; })[0];
+    if (Date.now() - lastDragEnd < 400) return; // the click that ends a drag is not a click on the card
+    var t = taskById(el.dataset.id);
     if (!t) return;
+    var host = el.closest('[data-owner]'), word = (host && host.dataset.word) || 'column';
+    var columns = board(t.project_id).cols.map(function (c) { return { value: c.id, label: c.name }; });
     FT.dialog({
       title: 'Card',
       wide: true,
-      fields: [{ id: 'cardtitle', label: 'Title', value: t.title }],
+      fields: [
+        { id: 'cardtitle', label: 'Title', value: t.title },
+        { id: 'cardcolumn', label: word.charAt(0).toUpperCase() + word.slice(1), type: 'select', options: columns, value: t.column_id }
+      ],
       after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
         '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>',
       onOpen: wireToolbar,
       onSubmit: function (v) {
+        assert(v.cardtitle, 'A card needs a title.');
         var picked = document.querySelector('input[name="dlg-color"]:checked');
-        return FT.rpc('kanban', 'updateTask', {
-          id: t.id, title: v.cardtitle, color: picked ? picked.value : '', noteHtml: document.getElementById('dlg-note').innerHTML
-        }, { quiet: true });
+        var color = picked ? picked.value : '', noteHtml = document.getElementById('dlg-note').innerHTML;
+        // Shown at once; the server cleans the note and sends the stored version back.
+        t.title = v.cardtitle.slice(0, 200); t.color = color;
+        var editor = document.getElementById('dlg-note');
+        t.note_html = noteHtml; t.note_text = (editor.innerText || editor.textContent || '').trim();
+        FT.rpc('kanban', 'updateTask', { id: t.id, title: t.title, color: color, noteHtml: noteHtml }).catch(FT.saveFailed);
+        if (v.cardcolumn !== t.column_id) moveCard(t, v.cardcolumn); else FT.render();
       }
     });
   });
 
-  /** Moves update the screen straight away, then save in the background. */
-  FT.action('kanban.move', function (el) {
-    var t = FT.store.kanban.tasks.filter(function (x) { return x.id === el.dataset.id; })[0];
-    if (!t) return;
-    var b = board(t.project_id);
-    var i = b.cols.map(function (c) { return c.id; }).indexOf(t.column_id) + Number(el.dataset.d);
-    if (i < 0 || i >= b.cols.length) return;
-    var target = b.cols[i];
-    var maxOrder = b.tasks.filter(function (x) { return x.column_id === target.id; }).reduce(function (m, x) { return Math.max(m, x.order); }, 0);
-    t.column_id = target.id; t.order = maxOrder + 1;
-    FT.render();
-    FT.rpc('kanban', 'moveTask', { id: t.id, columnId: target.id }, { render: false }).catch(function () { FT.reload(); });
-  });
+  function assert(ok, message) { if (!ok) throw new Error(message); }
 })();
 </script>

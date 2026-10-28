@@ -123,7 +123,7 @@
     FT.render();
   }
 
-  FT.module({ id: 'whiteboard', slots: { 'project.page': [{ id: 'whiteboard', order: 25, span: 'half', render: panel }] } });
+  FT.module({ id: 'whiteboard', slots: { 'project.page': [{ id: 'whiteboard', title: 'Whiteboard', order: 25, span: 'half', render: panel }] } });
 
   FT.action('whiteboard.open', function (el) {
     var project = FT.project(el.dataset.id);

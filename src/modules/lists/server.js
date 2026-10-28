@@ -5,7 +5,8 @@
  */
 
 function listsModule() {
-  var T = new Table('Lists', ['id', 'name', 'order', 'show_today', 'created'], ['order']);
+  var T = new Table('Lists', ['id', 'name', 'order', 'show_today', 'created', 'color'], ['order']);
+  var COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var FIRST_GROUP = 'Items';
 
   function list_() {
@@ -39,6 +40,14 @@ function listsModule() {
 
       rename: function (a, ctx) {
         var row = T.update(a.id, { name: name_(a.name) });
+        ctx.refresh('lists');
+        return row;
+      },
+
+      /** Background colour: a palette slot 1-8, or '' for none. */
+      setColor: function (a, ctx) {
+        assert_(COLORS.indexOf(String(a.color)) !== -1, 'Unknown colour: ' + a.color);
+        var row = T.update(a.id, { color: String(a.color) });
         ctx.refresh('lists');
         return row;
       },
