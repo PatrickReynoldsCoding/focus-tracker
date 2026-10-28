@@ -89,6 +89,13 @@ function todayModule() {
     return { phase: phase, phaseStartMs: workedMs_(session, nowMs), lengthMin: pomodoroSettings_()[phase] };
   }
 
+  /** End an open pause: its length is added to the paused total. Does nothing when not paused. */
+  function resumeSession_(session, nowMs) {
+    if (!session.pausedAt) return;
+    session.pausedMs = (session.pausedMs || 0) + (nowMs - new Date(session.pausedAt).getTime());
+    session.pausedAt = '';
+  }
+
   function requireSession_(s) {
     assert_(s.session, 'No session is running.');
     return s.session;
@@ -300,16 +307,16 @@ function todayModule() {
       },
 
       resume: function (a, ctx) {
-        return changeSession_(ctx, function (session, nowMs) {
-          if (!session.pausedAt) return;
-          session.pausedMs = (session.pausedMs || 0) + (nowMs - new Date(session.pausedAt).getTime());
-          session.pausedAt = '';
-        });
+        return changeSession_(ctx, resumeSession_);
       },
 
-      /** Turn the pomodoro on (starting a work period now) or off for the running session. */
+      /**
+       * Turn the pomodoro on (starting a work period now) or off for the running session.
+       * Turning it on means "I am working now", so a paused session resumes; otherwise the countdown would sit still.
+       */
       pomodoro: function (a, ctx) {
         return changeSession_(ctx, function (session, nowMs) {
+          if (a.on) resumeSession_(session, nowMs);
           session.pomodoro = a.on ? startPhase_('work', session, nowMs) : null;
         });
       },

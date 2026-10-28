@@ -109,6 +109,10 @@ test('pomodoro starts in work, moves to break on request, and pauses with the se
   assert.deepStrictEqual([pomodoro.phase, pomodoro.lengthMin], ['break', 5]);
   assert.strictEqual(s.call('today', 'nextPhase').result.pomodoro.phase, 'work');
   assert.strictEqual(s.call('today', 'pomodoro', { on: false }).result.pomodoro, null);
+  s.call('today', 'pause');
+  const resumed = s.call('today', 'pomodoro', { on: true }).result;
+  assert.strictEqual(resumed.pausedAt, '', 'turning the pomodoro on resumes a paused session');
+  assert.strictEqual(resumed.pomodoro.phase, 'work');
 });
 
 test('pomodoro lengths are validated, remembered, and used from the next period', () => {

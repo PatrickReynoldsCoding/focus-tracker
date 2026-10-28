@@ -7,6 +7,7 @@
 .pomo { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 14px; }
 .pomo .left { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .pomo.over { background: var(--warn-soft); border: 1px solid var(--warn); }
+.pomo.paused { border: 1px dashed var(--muted); }
 .rot td:first-child { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; width: 38%; }
 .rot tr.todayrow td { background: var(--accent-soft); font-weight: 600; color: var(--ink); }
 .rot .tag { font-family: var(--font-mono); font-size: 11px; color: var(--warn); margin-left: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -56,6 +57,11 @@
   function pomodoroHtml(t) {
     var p = pomodoroNow(t.session, Date.now());
     if (!p) return '';
+    // A pause stops the countdown too, so say so instead of showing a clock that stands still.
+    if (t.session.pausedAt && !p.over) {
+      return '<div class="pomo paused" id="pomo" data-over="0" role="status"><span><b>' + PHASE_LABEL[p.phase] + '</b> ' + clock(p.leftMs) + ' left · <b>Paused</b></span>' +
+        '<button class="btn sm primary" data-act="today.resume">Resume</button></div>';
+    }
     var body = p.over
       ? '<span>' + PHASE_DONE_TEXT[p.phase] + '</span><button class="btn sm primary" data-act="today.nextPhase">' + NEXT_PHASE_BUTTON[p.phase] + '</button>'
       : '<span><b>' + PHASE_LABEL[p.phase] + '</b> <span class="left" id="pomo-left">' + clock(p.leftMs) + '</span> left</span>' +
