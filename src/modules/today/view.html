@@ -30,7 +30,7 @@
   var ALERT_TITLE = { work: '⏰ Break time', break: '⏰ Back to work' };
   var REMIND_OPTIONS = [['0', 'No reminder'], ['1', 'Tomorrow'], ['3', 'In 3 days'], ['7', 'Next week']];
   var AWAY = 'away';
-  var timer = null, alertedPhaseKey = null, chimedPhaseKey = null, audio = null;
+  var timer = null, alertedPhaseKey = null, audio = null;
   var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
 
   function activeProjects() { return (FT.store.projects || []).filter(function (p) { return p.status === 'active'; }); }
@@ -161,47 +161,14 @@
   }
 
   // ---------- alerts ----------
-  // A finished period is announced with a sound, the tab title and a browser notification.
-  // Browsers often block notifications inside Apps Script pages, so the sound and title stay as the fallback.
+  // A finished period is announced with a sound and the tab title. The sounds are made with Web Audio, so there are no files to load.
+  // Browser notifications do not work here: Apps Script pages sit in a Google iframe, where Chrome denies the permission.
 
-  /** Browsers only show the permission prompt after a click, so this runs when the pomodoro is switched on. */
-  function askNotificationPermission() {
-    try {
-      if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
-    } catch (e) {}
-  }
-
-  function notify(phase) {
-    try {
-      if (window.Notification && Notification.permission === 'granted') {
-        new Notification(ALERT_TITLE[phase], { body: PHASE_DONE_TEXT[phase], tag: 'pomodoro' });
-      }
-    } catch (e) {}
-  }
-
-  /** Says in words what the browser lets this page do, because the page sits inside Google's iframe. */
-  function notificationStatusText() {
-    if (!window.Notification) return 'This browser has no notifications.';
-    var where = window.top !== window ? ' (page is inside an iframe, address ' + window.location.origin + ')' : '';
-    return 'Notification permission: ' + Notification.permission + where + '.';
-  }
-
-  /** Sends one test notification and one chime, and reports what happened in the dialog. */
-  function testAlert(statusEl) {
-    unlockAudio();
-    var chimed = chime();
-    var soundText = chimed ? 'Sound played.' : 'Sound did not play.';
-    if (!window.Notification) { statusEl.textContent = notificationStatusText() + ' ' + soundText; return; }
-    Promise.resolve(Notification.permission === 'default' ? Notification.requestPermission() : null).then(function () {
-      try {
-        var sent = new Notification('⏰ Test notification', { body: 'Pomodoro notifications work.', tag: 'pomodoro-test' });
-        sent.onerror = function () { statusEl.textContent += ' The browser reported an error showing it.'; };
-        statusEl.textContent = notificationStatusText() + ' Sent. ' + soundText;
-      } catch (e) {
-        statusEl.textContent = notificationStatusText() + ' Failed: ' + e.message + '. ' + soundText;
-      }
-    }).catch(function (e) { statusEl.textContent = 'Permission request failed: ' + e.message + '. ' + soundText; });
-  }
+  var CHICKEN_CLUCKS = [[0, 0.09, 520, 320], [0.15, 0.09, 520, 320], [0.3, 0.09, 520, 320], [0.55, 0.4, 900, 380]]; // [offset s, length s, from Hz, to Hz]
+  var WHISTLE_NOTES_HZ = [440, 554, 659];
+  var WHISTLE_SECONDS = 1.4;
+  // Keyed by the period that just ended: work ending starts a break (chicken), a break ending starts work (steam whistle).
+  var PERIOD_END_SOUND = { work: playChicken, break: playWhistle };
 
   /** Browsers only allow sound after a click, so the audio context is made during one. */
   function unlockAudio() {
@@ -209,19 +176,60 @@
     try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
   }
 
+  /** Fades a gain node in fast, holds it, then fades it out so the sound has no clicks. */
+  function shapeVolume(gain, startAt, peak, holdSeconds, fadeOutSeconds) {
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.linearRampToValueAtTime(peak, startAt + 0.02);
+    gain.gain.setValueAtTime(peak, startAt + holdSeconds);
+    gain.gain.exponentialRampToValueAtTime(0.001, startAt + holdSeconds + fadeOutSeconds);
+  }
+
+  /** One cluck: a nasal sawtooth that glides down in pitch. */
+  function playCluck(startAt, lengthSeconds, fromHz, toHz) {
+    var osc = audio.createOscillator(), filter = audio.createBiquadFilter(), gain = audio.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(fromHz, startAt);
+    osc.frequency.exponentialRampToValueAtTime(toHz, startAt + lengthSeconds);
+    filter.type = 'bandpass'; filter.frequency.value = 1200; filter.Q.value = 2;
+    shapeVolume(gain, startAt, 0.35, lengthSeconds * 0.4, lengthSeconds * 0.6);
+    osc.connect(filter); filter.connect(gain); gain.connect(audio.destination);
+    osc.start(startAt); osc.stop(startAt + lengthSeconds + 0.05);
+  }
+
+  function playChicken(startAt) {
+    CHICKEN_CLUCKS.forEach(function (cluck) { playCluck(startAt + cluck[0], cluck[1], cluck[2], cluck[3]); });
+  }
+
+  /** A steam whistle: a few triangle tones that start a little flat, plus a breath of noise. */
+  function playWhistle(startAt) {
+    var master = audio.createGain();
+    shapeVolume(master, startAt, 0.14, WHISTLE_SECONDS - 0.4, 0.4);
+    master.connect(audio.destination);
+    WHISTLE_NOTES_HZ.forEach(function (hz) {
+      var osc = audio.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(hz * 0.94, startAt);
+      osc.frequency.exponentialRampToValueAtTime(hz, startAt + 0.15);
+      osc.connect(master);
+      osc.start(startAt); osc.stop(startAt + WHISTLE_SECONDS + 0.05);
+    });
+    var noiseBuffer = audio.createBuffer(1, Math.floor(audio.sampleRate * WHISTLE_SECONDS), audio.sampleRate);
+    var samples = noiseBuffer.getChannelData(0);
+    for (var i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+    var noise = audio.createBufferSource(), noiseFilter = audio.createBiquadFilter(), noiseGain = audio.createGain();
+    noise.buffer = noiseBuffer;
+    noiseFilter.type = 'bandpass'; noiseFilter.frequency.value = 2500;
+    noiseGain.gain.value = 0.25;
+    noise.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(master);
+    noise.start(startAt);
+  }
+
   /** Returns false when the sound could not play (no click yet), so the caller can try again. */
-  function chime() {
+  function playSound(sound) {
     if (!audio) return false;
     try {
       if (audio.resume) audio.resume();
-      [0, 0.25, 0.5].forEach(function (offset) {
-        var osc = audio.createOscillator(), gain = audio.createGain(), at = audio.currentTime + offset;
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.2, at);
-        gain.gain.exponentialRampToValueAtTime(0.001, at + 0.2);
-        osc.connect(gain); gain.connect(audio.destination);
-        osc.start(at); osc.stop(at + 0.2);
-      });
+      sound(audio.currentTime);
       return true;
     } catch (e) { return false; }
   }
@@ -239,11 +247,7 @@
 
   function alertOnce(session, p) {
     var key = p.phase + ':' + session.pomodoro.phaseStartMs;
-    if (alertedPhaseKey !== key) {
-      alertedPhaseKey = key;
-      notify(p.phase);
-    }
-    if (chimedPhaseKey !== key && chime()) chimedPhaseKey = key;
+    if (alertedPhaseKey !== key && playSound(PERIOD_END_SOUND[p.phase])) alertedPhaseKey = key;
   }
 
   // ---------- ticking clock ----------
@@ -366,11 +370,7 @@
   FT.action('today.job', function () { call('toggleJob'); });
   FT.action('today.pause', function () { call('pause'); });
   FT.action('today.resume', function () { call('resume'); });
-  FT.action('today.pomodoro', function () {
-    var switchingOn = !FT.store.today.session.pomodoro;
-    if (switchingOn) askNotificationPermission();
-    call('pomodoro', { on: switchingOn });
-  });
+  FT.action('today.pomodoro', function () { call('pomodoro', { on: !FT.store.today.session.pomodoro }); });
   FT.action('today.nextPhase', function () { call('nextPhase'); });
   FT.action('today.pomodoroSettings', function () {
     var settings = FT.store.today.pomodoroSettings;
@@ -382,10 +382,12 @@
         { id: 'break', label: 'Break (minutes)', value: String(settings.break) }
       ],
       hint: 'A new length applies from the next period you start.',
-      after: '<label>Alerts</label><div class="settingrow"><span id="dlg-alert-status" style="color:var(--muted)">' + FT.esc(notificationStatusText()) + '</span>' +
-        '<button class="btn" type="button" id="dlg-test-alert">Test notification</button></div>',
+      after: '<label>Sounds</label><div class="settingrow"><span style="color:var(--muted)">Plays when a period ends. Try them here.</span>' +
+        '<button class="btn" type="button" id="dlg-test-chicken">Chicken (break starts)</button>' +
+        '<button class="btn" type="button" id="dlg-test-whistle">Steam whistle (work starts)</button></div>',
       onOpen: function () {
-        document.getElementById('dlg-test-alert').addEventListener('click', function () { testAlert(document.getElementById('dlg-alert-status')); });
+        document.getElementById('dlg-test-chicken').addEventListener('click', function () { unlockAudio(); playSound(playChicken); });
+        document.getElementById('dlg-test-whistle').addEventListener('click', function () { unlockAudio(); playSound(playWhistle); });
       },
       onSubmit: function (v) { return FT.rpc('today', 'pomodoroSettings', { work: v.work, break: v.break }, { quiet: true }); }
     });

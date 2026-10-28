@@ -231,23 +231,33 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('[data-act="today.pause"]') && !$('.timer .state'), 'resumed');
 
     assert.strictEqual($('#pomo'), null, 'pomodoro is off by default');
-    const notifications = [];
-    let permissionAsked = 0;
-    w.Notification = class { constructor(title, options) { notifications.push({ title, body: options.body }); } };
-    w.Notification.permission = 'default';
-    w.Notification.requestPermission = () => { permissionAsked++; w.Notification.permission = 'granted'; };
+    // jsdom has no Web Audio, so a fake records which oscillator types are played: chicken is sawtooth, steam whistle is triangle.
+    const playedTypes = [];
+    const fakeNode = () => new Proxy(function () {}, {
+      get: (target, prop) => (prop === 'length' ? 0 : fakeNode()),
+      set: (target, prop, value) => { if (prop === 'type') playedTypes.push(value); return true; },
+      apply: () => fakeNode()
+    });
+    w.AudioContext = class {
+      constructor() { this.currentTime = 0; this.sampleRate = 100; this.destination = fakeNode(); }
+      resume() {}
+      createOscillator() { return fakeNode(); }
+      createGain() { return fakeNode(); }
+      createBiquadFilter() { return fakeNode(); }
+      createBufferSource() { return fakeNode(); }
+      createBuffer() { return { getChannelData: () => new Float32Array(10) }; }
+    };
     click($('[data-act="today.pomodoro"]'));
-    assert.strictEqual(permissionAsked, 1, 'switching the pomodoro on asks for notification permission');
     await waitFor(() => $('#pomo'), 'pomodoro shown');
     assert.ok(/Work 2[45]:\d\d left/.test($('#pomo').textContent), $('#pomo').textContent);
     click($('[data-act="today.pomodoroSettings"]'));
-    await waitFor(() => $('#dlg-test-alert'), 'lengths dialog with the test button');
-    assert.ok($('#dlg-alert-status').textContent.includes('permission: granted'), $('#dlg-alert-status').textContent);
-    click($('#dlg-test-alert'));
-    await waitFor(() => notifications.length === 1, 'test notification sent');
-    assert.strictEqual(notifications[0].title, '⏰ Test notification');
-    await waitFor(() => $('#dlg-alert-status').textContent.includes('Sent.'), 'status says it was sent');
-    notifications.length = 0;
+    await waitFor(() => $('#dlg-test-chicken'), 'lengths dialog with the sound buttons');
+    click($('#dlg-test-chicken'));
+    assert.ok(playedTypes.includes('sawtooth') && !playedTypes.includes('triangle'), 'the chicken button plays the chicken');
+    playedTypes.length = 0;
+    click($('#dlg-test-whistle'));
+    assert.ok(playedTypes.includes('triangle') && !playedTypes.includes('sawtooth'), 'the whistle button plays the steam whistle');
+    playedTypes.length = 0;
     click($('#dlg-cancel'));
     // Pretend the work period ran out: the box switches to "take a break" and the tab title changes
     server.run(`(function () {
@@ -258,7 +268,8 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#pomo.over'), 'work period over');
     assert.ok($('#pomo').textContent.includes('Time for a break'));
     await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title');
-    assert.deepStrictEqual(notifications, [{ title: '⏰ Break time', body: 'Work period done. Time for a break.' }], 'one notification when the break starts');
+    assert.ok(playedTypes.includes('sawtooth') && !playedTypes.includes('triangle'), 'the chicken plays when work ends');
+    playedTypes.length = 0;
     click(tab('Projects'));
     await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title stays on other tabs', 2500);
     click(tab('Today'));
@@ -273,8 +284,7 @@ async function waitFor(fn, label, ms = 3000) {
       props.setProperty('today.state', JSON.stringify(s)); })()`);
     await w.FT.reload();
     await waitFor(() => d.title.startsWith('⏰ Back to work'), 'break over alert title');
-    assert.strictEqual(notifications.length, 2);
-    assert.deepStrictEqual(notifications[1], { title: '⏰ Back to work', body: 'Break over. Back to work.' }, 'one notification when the break ends');
+    assert.ok(playedTypes.includes('triangle') && !playedTypes.includes('sawtooth'), 'the steam whistle plays when the break ends');
 
     click($('[data-act="today.finish"]'));
     await waitFor(() => $('.dialog'), 'finish dialog');
