@@ -1,11 +1,19 @@
 /** Web app entry points and one-time setup. */
 
+/**
+ * The tab icon, and what Chrome on Android uses for "Add to Home screen". It must be a public https URL, so it is the 192 px PNG in this public repo
+ * (assets/icons, regenerate with scripts/make-icons.js). It only shows once the file is pushed to the main branch on GitHub.
+ */
+var FAVICON_URL = 'https://raw.githubusercontent.com/PatrickReynoldsCoding/focus-tracker/main/assets/icons/icon-192.png';
+
 function doGet() {
   var t = HtmlService.createTemplateFromFile('ui/index');
   t.moduleIds = MODULES;
   return t.evaluate()
     .setTitle(APP_NAME)
+    .setFaviconUrl(FAVICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .addMetaTag('theme-color', '#0e6b62')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
