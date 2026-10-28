@@ -137,6 +137,12 @@ test('a session saved before pauses existed still works', () => {
   assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 12);
 });
 
+test('doGet only uses meta tags that Apps Script allows', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
+  const names = [...src.matchAll(/addMetaTag\('([^']+)'/g)].map((m) => m[1]);
+  names.forEach((n) => assert.ok(['viewport', 'mobile-web-app-capable', 'apple-mobile-web-app-capable'].includes(n), 'Apps Script rejects the meta tag: ' + n));
+});
+
 test('a locked project leaves the focus pick, cannot start a session, and lifting the lock early needs confirmation', () => {
   const s = fresh();
   s.mock.weekday = 7;

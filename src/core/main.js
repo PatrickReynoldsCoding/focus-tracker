@@ -13,7 +13,6 @@ function doGet() {
     .setTitle(APP_NAME)
     .setFaviconUrl(FAVICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .addMetaTag('theme-color', '#0e6b62')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
