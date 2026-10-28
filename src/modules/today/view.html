@@ -30,7 +30,7 @@
   var ALERT_TITLE = { work: '⏰ Break time', break: '⏰ Back to work' };
   var REMIND_OPTIONS = [['0', 'No reminder'], ['1', 'Tomorrow'], ['3', 'In 3 days'], ['7', 'Next week']];
   var AWAY = 'away';
-  var timer = null, alertedPhaseKey = null, audio = null;
+  var timer = null, alertedPhaseKey = null, chimedPhaseKey = null, audio = null;
   var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
 
   function activeProjects() { return (FT.store.projects || []).filter(function (p) { return p.status === 'active'; }); }
@@ -185,8 +185,9 @@
     try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
   }
 
+  /** Returns false when the sound could not play (no click yet), so the caller can try again. */
   function chime() {
-    if (!audio) return;
+    if (!audio) return false;
     try {
       if (audio.resume) audio.resume();
       [0, 0.25, 0.5].forEach(function (offset) {
@@ -197,8 +198,12 @@
         osc.connect(gain); gain.connect(audio.destination);
         osc.start(at); osc.stop(at + 0.2);
       });
-    } catch (e) {}
+      return true;
+    } catch (e) { return false; }
   }
+
+  // Any click or key press on any tab unlocks the sound, not only the buttons on Today.
+  ['pointerdown', 'keydown'].forEach(function (eventName) { document.addEventListener(eventName, unlockAudio, true); });
 
   function baseTitle() { return FT.config.appName || 'Focus Tracker'; }
 
@@ -210,10 +215,11 @@
 
   function alertOnce(session, p) {
     var key = p.phase + ':' + session.pomodoro.phaseStartMs;
-    if (alertedPhaseKey === key) return;
-    alertedPhaseKey = key;
-    chime();
-    notify(p.phase);
+    if (alertedPhaseKey !== key) {
+      alertedPhaseKey = key;
+      notify(p.phase);
+    }
+    if (chimedPhaseKey !== key && chime()) chimedPhaseKey = key;
   }
 
   // ---------- ticking clock ----------
