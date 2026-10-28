@@ -293,13 +293,36 @@ test('a deleted lead category makes that day "Any category" and drops the daily 
   assert.strictEqual(t.labels[1], 'Coding');
 });
 
+test('lists have groups and items on their own board, can be shown on Today, reordered and deleted', () => {
+  const s = fresh();
+  assert.throws(() => s.call('lists', 'create', { name: ' ' }), /needs a name/);
+  const reading = s.call('lists', 'create', { name: 'Read and watch', groups: ['Work', 'Rainy day'] });
+  assert.deepStrictEqual(reading.slices.kanban.columns.filter((c) => c.project_id === reading.result.id).map((c) => c.name), ['Work', 'Rainy day']);
+  const keep = s.call('lists', 'create', { name: 'Keep in mind', showToday: true }).result;
+  assert.strictEqual(keep.show_today, 'yes');
+  const groups = (id) => json(s.run('bootstrap()')).data.kanban.columns.filter((c) => c.project_id === id);
+  assert.deepStrictEqual(groups(keep.id).map((c) => c.name), ['Items']);
+  const item = s.call('kanban', 'addTask', { projectId: keep.id, columnId: groups(keep.id)[0].id, title: 'Tell a story with commits' }).result;
+  assert.strictEqual(item.project_id, keep.id);
+  s.call('lists', 'showToday', { id: reading.result.id, on: true });
+  s.call('lists', 'rename', { id: keep.id, name: 'How I work' });
+  let lists = s.call('lists', 'move', { id: keep.id, d: -1 }).slices.lists;
+  assert.deepStrictEqual(lists.map((l) => l.name), ['How I work', 'Read and watch']);
+  assert.ok(lists.every((l) => l.show_today === 'yes'));
+  assert.strictEqual(s.call('lists', 'move', { id: keep.id, d: -1 }).result, false, 'already first');
+  const after = s.call('lists', 'remove', { id: keep.id }).slices;
+  assert.deepStrictEqual(after.lists.map((l) => l.name), ['Read and watch']);
+  assert.ok(!after.kanban.tasks.some((t) => t.project_id === keep.id), 'its items are removed');
+  assert.ok(!after.kanban.columns.some((c) => c.project_id === keep.id), 'its groups are removed');
+});
+
 test('rpc rejects unknown modules and functions, and bootstrap returns every slice', () => {
   const s = fresh();
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'log', 'notes', 'projects', 'resources', 'today']);
-  assert.strictEqual(b.modules.length, 7);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'kanban', 'lists', 'log', 'notes', 'projects', 'resources', 'today']);
+  assert.strictEqual(b.modules.length, 8);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

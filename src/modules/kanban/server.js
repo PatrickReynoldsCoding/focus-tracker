@@ -1,4 +1,7 @@
-/** Kanban module: per-project columns (renameable, addable, deletable) and the tasks in them. */
+/**
+ * Kanban module: boards of columns (renameable, addable, deletable) and the cards in them.
+ * A board belongs to an owner id, kept in the project_id column: a project, or another module's item such as a list.
+ */
 
 function kanbanModule() {
   var COLUMNS = new Table('Columns', ['id', 'project_id', 'name', 'order'], ['order']);
@@ -12,11 +15,11 @@ function kanbanModule() {
   function nextOrder_(rows) {
     return rows.reduce(function (m, r) { return Math.max(m, r.order); }, 0) + 1;
   }
-  function initProject_(projectId) {
+  function initProject_(projectId, names) {
     if (columnsOf_(projectId).length) return;
-    DEFAULT_COLUMNS.forEach(function (name, i) {
-      COLUMNS.insert({ project_id: projectId, name: name, order: i + 1 });
-    });
+    COLUMNS.insertMany((names || DEFAULT_COLUMNS).map(function (name, i) {
+      return { project_id: projectId, name: name, order: i + 1 };
+    }));
   }
 
   return {
@@ -29,7 +32,8 @@ function kanbanModule() {
       };
     },
     api: {
-      initProject: function (a) { initProject_(a.projectId); return true; },
+      /** Give a board its first columns: a.columns (names) or To do / Doing / Done. Does nothing if it has columns. */
+      initProject: function (a) { initProject_(a.projectId, a.columns); return true; },
 
       addColumn: function (a, ctx) {
         var name = clean_(a.name, 60) || 'New column';

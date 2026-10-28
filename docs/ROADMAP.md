@@ -43,6 +43,10 @@ Original requests:
 - Each Kanban task gets a note with different text sizes, colours and bullets, and the task itself gets a colour option. Plan: a small rich-text editor in a task dialog, stored as sanitised HTML in a sheet cell (watch the cell size limit), with a plain-text fallback for readability by hand and by Claude.
 - Every panel movable by grabbing its border, like Grafana. Plan: a grid layout library loaded from a CDN, behind an "Edit layout" toggle so nothing moves by accident, desktop only, layout saved per page per mode.
 
+### Lists (done, 2026-10-28, requested by Paddy)
+- A Lists tab with any number of named lists (for example "Keep in mind", "Read and Watch"). Each list has groups and items, edited exactly like a vertical Kanban: a list is a Kanban board owned by the list id.
+- "Show on Today" puts a list on Today as its own panel (slot `today.panels`).
+
 ### Batch 4: modes (done, 2026-10-28)
 Built as planned, with these decisions from Paddy:
 - One Drive folder "Focus Tracker" with a subfolder per mode (`Personal/`, `Work/`). Each holds that mode's spreadsheet and `Notes/`. The spreadsheet and Notes from before modes moved into `Personal/` on first load.

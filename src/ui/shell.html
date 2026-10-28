@@ -6,7 +6,8 @@
  *     id: 'log',
  *     tab:   { title: 'Log', order: 40, render: function (FT) { return '<html string>'; } },   // optional top-level tab
  *     slots: { 'project.page': [{ order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],
- *              'projects.tab': [{ order: 10, render: function (FT) { return html; } }] },        // optional extension points
+ *              'projects.tab': [{ order: 10, render: function (FT) { return html; } }],
+              'today.panels': [{ order: 10, render: function (FT) { return html; } }] },        // optional extension points
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
  *   });
  * Interactions use data attributes handled by delegation:

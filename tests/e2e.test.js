@@ -63,7 +63,7 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('loads and shows tabs and today\'s focus', async () => {
     await waitFor(() => $('.focus-name'), 'focus name');
-    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Log']);
+    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Lists', 'Log']);
     assert.strictEqual($('.focus-name').textContent, 'CV and portfolio', 'Wednesday leads with job, longest untouched first');
     assert.ok($('.timer') === null);
   });
@@ -265,6 +265,37 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#dlg-category'), 'project dialog');
     assert.ok(Array.from($('#dlg-category').options).some((o) => o.textContent === 'Garden'));
     click($('#dlg-cancel'));
+  });
+
+  await step('lists: create one, add groups and items like a vertical board, and show it on Today', async () => {
+    click(tab('Lists'));
+    await waitFor(() => $('[data-act="lists.add"]'), 'lists tab');
+    click($('[data-act="lists.add"]'));
+    await waitFor(() => $('#dlg-name'), 'new list dialog');
+    setVal($('#dlg-name'), 'Keep in mind');
+    click($('#dlg-submit'));
+    await waitFor(() => $('.listpanel .board.vertical'), 'list board');
+    const list = () => $('.listpanel');
+    assert.strictEqual(list().querySelector('.colname').value, 'Items');
+    assert.strictEqual(list().querySelector('[data-act="kanban.add-col"]').textContent, '+ Add group');
+    const input = list().querySelector('.coladd input');
+    setVal(input, 'Tell a story with your commits');
+    input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await waitFor(() => list().querySelectorAll('.kcard').length === 1, 'item added');
+    click(list().querySelector('[data-act="kanban.add-col"]'));
+    await waitFor(() => list().querySelectorAll('.colname').length === 2, 'group added');
+    assert.strictEqual(list().querySelectorAll('.colname')[1].value, 'New group');
+    const down = list().querySelector('.kcard [data-d="1"]');
+    assert.strictEqual(down.textContent, '↓');
+    click(down);
+    assert.strictEqual(list().querySelectorAll('.col')[1].querySelectorAll('.kcard').length, 1, 'moved to the second group');
+    const toggle = list().querySelector('[data-change="lists.today"]');
+    toggle.checked = true;
+    toggle.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0].show_today === 'yes', 'saved on the server');
+    click(tab('Today'));
+    await waitFor(() => $$('#app .listpanel .label').some((l) => l.textContent === 'Keep in mind'), 'list on Today');
+    assert.ok($('#app .listpanel').textContent.includes('Tell a story with your commits'));
   });
 
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {
