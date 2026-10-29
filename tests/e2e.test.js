@@ -40,6 +40,9 @@ async function waitFor(fn, label, ms = 3000) {
     beforeParse(w) {
       w.matchMedia = () => ({ matches: false, addEventListener() {} });
       w.scrollTo = () => {};
+      // jsdom does not load SortableJS from the CDN. This stand-in keeps each list's options, so a test can play the end of a drag.
+      w.__sortables = [];
+      w.Sortable = { create(el, opts) { const s = { el, opts, destroy() { w.__sortables.splice(w.__sortables.indexOf(s), 1); } }; w.__sortables.push(s); return s; } };
       w.addEventListener('error', (e) => errors.push(e.message));
       const call = (name, args, ok, fail) => setTimeout(() => {
         try { ok(JSON.parse(JSON.stringify(server.run(name)(...args.map((a) => JSON.parse(JSON.stringify(a))))))); }
@@ -197,6 +200,30 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && $$('.colname').length === 3, 'column removed');
     assert.ok($$('.col')[0].textContent.includes('Buy duct tape'));
+  });
+
+  // Plays the end of a column drag: the stand-in Sortable for that board, the column put first, then its onEnd.
+  const dragColumnFirst = (boardEl, colEl) => {
+    const s = w.__sortables.find((x) => x.el === boardEl && x.opts.handle === '.colhead');
+    assert.ok(s, 'the board\'s columns can be dragged');
+    assert.strictEqual(s.opts.delay, 180, 'a short press first on touch screens, like cards');
+    assert.ok(s.opts.group !== w.__sortables.find((x) => x.el.classList.contains('cards')).opts.group, 'cards and columns do not mix');
+    s.opts.onStart({ item: colEl });
+    boardEl.insertBefore(colEl, boardEl.firstChild);
+    s.opts.onEnd({ item: colEl, from: boardEl, to: boardEl, oldIndex: 2, newIndex: 0 });
+  };
+
+  await step('dragging a column by its header moves it at once and saves it', async () => {
+    const before = $$('.colname').map((i) => i.value);
+    const last = $$('.board .col[data-colid]').pop();
+    dragColumnFirst($('.board'), last);
+    const after = [before[before.length - 1]].concat(before.slice(0, -1));
+    assert.deepStrictEqual($$('.colname').map((i) => i.value), after, 'shown at once');
+    assert.ok(!w.FT.state.dragging);
+    const serverNames = () => { const k = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban)); return k.columns.filter((c) => c.project_id === w.FT.state.projectId).sort((a, b) => a.order - b.order).map((c) => c.name); };
+    await waitFor(() => serverNames().join('|') === after.join('|'), 'saved on the server');
+    click($('#undoBtn'));
+    await waitFor(() => $$('.colname').map((i) => i.value).join('|') === before.join('|'), 'undo puts it back');
   });
 
   await step('adding a resource rejects http and accepts https', async () => {
@@ -392,6 +419,10 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-cardcolumn'), $('#dlg-cardcolumn').options[1].value, 'change');
     click($('#dlg-submit'));
     await waitFor(() => list().querySelectorAll('.col')[1].querySelectorAll('.kcard').length === 1, 'moved to the second group', 200);
+    dragColumnFirst(list().querySelector('.board'), list().querySelectorAll('.col[data-colid]')[1]);
+    assert.deepStrictEqual(Array.from(list().querySelectorAll('.colname')).map((i) => i.value), ['New group', 'Items'], 'groups move like columns');
+    assert.strictEqual(list().querySelectorAll('.col')[0].querySelectorAll('.kcard').length, 1, 'with their items');
+    await sleep(450); // a click straight after a drag is taken as the end of the drag
     click(list().querySelector('[data-act="lists.settings"]'));
     await waitFor(() => $('#dlg-showtoday'), 'settings dialog');
     $('#dlg-showtoday').checked = true;

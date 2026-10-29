@@ -5,7 +5,11 @@
 .board.vertical { flex-direction: column; align-items: stretch; overflow-x: visible; }
 .col { flex: 0 0 240px; background: var(--surface-2); border-radius: 8px; padding: 10px; min-height: 120px; }
 .board.vertical .col { flex: 0 0 auto; width: 100%; }
-.colhead { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.colhead { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: grab; touch-action: manipulation; }
+/* The grip shows a column can be dragged by its header; the name box and Delete keep working as before. */
+.colgrip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; min-height: 32px; color: var(--muted); font-size: 16px; user-select: none; }
+.colhead:hover .colgrip { color: var(--ink); }
+@media (pointer: coarse) { .colgrip { width: 32px; min-height: 44px; } }
 .colname { flex: 1 1 auto; min-width: 0; width: auto; padding: 5px 8px; font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; background: transparent !important; border-color: transparent !important; color: var(--ink); }
 .colname:hover, .colname:focus { background: var(--surface) !important; border-color: var(--line) !important; }
 .count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
@@ -47,7 +51,8 @@
  * nearest [data-owner], so several boards can share a page.
  *
  * Cards move by drag and drop (SortableJS from the CDN; a short press on touch screens) or with "Column" in the card
- * dialog. Adding, moving, editing and deleting cards show on screen at once and save in the background.
+ * dialog. Columns (groups on a list) move the same way, dragged by their header. Adding, moving, editing and deleting
+ * cards and columns show on screen at once and save in the background.
  */
 (function () {
   var userDir = null;
@@ -93,7 +98,7 @@
   function columnHtml(c, b, word) {
     var mine = b.tasks.filter(function (t) { return t.column_id === c.id; });
     var name = FT.esc(c.name);
-    return '<div class="col"><div class="colhead"><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
+    return '<div class="col" data-colid="' + FT.esc(c.id) + '"><div class="colhead"><span class="colgrip" title="Drag to move this ' + word + '" aria-hidden="true">⠿</span><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
       '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete ' + word + ' ' + name + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' +
       '<div class="cards" data-col="' + FT.esc(c.id) + '">' + mine.map(cardHtml).join('') + '</div>' + addTaskHtml(c) + '</div>';
   }
@@ -158,11 +163,46 @@
     });
   }
 
+  // ---------- moving columns ----------
+  function columnById(id) { return (FT.store.kanban.columns || []).filter(function (c) { return c.id === id; })[0] || null; }
+
+  /**
+   * Move a column on screen now and save it in the background. ids: the board's column ids in their new order.
+   * If the save is refused the column goes back where it was.
+   */
+  function moveColumn(col, ids) {
+    var at = ids.indexOf(col.id);
+    if (at < 0) return;
+    var before = columnById(ids[at - 1]), after = columnById(ids[at + 1]), was = col.order;
+    FT.optimistic(function () { col.order = orderBetween(before, after); return function () { col.order = was; }; },
+      function () { return FT.rpc('kanban', 'moveColumn', { id: col.id, projectId: col.project_id, order: col.order }, { render: false }); }).catch(function () {});
+  }
+
+  /** The columns of one board, dragged by their header. A group of its own, so cards and columns never mix. */
+  function makeColumnSortable(boardEl) {
+    return window.Sortable.create(boardEl, {
+      group: 'cols-' + boardEl.dataset.owner, animation: 150, delay: 180, delayOnTouchOnly: true,
+      draggable: '.col[data-colid]', handle: '.colhead', filter: 'input, button', preventOnFilter: false,
+      direction: boardEl.classList.contains('vertical') ? 'vertical' : 'horizontal', ghostClass: 'kghost', chosenClass: 'kchosen',
+      onStart: function () { FT.state.dragging = true; },
+      onEnd: function (evt) {
+        lastDragEnd = Date.now();
+        FT.state.dragging = false;
+        var col = columnById(evt.item.dataset.colid);
+        var ids = Array.prototype.map.call(boardEl.querySelectorAll(':scope > .col[data-colid]'), function (el) { return el.dataset.colid; });
+        var was = board(boardEl.dataset.owner).cols.map(function (c) { return c.id; });
+        if (col && ids.join() !== was.join()) moveColumn(col, ids);
+        else FT.dragEnded();
+      }
+    });
+  }
+
   FT.onRender(function () {
     sortables.forEach(function (sortable) { sortable.destroy(); });
     sortables = [];
     if (!window.Sortable) return;
     Array.prototype.forEach.call(document.querySelectorAll('#app .board .cards'), function (list) { sortables.push(makeSortable(list)); });
+    Array.prototype.forEach.call(document.querySelectorAll('#app .board[data-owner]'), function (b) { sortables.push(makeColumnSortable(b)); });
   });
 
   FT.kanban = { boardHtml: boardHtml };

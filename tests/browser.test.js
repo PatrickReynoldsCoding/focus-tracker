@@ -119,6 +119,33 @@ async function run(browser, size) {
   await quick('Project: Delete asks first', pg.locator('[data-act="projects.delete"]')); await closeDialog();
   await quick('Kanban: open a card', pg.locator('[data-act="kanban.open-card"]').first()); await closeDialog();
   await quick('Kanban: add a column dialog or field', pg.locator('[data-act="kanban.add-col"]')); await closeDialog();
+  // a column dragged by its header shows in its new place before the server answers, then reaches the server
+  if (await pg.evaluate(() => !!window.Sortable)) {
+    const names = () => pg.evaluate(() => [...document.querySelectorAll('#app .board .colname')].map((i) => i.value));
+    const serverNames = () => { const k = env.server.run('bootstrap()').data.kanban; return k.columns.filter((c) => c.project_id === id).sort((a, b) => a.order - b.order).map((c) => c.name); };
+    const before = await names();
+    const from = pg.locator('#app .board .col[data-colid] .colgrip').nth(1), to = pg.locator('#app .board .col[data-colid] .colhead').first();
+    await to.evaluate((el) => { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -150); }); // both headers on screen, below the sticky header
+    await sleep(100);
+    const a = await from.boundingBox(), b = await to.boundingBox();
+    await pg.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await pg.mouse.down();
+    for (let i = 1; i <= 10; i++) { await pg.mouse.move(a.x + (b.x + 4 - a.x) * i / 10, a.y + (b.y + 4 - a.y) * i / 10); await sleep(30); }
+    const t0 = Date.now();
+    await pg.mouse.up();
+    const want = [before[1], before[0]].concat(before.slice(2)).join('|');
+    // Sortable moves the element itself while dragging, so check the page's own data, drawn again from it, not just the elements
+    await pg.waitForFunction((w) => !FT.state.dragging && FT.store.kanban.columns.filter((c) => c.project_id === FT.state.projectId).sort((x, y) => x.order - y.order).map((c) => c.name).join('|') === w &&
+      [...document.querySelectorAll('#app .board .colname')].map((i) => i.value).join('|') === w, want, { timeout: FEEDBACK_MS + 100 });
+    assert.ok(Date.now() - t0 <= FEEDBACK_MS + 100, 'the column shows in its new place at once');
+    assert.notStrictEqual(serverNames().join('|'), want, 'before the slow server has saved it');
+    await settle();
+    assert.strictEqual(serverNames().join('|'), want, 'the column move reached the server');
+    assert.strictEqual((await names()).join('|'), want, 'and the screen agrees with it');
+    log('Kanban: a column dragged by its header moves at once and reaches the server');
+  } else {
+    log('Kanban: column drag not tried, SortableJS did not load from the CDN');
+  }
   await quick('Resources: add a link dialog', pg.locator('[data-act="resources.add"]').first()); await closeDialog();
   await quick('Sticky: + Note', pg.locator('[data-act="stickies.add"]'));
   await settle();

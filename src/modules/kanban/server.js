@@ -50,6 +50,16 @@ function kanbanModule() {
         return COLUMNS.update(a.id, { name: name });
       },
 
+      /** Move a column to a new place on its board. a.order: any number, for example between two neighbours. a.projectId, if given, must be its board. */
+      moveColumn: function (a, ctx) {
+        var col = COLUMNS.get(a.id);
+        assert_(col, 'That column no longer exists.');
+        assert_(a.projectId === undefined || a.projectId === col.project_id, 'That column is not on this board.');
+        assert_(typeof a.order === 'number' && isFinite(a.order), 'A column needs a place to move to.');
+        ctx.refresh('kanban');
+        return COLUMNS.update(col.id, { order: a.order });
+      },
+
       /** Deleting a column moves its tasks to the column on its left (or right if it is first). Never loses tasks. */
       deleteColumn: function (a, ctx) {
         var col = COLUMNS.get(a.id);

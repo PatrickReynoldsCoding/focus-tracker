@@ -306,6 +306,26 @@ test('kanban: add, move, rename and delete columns without losing tasks', () => 
   assert.strictEqual(k.tasks.length, 1);
 });
 
+test('kanban: a column moves to a new place on its own board, and undo puts it back', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'K', category: 'coding' }).result;
+  const names = (k) => k.columns.filter((c) => c.project_id === p.id).sort((x, y) => x.order - y.order).map((c) => c.name);
+  const cols = json(s.run('bootstrap()')).data.kanban.columns.filter((c) => c.project_id === p.id);
+  const other = s.call('projects', 'create', { name: 'Other', category: 'coding' }).result;
+  s.call('kanban', 'addTask', { projectId: p.id, columnId: cols[2].id, title: 'stays put' });
+  const r = s.call('kanban', 'moveColumn', { id: cols[2].id, projectId: p.id, order: (cols[0].order + cols[1].order) / 2 });
+  assert.deepStrictEqual(names(r.slices.kanban), ['To do', 'Done', 'Doing']);
+  assert.strictEqual(r.slices.kanban.tasks[0].column_id, cols[2].id, 'its cards go with it');
+  assert.strictEqual(r.undo.action, 'kanban.moveColumn');
+  s.call('kanban', 'moveColumn', { id: cols[0].id, order: 99 });
+  assert.deepStrictEqual(names(json(s.run('bootstrap()')).data.kanban), ['Done', 'Doing', 'To do']);
+  assert.throws(() => s.call('kanban', 'moveColumn', { id: cols[1].id, projectId: other.id, order: 1 }), /not on this board/);
+  assert.throws(() => s.call('kanban', 'moveColumn', { id: cols[1].id, order: 'first' }), /place to move to/);
+  assert.throws(() => s.call('kanban', 'moveColumn', { id: 'nope', order: 1 }), /no longer exists/);
+  assert.strictEqual(json(s.run('undo')()).undone, 'kanban.moveColumn');
+  assert.deepStrictEqual(names(json(s.run('undo')()).data.kanban), ['To do', 'Doing', 'Done']);
+});
+
 test('notes are stored as a markdown file and read back', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'My Project!', category: 'coding' }).result;
