@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan my week (this week or next, never further)</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Copied from src/ui/styles.html (tokens and the generic components), so the mockups look like the app. Habit parts are new. */
+:root {
+  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #4d5d5a; --line: #d3dcd9; --line-strong: #6a7b78;
+  --accent: #0e6b62; --accent-ink: #ffffff; --accent-soft: #d9efeb;
+  --warn: #a35d00; --warn-soft: #fbeed8; --bad: #b3322f; --bad-soft: #f9e0df; --ok: #2b7a4b; --ok-soft: #dcf0e4;
+  --cat-1: #0e6b62; --cat-2: #a35d00; --cat-3: #4a5fa8; --cat-4: #b3322f; --cat-5: #7a4fa8; --cat-6: #2b7a4b;
+  --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --over: repeating-linear-gradient(45deg, var(--accent) 0 3px, var(--accent-soft) 3px 6px);
+  color-scheme: light;
+}
+:root[data-theme="eink"] {
+  --bg: #fff; --surface: #fff; --surface-2: #fff; --ink: #000; --muted: #222; --line: #000; --line-strong: #000;
+  --accent: #000; --accent-ink: #fff; --accent-soft: #fff;
+  --warn: #000; --warn-soft: #fff; --bad: #000; --bad-soft: #fff; --ok: #000; --ok-soft: #fff;
+  --cat-1: #000; --cat-2: #333; --cat-3: #000; --cat-4: #333; --cat-5: #000; --cat-6: #333;
+  --over: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px);
+}
+:root[data-theme="eink"] body { font-size: 17px; line-height: 1.55; }
+:root[data-theme="eink"] *, :root[data-theme="eink"] *::before { transition: none !important; animation: none !important; box-shadow: none !important; }
+:root[data-theme="eink"] .panel, :root[data-theme="eink"] .dialog, :root[data-theme="eink"] .next, :root[data-theme="eink"] .stepcard, :root[data-theme="eink"] .toast { border: 3px solid #000 !important; }
+:root[data-theme="eink"] .btn, :root[data-theme="eink"] select, :root[data-theme="eink"] input[type="text"], :root[data-theme="eink"] textarea { border: 2px solid #000; min-height: 44px; }
+:root[data-theme="eink"] .btn.primary { background: #000; color: #fff; }
+:root[data-theme="eink"] .tab[aria-current="page"], :root[data-theme="eink"] .subtab[aria-current="page"] { background: #000; color: #fff; }
+:root[data-theme="eink"] .pill { border: 2px solid #000; }
+:root[data-theme="eink"] .choice label:has(input:checked) { background: #000; color: #fff; }
+:root[data-theme="eink"] .choice label:has(input:checked) small { color: #fff; }
+:root[data-theme="eink"] .bar { border-bottom: 3px solid #000; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; padding: 0 16px 48px; }
+.wrap { max-width: 1080px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; letter-spacing: -0.01em; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-theme="eink"] :focus-visible { outline: 4px solid #000; }
+
+/* Mockup strip (not part of the app). */
+.mockbar { background: #15201e; color: #fff; margin: 0 -16px; padding: 6px 16px; font-family: var(--font-mono); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.mockbar a, .mockbar button { color: #fff; background: transparent; border: 1px solid #6a7b78; border-radius: 6px; padding: 2px 8px; cursor: pointer; text-decoration: none; font-size: 12px; }
+.mockbar button[aria-pressed="true"] { background: #fff; color: #000; }
+.mockbar .grow { flex: 1; }
+.mocknote { font-family: var(--font-mono); font-size: 12px; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: 8px; padding: 8px 12px; background: var(--surface); }
+.mocknote b { color: var(--ink); }
+.variant { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; background: var(--ink); color: var(--bg); padding: 2px 8px; border-radius: 4px; }
+
+/* App header */
+.bar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0; display: flex; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--font-display); font-weight: 700; font-size: 19px; }
+.tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1 1 auto; }
+.tab { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: 8px; white-space: nowrap; font-weight: 500; }
+.tab[aria-current="page"] { background: var(--ink); color: var(--bg); }
+.sync { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.modeselect { border: 1px solid var(--accent); color: var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 6px 12px; font-weight: 600; font-size: 13.5px; }
+.iconbtn { border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); width: 32px; height: 32px; border-radius: 8px; font-size: 16px; line-height: 1; flex: none; }
+.menubtn { display: none; }
+main { padding-top: 16px; display: grid; gap: 16px; }
+
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; }
+.c7 { grid-column: span 7; } .c5 { grid-column: span 5; } .c6 { grid-column: span 6; } .c4 { grid-column: span 4; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
+.col { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.label { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }
+.tophead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.tophead .label { margin-bottom: 10px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; color: var(--muted); font-size: 13.5px; }
+.pill { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; padding: 2px 10px; border-radius: 99px; background: var(--surface-2); }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--muted)); }
+.next { margin: 16px 0 10px; padding: 14px; border-radius: 8px; background: var(--accent-soft); font-size: 17px; font-weight: 500; }
+.next small { display: block; font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin-bottom: 4px; }
+.focus-name { font-size: clamp(24px, 5vw, 34px); line-height: 1.1; font-weight: 700; margin-bottom: 8px; }
+.muted { color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.btn { border: 1px solid var(--line-strong); background: var(--surface); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.sm { padding: 5px 10px; font-size: 13px; }
+.btn.link { border: 0; background: none; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; padding: 5px 4px; }
+.banner { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.calm { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-family: var(--font-mono); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rot td:first-child { font-family: var(--font-mono); font-size: 13px; color: var(--muted); width: 38%; }
+.rot tr.todayrow td { background: var(--accent-soft); font-weight: 600; color: var(--ink); }
+select, input[type="text"], input[type="number"], textarea { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 11px; }
+textarea { min-height: 70px; resize: vertical; }
+
+/* Dialog */
+.dialog { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; padding: 20px; width: 100%; max-width: 480px; }
+.dialog h2 { font-size: 22px; margin-bottom: 4px; }
+.dialog > p, .dialog .sub { margin: 4px 0 0; color: var(--muted); }
+.dialog label.f { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 5px; }
+.hint { font-size: 13.5px; color: var(--ink); background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 14px; }
+:root[data-theme="eink"] .hint { border: 2px dashed #000; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.choice.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.choice label { margin: 0; border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px 12px; cursor: pointer; font-size: 14px; position: relative; display: block; }
+.choice label small { display: block; color: var(--muted); font-size: 12.5px; font-weight: 400; }
+.choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; font-weight: 600; }
+.choice label:has(input:checked)::before { content: "\2713\00a0"; font-weight: 700; }
+.choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toast { background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; display: inline-flex; gap: 12px; align-items: center; }
+.toast .tb { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; font-weight: 600; }
+
+/* ---------- Habits ---------- */
+.habits { display: grid; gap: 4px; }
+.habit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.habit:last-child { border-bottom: 0; }
+.hname { font-weight: 600; }
+.hname .size { font-weight: 400; color: var(--muted); }
+.intent { font-size: 12.5px; color: var(--muted); }
+.intent b { font-weight: 600; color: var(--ink); }
+.tag { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; color: var(--muted); margin-left: 6px; white-space: nowrap; }
+.hcount { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; text-align: right; }
+.hcount b { color: var(--ink); }
+.htrack { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hnext { grid-column: 1 / -1; font-size: 13.5px; color: var(--muted); }
+.hnext b { color: var(--ink); font-weight: 500; }
+.hnote { grid-column: 1 / -1; font-size: 13.5px; background: var(--surface-2); border-radius: 6px; padding: 6px 10px; }
+:root[data-theme="eink"] .hnote { border: 2px dashed #000; }
+
+/* Variant A: round dots */
+.dots { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.dot { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--accent); background: transparent; cursor: pointer; padding: 0; position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.dot.on { background: var(--accent); }
+.dot.on::after { content: "\2713"; color: var(--accent-ink); font-size: 15px; font-weight: 700; }
+.dot.today::before { content: ""; position: absolute; bottom: -7px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--ink); }
+.trying .dot { border-style: dashed; }
+.dot.pop { animation: pop 0.25s ease-out; }
+@keyframes pop { 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .dot.pop { animation: none; } }
+.extra { font-family: var(--font-mono); font-size: 13px; font-weight: 600; padding: 3px 8px; border-radius: 99px; background: var(--over); color: var(--ink); border: 2px solid var(--accent); }
+.extra span { background: var(--surface); padding: 0 4px; border-radius: 4px; }
+.addone { border: 2px dashed var(--line-strong); background: transparent; width: 30px; height: 30px; border-radius: 50%; font-weight: 700; color: var(--muted); cursor: pointer; padding: 0; }
+.minus { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; width: 28px; height: 28px; cursor: pointer; color: var(--muted); padding: 0; }
+.cheer { font-size: 13px; color: var(--accent); font-weight: 600; min-width: 3em; }
+
+/* Variant B: a segmented bar with numbers */
+.pips { display: flex; flex: 1 1 220px; max-width: 360px; border: 2px solid var(--accent); border-radius: 8px; overflow: hidden; }
+.pip { flex: 1; height: 34px; border: 0; border-right: 2px solid var(--accent); background: var(--surface); font-family: var(--font-mono); font-size: 13px; color: var(--muted); cursor: pointer; padding: 0; }
+.pip:last-child { border-right: 0; }
+.pip.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.pip.on::before { content: "\2713 "; }
+.trying .pips { border-style: dashed; }
+.pips.daystrip .pip { font-size: 11.5px; }
+
+/* To-dos */
+.todos { list-style: none; margin: 0; padding: 0; }
+.todos li { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.todos li:last-child { border-bottom: 0; }
+.todos input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; }
+.todos .when { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.todos li.done .t { text-decoration: line-through; color: var(--muted); }
+.todos li.done .when::before { content: "Done \00b7 "; }
+.addrow { display: flex; gap: 8px; margin-top: 10px; }
+.subhead { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 2px; }
+
+/* Step-up card */
+.stepcard { border: 2px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 14px; }
+.stepcard h3 { font-size: 18px; margin-bottom: 4px; }
+.stepcard p { margin: 4px 0; }
+.stepcard .choice { margin-top: 10px; }
+:root[data-theme="eink"] .stepcard { background: #fff; }
+
+/* Ramp preview */
+.ramp { display: flex; align-items: flex-end; gap: 4px; height: 90px; margin-top: 8px; padding-bottom: 2px; border-bottom: 1px solid var(--line-strong); }
+.ramp div { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 4px; position: relative; }
+.ramp div.goal { background: var(--over); border: 2px solid var(--accent); border-bottom: 0; }
+.ramp div span { position: absolute; top: -18px; left: 0; right: 0; text-align: center; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.rampaxis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* Insights */
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.subtab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); padding: 8px 14px; font-weight: 600; cursor: pointer; }
+.subtab[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.sw-done { background: var(--accent); }
+.sw-over { background: var(--over); border: 1px solid var(--accent); }
+.sw-target { border-top: 2px dashed var(--ink); height: 0 !important; width: 18px !important; border-radius: 0 !important; }
+.sw-gap { background: var(--surface-2); border: 1px solid var(--line-strong); }
+.weeks { display: grid; grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)); gap: 4px; align-items: end; height: 120px; position: relative; margin-top: 18px; border-bottom: 1px solid var(--line-strong); }
+.wk { position: relative; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; cursor: default; }
+.wk .gap { background: var(--surface-2); border: 1px solid var(--line-strong); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.wk .done { background: var(--accent); }
+.wk .over { background: var(--over); border: 1px solid var(--accent); border-bottom: 0; border-radius: 4px 4px 0 0; margin-bottom: 2px; }
+.wk .done.top { border-radius: 4px 4px 0 0; }
+.wk .tgt { position: absolute; left: -2px; right: -2px; border-top: 2px dashed var(--ink); }
+.wk .v { position: absolute; left: 0; right: 0; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink); }
+.wk:hover .done, .wk:focus .done { filter: brightness(1.15); }
+.wkaxis { display: grid; grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)); gap: 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); text-align: center; margin-top: 4px; }
+.stat { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+.stat div { font-size: 13px; color: var(--muted); }
+.stat b { display: block; font-family: var(--font-display); font-size: 22px; color: var(--ink); }
+.mark { font-family: var(--font-mono); font-size: 11px; }
+.hbar { height: 14px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 4px; position: relative; min-width: 80px; }
+.hbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 3px 0 0 3px; }
+.hbar i.over { background: var(--over); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filters select { width: auto; }
+
+/* Plan my week */
+.weektoggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.weektoggle button { border: 0; background: var(--surface); padding: 7px 14px; font-weight: 600; cursor: pointer; }
+.weektoggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.weektoggle button[aria-pressed="true"]::before { content: "\2713\00a0"; }
+.plan { display: grid; grid-template-columns: 170px repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.plan > div { padding: 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-height: 44px; font-size: 13.5px; }
+.plan .h { font-family: var(--font-mono); font-size: 12px; color: var(--muted); background: var(--surface-2); text-align: center; }
+.plan .h.today { background: var(--accent-soft); color: var(--ink); font-weight: 700; }
+.plan .rl { font-weight: 600; }
+.plan .rl small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.plan .cell { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; justify-content: center; cursor: pointer; }
+.plan .cell.past { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface-2) 6px 8px); cursor: default; }
+.pdot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--accent); display: inline-block; }
+.pdot.on { background: var(--accent); }
+.chip { font-size: 12px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; line-height: 1.3; }
+.lead { font-size: 12.5px; }
+.lead select { padding: 4px; font-size: 12.5px; }
+.tally { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+.seclabel { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+
+/* Phone */
+@media (max-width: 760px) {
+  body { padding: 0 12px 48px; }
+  .mockbar { margin: 0 -12px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .grid > * { grid-column: 1 / -1; }
+  .tabs, .modeselect, .bar .iconbtn.cog { display: none; }
+  .menubtn { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
+  .brand { flex: 1; font-size: 16px; }
+  .btn, .btn.sm { min-height: 44px; }
+  .dot, .addone { width: 40px; height: 40px; }
+  .minus { width: 40px; height: 40px; }
+  .pip { height: 42px; }
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+  .choice.three { grid-template-columns: minmax(0, 1fr); }
+  .plan { grid-template-columns: minmax(0, 1fr); }
+  .plan.desk { display: none; }
+  .planphone { display: grid !important; }
+  .dialog { max-width: none; }
+  .weeks { height: 100px; }
+}
+.planphone { display: none; gap: 10px; }
+.pday { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); }
+.pday.today { border: 2px solid var(--accent); }
+.pday h4 { margin: 0 0 6px; font-family: var(--font-mono); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: flex; justify-content: space-between; }
+.pday .items { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+[hidden] { display: none !important; }
+.scroll { overflow-x: auto; }
+.btn[disabled] { background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); cursor: default; }
+.mocklist { display: grid; gap: 12px; }
+.mocklist .panel h3 { font-size: 19px; margin-bottom: 4px; }
+.mocklist .links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+a.btn { color: var(--ink); text-decoration: none; display: inline-block; }
+.bar .modeselect { width: auto; flex: none; }
+.brand { white-space: nowrap; flex: none; }
+.tabs { min-width: 0; }
+.pip.on { border-right-color: var(--accent-ink); }
+.pip.on:last-child { border-right: 0; }
+@media (max-width: 760px) { .mockbar .grow { flex: 1 1 100%; order: 9; } }
+</style>
+<script>
+// Mockup helpers: theme switch (?theme=eink), and tappable habit rows. Not app code.
+(function () {
+  var params = new URLSearchParams(location.search);
+  var theme = params.get('theme') === 'eink' ? 'eink' : 'light';
+  document.documentElement.dataset.theme = theme;
+
+  function mockbar() {
+    var file = location.pathname.split('/').pop() || 'index.html';
+    var bar = document.createElement('div');
+    bar.className = 'mockbar';
+    bar.innerHTML = '<span>MOCKUP</span><span class="grow">' + document.title + '</span>' +
+      '<button type="button" data-theme="light" aria-pressed="' + (theme === 'light') + '">Light</button>' +
+      '<button type="button" data-theme="eink" aria-pressed="' + (theme === 'eink') + '">E-ink</button>' +
+      (window.top === window ? '<a href="phone.html?p=' + encodeURIComponent(file + location.search) + '">Phone view</a>' : '') +
+      '<a href="index.html" target="_top">All mockups</a>';
+    document.body.insertBefore(bar, document.body.firstChild);
+    bar.addEventListener('click', function (e) {
+      var t = e.target.closest('button[data-theme]');
+      if (!t) return;
+      params.set('theme', t.dataset.theme);
+      location.search = params.toString();
+    });
+  }
+
+  function countText(h, done, target) {
+    var per = h.dataset.per === 'day' ? 'today' : 'this week';
+    if (h.classList.contains('trying')) return '<b>' + done + '</b> ' + per;
+    return '<b>' + done + '</b> of ' + target + ' ' + per;
+  }
+
+  function renderHabit(h, popIndex) {
+    var target = +h.dataset.target, done = +h.dataset.done, today = +(h.dataset.today || 0);
+    var style = h.dataset.style || 'dots', name = h.dataset.name || 'Habit';
+    var slot = h.querySelector('.slot');
+    var html = '';
+    if (style === 'pips') {
+      html += '<div class="pips" role="group" aria-label="' + name + ' sessions">';
+      for (var i = 0; i < target; i++) {
+        html += '<button type="button" class="pip' + (i < done ? ' on' : '') + '" data-tap aria-label="' + name + ': session ' + (i + 1) + ' of ' + target + (i < done ? ', done' : ', not done. Tap to add a session') + '">' + (i < done ? '' : i + 1) + '</button>';
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="dots" role="group" aria-label="' + name + ' sessions">';
+      for (var j = 0; j < target; j++) {
+        var on = j < done, isToday = on && j >= done - today && j < Math.min(done, target);
+        html += '<button type="button" class="dot' + (on ? ' on' : '') + (isToday ? ' today' : '') + (j === popIndex ? ' pop' : '') + '" data-tap aria-label="' + name + ': session ' + (j + 1) + ' of ' + target + (on ? ', done' : ', not done. Tap to add a session') + '"></button>';
+      }
+      if (done >= target) html += '<button type="button" class="addone" data-tap aria-label="Add an extra session">+</button>';
+      html += '</div>';
+    }
+    if (done > target) html += '<span class="extra" title="Extra sessions"><span>+' + (done - target) + ' extra</span></span>';
+    if (done > 0) html += '<button type="button" class="minus" data-minus aria-label="Take one session off">&minus;</button>';
+    html += '<span class="cheer" aria-live="polite">' + (h.dataset.cheer || '') + '</span>';
+    slot.innerHTML = html;
+    var c = h.querySelector('.hcount');
+    if (c) c.innerHTML = countText(h, done, target);
+  }
+
+  document.addEventListener('click', function (e) {
+    var h = e.target.closest('.habit[data-target]');
+    if (!h) return;
+    if (e.target.closest('[data-tap]')) {
+      var before = +h.dataset.done;
+      h.dataset.done = before + 1; h.dataset.today = +(h.dataset.today || 0) + 1;
+      h.dataset.cheer = 'Nice.';
+      renderHabit(h, before);
+      clearTimeout(h._t); h._t = setTimeout(function () { h.dataset.cheer = ''; var c = h.querySelector('.cheer'); if (c) c.textContent = ''; }, 1500);
+    } else if (e.target.closest('[data-minus]')) {
+      h.dataset.done = Math.max(0, +h.dataset.done - 1); h.dataset.today = Math.max(0, +(h.dataset.today || 0) - 1); h.dataset.cheer = '';
+      renderHabit(h);
+    }
+  });
+
+  document.addEventListener('change', function (e) {
+    var cb = e.target.closest('.todos input[type="checkbox"]');
+    if (cb) cb.closest('li').classList.toggle('done', cb.checked);
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    mockbar();
+    document.querySelectorAll('.habit[data-target]').forEach(function (h) { renderHabit(h); });
+  });
+})();
+</script>
+</head>
+<body>
+<div class="wrap">
+<header class="bar"><button class="iconbtn menubtn" aria-label="Menu">&#9776;</button><span class="brand">Focus Tracker</span><nav class="tabs"><button class="tab" aria-current="page">Today</button><button class="tab">Projects</button><button class="tab">Kanban</button><button class="tab">Lists</button><button class="tab">Whiteboards</button><button class="tab">Insights</button></nav><span class="sync">Saved</span><select class="modeselect" aria-label="Mode"><option>Personal</option></select><button class="iconbtn cog" aria-label="Settings">&#9881;</button></header>
+<main>
+  <div class="mocknote">Opened from <b>Plan my week</b> on Today. Only two weeks exist here: <b>This week</b> and <b>Next week</b>. No times of day, no events. Tap a day to place a habit session (a ring); tap a ring to remove it. Past days show what was done (filled). A session done on another day still counts: the week total is what matters.</div>
+  <section class="panel">
+    <div class="tophead" style="align-items:center">
+      <h2 style="font-size:24px">Plan my week</h2>
+      <div class="weektoggle" role="group" aria-label="Week"><button type="button" aria-pressed="true">This week · 26 Oct</button><button type="button" aria-pressed="false">Next week · 2 Nov</button></div>
+    </div>
+    <p class="muted" style="margin:6px 0 14px">Planning stops at next Sunday on purpose. It is a plan, not a calendar.</p>
+
+    <div class="plan desk" id="plan">
+      <div class="h" style="text-align:left">&nbsp;</div>
+      <div class="h">Mon 26</div><div class="h">Tue 27</div><div class="h">Wed 28</div><div class="h today">Thu 29 · today</div><div class="h">Fri 30</div><div class="h">Sat 31</div><div class="h">Sun 1</div>
+
+      <div class="rl">Focus lead<small>the rotation</small></div>
+      <div class="cell past lead">Coding</div><div class="cell past lead">Job search</div><div class="cell past lead">Coding</div>
+      <div class="cell lead"><select aria-label="Thursday lead"><option>Home</option></select></div>
+      <div class="cell lead"><select aria-label="Friday lead"><option>Job search</option></select></div>
+      <div class="cell lead"><select aria-label="Saturday lead"><option>Any</option></select></div>
+      <div class="cell lead"><select aria-label="Sunday lead"><option>Away</option></select></div>
+
+      <div class="rl">Job hunting<small class="tally">5 a week · 2 done, 3 planned</small></div>
+      <div class="cell past"><span class="pdot on" title="Done"></span></div><div class="cell past"></div><div class="cell past"></div>
+      <div class="cell" data-cell><span class="pdot on" title="Done today"></span></div>
+      <div class="cell" data-cell><span class="pdot" title="Planned"></span><span class="pdot" title="Planned"></span></div>
+      <div class="cell" data-cell><span class="pdot" title="Planned"></span></div>
+      <div class="cell past" title="Away day"><span class="muted" style="font-size:12px">Away</span></div>
+
+      <div class="rl">Fitness<small class="tally">every day · 2 done, 3 planned</small></div>
+      <div class="cell past"><span class="pdot on"></span></div><div class="cell past"><span class="pdot on"></span></div><div class="cell past"></div>
+      <div class="cell" data-cell><span class="pdot"></span></div><div class="cell" data-cell><span class="pdot"></span></div><div class="cell" data-cell><span class="pdot"></span></div>
+      <div class="cell past" title="Away day"><span class="muted" style="font-size:12px">Away</span></div>
+
+      <div class="rl">Cardio<small class="tally">3 a week · 3 done, +1 extra</small></div>
+      <div class="cell past"><span class="pdot on"></span></div><div class="cell past"><span class="pdot on"></span></div><div class="cell past"><span class="pdot on"></span></div>
+      <div class="cell" data-cell><span class="pdot on"></span></div><div class="cell" data-cell></div><div class="cell" data-cell></div>
+      <div class="cell past"><span class="muted" style="font-size:12px">Away</span></div>
+
+      <div class="rl">To-dos<small>tap a day to add</small></div>
+      <div class="cell past"></div><div class="cell past"><span class="chip">&#10003; Post parcel</span></div><div class="cell past"></div>
+      <div class="cell" data-todo><span class="chip">Grocery shopping</span><span class="chip">Job interview</span><span class="chip">&#10003; Call plumber</span></div>
+      <div class="cell" data-todo></div>
+      <div class="cell" data-todo><span class="chip">Paint samples</span></div>
+      <div class="cell past"></div>
+    </div>
+
+    <div class="planphone">
+      <div class="pday today"><h4><span>Thu 29 · today</span><span>Lead: Home</span></h4>
+        <div class="items"><span class="chip">Job hunting <span class="pdot on" style="width:12px;height:12px;vertical-align:-1px"></span></span><span class="chip">Fitness <span class="pdot" style="width:12px;height:12px;vertical-align:-1px"></span></span><span class="chip">Cardio <span class="pdot on" style="width:12px;height:12px;vertical-align:-1px"></span></span></div>
+        <div class="items" style="margin-top:6px"><span class="chip">Grocery shopping</span><span class="chip">Job interview</span><span class="chip">&#10003; Call plumber</span></div>
+      </div>
+      <div class="pday"><h4><span>Fri 30</span><span>Lead: Job search</span></h4>
+        <div class="items"><span class="chip">Job hunting ×2</span><span class="chip">Fitness</span><button class="btn sm">+ Add</button></div></div>
+      <div class="pday"><h4><span>Sat 31</span><span>Lead: Any</span></h4>
+        <div class="items"><span class="chip">Job hunting</span><span class="chip">Fitness</span><span class="chip">Paint samples</span><button class="btn sm">+ Add</button></div></div>
+      <div class="pday"><h4><span>Sun 1</span><span>Away</span></h4><div class="items muted" style="font-size:13px">Day off. Nothing planned.</div></div>
+      <div class="pday"><h4><span>Mon 26 – Wed 28</span><span>done</span></h4><div class="items muted" style="font-size:13px">Job hunting 1 · Fitness 2 · Cardio 3 · Post parcel</div></div>
+    </div>
+
+    <div class="legend" style="margin-top:12px"><span><span class="pdot on" style="width:12px;height:12px;vertical-align:-2px"></span> done</span><span><span class="pdot" style="width:12px;height:12px;vertical-align:-2px"></span> planned</span><span>hatched = past or Away</span></div>
+
+    <div class="subhead">Anytime to-dos (no day yet)</div>
+    <div class="items" style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip">Book the dentist</span><span class="chip">Sort out the loft</span></div>
+
+    <div class="actions"><button class="btn primary">Done</button><button class="btn">Copy last week's habit days</button></div>
+  </section>
+</main>
+<script>
+document.addEventListener('click', function (e) {
+  var dot = e.target.closest('.cell[data-cell] .pdot:not(.on)');
+  if (dot) { dot.remove(); return; }
+  var cell = e.target.closest('.cell[data-cell]');
+  if (cell) { var d = document.createElement('span'); d.className = 'pdot'; d.title = 'Planned'; cell.appendChild(d); }
+  var wk = e.target.closest('.weektoggle button');
+  if (wk) wk.parentNode.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b === wk)); });
+});
+</script>
+
+</div>
+</body>
+</html>

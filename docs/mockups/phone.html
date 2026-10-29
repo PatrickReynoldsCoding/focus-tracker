@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Phone view</title>
+<style>
+body { margin: 0; background: #2a3b38; font-family: system-ui, sans-serif; color: #fff; display: grid; justify-items: center; gap: 12px; padding: 16px; }
+.top { display: flex; gap: 10px; align-items: center; font-size: 13px; flex-wrap: wrap; justify-content: center; }
+.top a { color: #fff; }
+.phone { width: 414px; height: 868px; border: 12px solid #000; border-radius: 36px; overflow: hidden; background: #fff; }
+iframe { width: 390px; height: 844px; border: 0; display: block; }
+</style></head>
+<body>
+<div class="top"><span>Phone view, 390 × 844</span><a id="open" href="#">Open the page on its own</a><a href="index.html">All mockups</a></div>
+<div class="phone"><iframe id="f" title="Mockup at phone width"></iframe></div>
+<script>
+var p = new URLSearchParams(location.search).get('p') || 'today-a.html';
+if (!/^[\w-]+\.html(\?[\w=&%-]*)?$/.test(p)) p = 'today-a.html';
+document.getElementById('f').src = p;
+document.getElementById('open').href = p;
+</script>
+</body></html>
