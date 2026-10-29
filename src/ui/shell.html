@@ -400,7 +400,7 @@ var FT = (function () {
     return Array.isArray(backStack) ? backStack : (backStack = []);
   }
   function keepBack() { try { localStorage.setItem(BACK_KEY + FT.state.mode, JSON.stringify(backPages())); } catch (e) {} }
-  function showBackButton() { var b = $('backBtn'); if (b) b.disabled = !FT.ready || backPages().length === 0; }
+  function showBackButton() { var b = $('backBtn'); if (b) b.disabled = !FT.ready || backPages().length === 0; } // in Settings, while it is open
 
   // The phone's own back button: each in-app step also adds a browser history entry (this page load only), and going back through
   // one of them takes the same step as the Back button. A panel that is open on top of a page (the full screen notes) can add an
@@ -797,7 +797,7 @@ var FT = (function () {
     return blocks(root).join('\n').replace(/\s+$/, '');
   };
 
-  // ---------- settings (⚙): Drive folder and theme ----------
+  // ---------- settings (⚙): theme (the sections are below) ----------
   var THEME_KEY = 'ft.theme';
   var THEMES = [['light', 'Light'], ['dark', 'Dark'], ['eink', 'E-ink'], ['', 'Same as computer']];
 
@@ -830,30 +830,87 @@ var FT = (function () {
       : copied ? 'Address copied, and the wrapper is opening with it filled in.' : 'The wrapper is opening with the address filled in. If it asks, copy it from here: ' + exec);
   }
 
+  // ---------- Settings sections ----------
+  /**
+   * Settings is built from sections, drawn in order (lower first) each time it opens. A module adds its own with
+   *   FT.settings.add({ id: 'draw', order: 50, html: function () { return '<label>…</label>…'; }, onOpen: function (root) { … } });
+   * id: unique (adding the same id again replaces it). order: the core uses 0 (Undo, Redo and Back, always first), 10 (Data),
+   * 20 (When the app opens), 30 (Theme), 40 (Wrapper site) and 1000 (build label); pick a number in between.
+   * html(): the section's markup, a <label> heading and its controls; give element ids a 'dlg-' start so they never clash.
+   * onOpen(root): optional, wires the controls up once the dialog is drawn; root is the .dialog element.
+   * Settings has no Save: a choice applies (and is stored, usually in localStorage for this device) as soon as it is made.
+   */
+  var settingSections = [];
+  FT.settings = {
+    add: function (section) {
+      settingSections = settingSections.filter(function (s) { return s.id !== section.id; }).concat([section]);
+      settingSections.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+    }
+  };
+
+  var ICON_UNDO = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>';
+  var ICON_REDO = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11.5 8c2.65 0 5.05 1 6.9 2.6L22 7v9h-9l3.62-3.62A7.95 7.95 0 0 0 11.5 10.5c-3.54 0-6.55 2.31-7.6 5.5l-2.37-.78C2.92 11.03 6.85 8 11.5 8z"/></svg>';
+  var ICON_BACK = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg>';
+
+  // Undo, Redo and Back: the first thing in Settings. Each closes Settings, so you see what it did.
+  FT.settings.add({ id: 'history', order: 0, html: function () {
+    var noBack = !FT.ready || backPages().length === 0;
+    return '<div class="historyrow">' +
+      '<button class="btn" type="button" id="undoBtn" data-act="core.undo" aria-label="Undo the last change (Ctrl or Cmd + Z)" title="Undo (Ctrl or Cmd + Z)">' + ICON_UNDO + 'Undo</button>' +
+      '<button class="btn" type="button" id="redoBtn" data-act="core.redo" aria-label="Redo the change you just undid (Ctrl or Cmd + Shift + Z)" title="Redo (Ctrl or Cmd + Shift + Z)">' + ICON_REDO + 'Redo</button>' +
+      '<button class="btn" type="button" id="backBtn" data-act="core.back" aria-label="Back to the previous page" title="' + (noBack ? 'No page to go back to' : 'Back to the previous page') + '"' + (noBack ? ' disabled' : '') + '>' + ICON_BACK + 'Back</button></div>';
+  } });
+
+  FT.settings.add({ id: 'data', order: 10, html: function () {
+    var mode = currentMode();
+    return '<label>Data</label><div class="settingrow"><span style="color:var(--muted)">The ' + FT.esc(mode.label) + ' Sheet, notes and whiteboards are in one Drive folder.</span>' +
+      (FT.config.folderUrl ? '<a class="btn" id="dlg-drive" href="' + FT.esc(FT.config.folderUrl) + '" target="_blank" rel="noopener noreferrer">Open ' + FT.esc(mode.label) + ' folder in Drive</a>' : '') + '</div>';
+  } });
+
+  FT.settings.add({ id: 'openOn', order: 20, html: function () {
+    var on = openOn();
+    return '<label>When the app opens (this device)</label><div class="choice two" role="radiogroup" aria-label="When the app opens">' + OPEN_ON.map(function (o) {
+      return '<label><input type="radio" name="dlg-openon" value="' + o[0] + '"' + (o[0] === on ? ' checked' : '') + '>' + o[1] + '</label>';
+    }).join('') + '</div>';
+  }, onOpen: function (root) {
+    Array.prototype.forEach.call(root.querySelectorAll('input[name="dlg-openon"]'), function (radio) {
+      radio.addEventListener('change', function () { if (radio.value) lsSet(OPEN_ON_KEY, radio.value); else lsRemove(OPEN_ON_KEY); });
+    });
+  } });
+
+  FT.settings.add({ id: 'theme', order: 30, html: function () {
+    var theme = savedTheme();
+    return '<label>Theme</label><div class="choice" role="radiogroup" aria-label="Theme">' + THEMES.map(function (t) {
+      return '<label><input type="radio" name="dlg-theme" value="' + t[0] + '"' + (t[0] === theme ? ' checked' : '') + '>' + t[1] + '</label>';
+    }).join('') + '</div>';
+  }, onOpen: function (root) {
+    // The theme changes as soon as it is picked, so you can see it before closing.
+    Array.prototype.forEach.call(root.querySelectorAll('input[name="dlg-theme"]'), function (radio) {
+      radio.addEventListener('change', function () { FT.setTheme(radio.value); });
+    });
+  } });
+
+  FT.settings.add({ id: 'wrapper', order: 40, html: function () {
+    return '<label>Wrapper site</label><div class="settingrow"><span style="color:var(--muted)">Opens this app full screen without Google\'s banner, and can be installed on a phone. The button copies this app\'s address and opens the wrapper.</span>' +
+      '<span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="dlg-wrapper">Copy address and open wrapper</button>' +
+      '<a class="btn" id="dlg-wrapperlink" href="' + FT.esc(FT.config.wrapperUrl || '#') + '" target="_blank" rel="noopener noreferrer">Wrapper site</a></span></div>' +
+      '<div id="dlg-copied" class="hint" style="background:none;padding:4px 0 0" hidden></div>';
+  }, onOpen: function () { $('dlg-wrapper').addEventListener('click', copyAndOpenWrapper); } });
+
+  FT.settings.add({ id: 'build', order: 1000, html: function () {
+    return '<div style="margin-top:12px;color:var(--muted);font-size:12px">Build 2026-10-28</div>';
+  } });
+
   function settingsDialog() {
-    var mode = currentMode(), theme = savedTheme();
+    var sections = settingSections.slice();
     FT.dialog({
       title: 'Settings',
       submit: 'Done',
       cancel: false,
-      body: '<label>Data</label><div class="settingrow"><span style="color:var(--muted)">The ' + FT.esc(mode.label) + ' Sheet, notes and whiteboards are in one Drive folder.</span>' +
-        (FT.config.folderUrl ? '<a class="btn" id="dlg-drive" href="' + FT.esc(FT.config.folderUrl) + '" target="_blank" rel="noopener noreferrer">Open ' + FT.esc(mode.label) + ' folder in Drive</a>' : '') + '</div>' +
-        '<label>Theme</label><div class="choice" role="radiogroup" aria-label="Theme">' + THEMES.map(function (t) {
-          return '<label><input type="radio" name="dlg-theme" value="' + t[0] + '"' + (t[0] === theme ? ' checked' : '') + '>' + t[1] + '</label>';
-        }).join('') + '</div>' +
-        '<label>Wrapper site</label><div class="settingrow"><span style="color:var(--muted)">Opens this app full screen without Google\'s banner, and can be installed on a phone. The button copies this app\'s address and opens the wrapper.</span>' +
-        '<span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="dlg-wrapper">Copy address and open wrapper</button>' +
-        '<a class="btn" id="dlg-wrapperlink" href="' + FT.esc(FT.config.wrapperUrl || '#') + '" target="_blank" rel="noopener noreferrer">Wrapper site</a></span></div>' +
-        '<div id="dlg-copied" class="hint" style="background:none;padding:4px 0 0" hidden></div>' +
-        (FT.whiteboardSettings ? FT.whiteboardSettings.html() : '') + // whiteboard module's section; move to FT.settings.add when it exists
-        '<div style="margin-top:12px;color:var(--muted);font-size:12px">Build 2026-10-28</div>',
+      body: sections.map(function (s) { return '<div class="settingsec" data-section="' + FT.esc(s.id) + '">' + s.html() + '</div>'; }).join(''),
       onOpen: function () {
-        $('dlg-wrapper').addEventListener('click', copyAndOpenWrapper);
-        if (FT.whiteboardSettings) FT.whiteboardSettings.onOpen(); // see the whiteboard section above
-        // The theme changes as soon as it is picked, so you can see it before closing.
-        Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-theme"]'), function (radio) {
-          radio.addEventListener('change', function () { FT.setTheme(radio.value); });
-        });
+        var root = $('dialogRoot').querySelector('.dialog');
+        sections.forEach(function (s) { if (s.onOpen) s.onOpen(root); });
       },
       onSubmit: function () {}
     });
@@ -888,6 +945,11 @@ var FT = (function () {
 
   function lsGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function lsSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  function lsRemove(key) { try { localStorage.removeItem(key); } catch (e) {} }
+
+  // "When the app opens" (Settings, this device only): 'today' starts on Today; nothing saved means the page you were on.
+  var OPEN_ON_KEY = 'ft.openOn', OPEN_ON = [['today', 'Today'], ['', 'The page I was on']];
+  function openOn() { return lsGet(OPEN_ON_KEY) === 'today' ? 'today' : ''; }
 
   function saveLastPage() {
     if (!FT.ready || !FT.state.view || !FT.state.mode) return;
@@ -928,7 +990,10 @@ var FT = (function () {
     var first = tabs()[0];
     FT.state.view = first ? first.id : null;
     var saved = null;
-    if (!current && opts.restore) { try { saved = JSON.parse(lsGet(LAST_KEY + b.config.mode) || 'null'); } catch (e) {} }
+    if (!current && opts.restore) {
+      if (openOn() === 'today') saved = { view: 'today', projectId: '' };
+      else { try { saved = JSON.parse(lsGet(LAST_KEY + b.config.mode) || 'null'); } catch (e) {} }
+    }
     var page = usablePage(current || saved);
     if (page) showPage(page);
     if (!opts.requested) lsSet(DEFAULT_MODE_KEY, b.config.mode);
@@ -1142,7 +1207,8 @@ var FT = (function () {
     if (document.body.classList.contains('menuopen') && !(e.target.closest && e.target.closest('#menupanel, #menuBtn'))) closeMenu();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.body.classList.contains('menuopen')) closeMenu(); });
-  FT.action('core.back', function () { FT.back(); });
+  // Undo, Redo and Back live in Settings: each closes it first, so the page shows what it did. The keyboard calls FT.undo and FT.redo directly.
+  FT.action('core.back', function () { FT.closeDialog(); FT.back(); });
   // "Skip to content" moves focus with script, because following the #app link would add a browser history step that the back button would then undo.
   FT.action('core.skip', function () { var m = $('app'); if (m) { m.focus(); m.scrollIntoView(); } });
   FT.action('core.reload', function () { location.reload(); });
@@ -1151,8 +1217,8 @@ var FT = (function () {
     if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
   });
   FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
-  FT.action('core.undo', function () { FT.undo(); });
-  FT.action('core.redo', function () { FT.redo(); });
+  FT.action('core.undo', function () { FT.closeDialog(); FT.undo(); });
+  FT.action('core.redo', function () { FT.closeDialog(); FT.redo(); });
   FT.action('core.settings', function () { closeMenu(); settingsDialog(); });
   FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
   FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });

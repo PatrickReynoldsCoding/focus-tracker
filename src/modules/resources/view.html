@@ -64,8 +64,15 @@
     });
   });
 
+  /** Removing a link is immediate; the message offers Undo. */
   FT.action('resources.remove', function (el) {
-    FT.rpc('resources', 'remove', { id: el.dataset.id }).catch(function () {});
+    var id = el.dataset.id, before = FT.store.resources || [];
+    if (!before.some(function (r) { return r.id === id; })) return;
+    FT.optimistic(function () {
+      FT.store.resources = before.filter(function (r) { return r.id !== id; });
+      return function () { FT.store.resources = before; };
+    }, function () { return FT.rpc('resources', 'remove', { id: id }, { render: false }); }).catch(function () {});
+    FT.deleted('Link');
   });
 })();
 </script>

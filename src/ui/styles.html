@@ -95,7 +95,8 @@ body.busy .bar::after { opacity: 1; animation: busybar 1s linear infinite; }
 @media (prefers-reduced-motion: reduce) { body.busy .bar::after { animation: none; background: var(--accent); } }
 :root[data-theme="eink"] body.busy .bar::after { animation: none; background: #000; }
 .brand { flex: none; }
-.backbtn { order: 0; } .brand { order: 1; } .tabs { order: 2; } .sync { order: 3; } .modes { order: 4; } #settingsBtn { order: 5; } #undoBtn { order: 6; } #redoBtn { order: 7; } .layoutbtn { order: 8; } .widebtn { order: 9; }
+/* Settings (⚙) sits at the right end; Undo, Redo and Back are inside it (and on the keyboard and the phone's back button). */
+.brand { order: 1; } .tabs { order: 2; } .sync { order: 3; } .modes { order: 4; } .layoutbtn { order: 8; } .widebtn { order: 9; } #settingsBtn { order: 10; }
 .iconbtn:disabled { opacity: 0.35; cursor: default; }
 /* Narrow desktop and tablet: the views get their own row under the name and buttons, so none are cut off. */
 @media (min-width: 761px) and (max-width: 1000px) { .bar { flex-wrap: wrap; } .brand { flex: 1 1 auto; } .tabs { order: 20; flex: 1 1 100%; } }
@@ -113,28 +114,25 @@ a.iconbtn[hidden] { display: none; }
 .modes { flex: none; }
 .modeselect { width: auto; padding: 6px 30px 6px 12px; font-weight: 600; font-size: 13.5px; border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft); cursor: pointer; }
 @media (max-width: 760px) { .widebtn, .layoutbtn { display: none; } body.wide .wrap { max-width: 1080px; } }
-.backbtn { display: inline-flex; align-items: center; justify-content: center; }
-/* Phone: the bar is one row: back, menu, name, a status dot, undo, redo. Views, mode and Settings are in the menu, a panel that opens over the page. */
-.menubtn, .menulabel { display: none; }
+/* Phone: the bar is one row: menu, name, a status dot, Settings. Views and mode are in the menu, a panel that opens over the page. */
+.menubtn { display: none; }
 @media (max-width: 760px) {
   .bar { flex-wrap: nowrap; gap: 6px; padding: 8px 0; }
-  .backbtn, .menubtn, #undoBtn, #redoBtn { width: 44px; height: 44px; }
+  .menubtn, #settingsBtn { width: 44px; height: 44px; }
   .menubtn { display: inline-flex; align-items: center; justify-content: center; }
   .brand { font-size: 16px; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .backbtn { order: 0; } .menubtn { order: 1; } .brand { order: 2; } .sync { order: 3; } #undoBtn { order: 5; } #redoBtn { order: 6; }
+  .menubtn { order: 1; } .brand { order: 2; } .sync { order: 3; } #settingsBtn { order: 5; }
   /* The saved / saving words are a small dot here (the words stay for screen readers). */
   .sync { flex: none; min-width: 0; font-size: 0; display: inline-flex; align-items: center; }
   .sync:not(:empty)::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
   .sync[data-state="saving"]::before { background: var(--warn); }
   .menupanel { display: none; }
   body.menuopen .menupanel { display: grid; gap: 8px; position: absolute; top: 100%; left: 0; right: 0; z-index: 30; padding: 10px 0 14px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 14px 24px rgba(0, 0, 0, 0.18); }
-  .tabs, .modes, #settingsBtn { display: none; }
+  .tabs, .modes { display: none; }
   body.menuopen .tabs { display: flex; flex-direction: column; overflow: visible; gap: 2px; }
   body.menuopen .tab { text-align: left; padding: 12px 14px; font-size: 16px; min-height: 44px; }
   body.menuopen .modes { display: block; }
   body.menuopen .modeselect { width: 100%; min-height: 44px; font-size: 16px; }
-  body.menuopen #settingsBtn { display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 14px; font-size: 16px; color: var(--ink); }
-  body.menuopen .menulabel { display: inline; }
 }
 
 /* Phone: a strip under the bar shows the current view and its neighbours, which is also where a sideways swipe goes. */
@@ -244,6 +242,10 @@ textarea { min-height: 150px; resize: vertical; }
 .choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; font-weight: 600; }
 .choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Settings: Undo, Redo and Back come first, as one row of equal buttons. */
+.dialog .historyrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+.dialog .historyrow .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; }
+.dialog .choice.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dialog .settingrow { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 6px; }
 .dialog h2 { font-size: 22px; margin-bottom: 4px; }
 .dialog label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 5px; }

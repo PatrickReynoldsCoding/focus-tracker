@@ -165,10 +165,10 @@ body.wb-open .scrim { z-index: 55; }
   }
 
   /**
-   * The Settings section for whiteboards: html() and onOpen() to wire it. The tool is kept in this browser and applies at once.
-   * Settings calls it directly for now; it can move to FT.settings.add({ id, order, html, onOpen }) once that exists.
+   * The Settings section for whiteboards. The tool is kept in this browser and applies at once.
    */
-  FT.whiteboardSettings = {
+  FT.settings.add({
+    id: 'whiteboard', order: 35,
     html: function () {
       var current = favouriteTool();
       return '<label for="dlg-wbtool">Whiteboard: favourite tool</label><div class="settingrow"><span style="color:var(--muted)">Selected when a whiteboard opens, on this device.</span>' +
@@ -183,7 +183,7 @@ body.wb-open .scrim { z-index: 55; }
         try { if (select.value) localStorage.setItem(TOOL_KEY, select.value); else localStorage.removeItem(TOOL_KEY); } catch (e) {}
       });
     }
-  };
+  });
 
   function closeShell() {
     if (open && open.root) open.root.unmount();
@@ -249,9 +249,8 @@ body.wb-open .scrim { z-index: 55; }
     if (!w) return;
     FT.store.whiteboard = FT.store.whiteboard.filter(function (x) { return x.id !== w.id; });
     FT.render();
-    FT.rpc('whiteboard', 'remove', { id: w.id }, { render: false })
-      .then(function () { FT.toast('Whiteboard removed. Its file stays in Drive.', null, { label: 'Undo', run: FT.undo }); })
-      .catch(FT.saveFailed);
+    FT.rpc('whiteboard', 'remove', { id: w.id }, { render: false }).catch(FT.saveFailed);
+    FT.toast('Whiteboard removed. Its file stays in Drive.', null, { label: 'Undo', run: FT.undo });
   });
 
   FT.action('whiteboard.close', function () {

@@ -211,8 +211,12 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#toast .toastbtn'));
     await waitFor(() => $$('.kcard').some((c) => c.textContent.includes('Check the fuse')), 'back after undo');
     assert.ok($('#toast').textContent.includes('Undone: Card deleted'));
+    click($('#settingsBtn'));
+    await waitFor(() => $('.dialog #undoBtn'), 'Undo in Settings');
     click($('#undoBtn'));
-    await waitFor(() => $('#toast').textContent.includes('Undone: Card added'), 'the header button undoes the add before it');
+    assert.strictEqual($('.dialog'), null, 'Settings closes so the page shows the undo');
+    assert.ok($('#toast').textContent.includes('Undoing'), 'says it is working at once');
+    await waitFor(() => $('#toast').textContent.includes('Undone: Card added'), 'the Settings button undoes the add before it');
     assert.ok(!$$('.kcard').some((c) => c.textContent.includes('Check the fuse')));
   });
 
@@ -258,6 +262,8 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!w.FT.state.dragging);
     const serverNames = () => { const k = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban)); return k.columns.filter((c) => c.project_id === w.FT.state.projectId).sort((a, b) => a.order - b.order).map((c) => c.name); };
     await waitFor(() => serverNames().join('|') === after.join('|'), 'saved on the server');
+    click($('#settingsBtn'));
+    await waitFor(() => $('.dialog #undoBtn'), 'Undo in Settings');
     click($('#undoBtn'));
     await waitFor(() => $$('.colname').map((i) => i.value).join('|') === before.join('|'), 'undo puts it back');
   });
@@ -271,6 +277,17 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-url'), 'https://example.com/fan');
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && $$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'link listed');
+  });
+
+  await step('removing a resource link is immediate, says so with Undo at once, and Undo brings it back', async () => {
+    const onServer = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.resources)).some((r) => r.title === 'Fan spec');
+    click($$('.reslist li').find((li) => li.textContent.includes('Fan spec')).querySelector('[data-act="resources.remove"]'));
+    assert.ok(!$$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'gone at once');
+    assert.ok(!$('#toast').hidden && $('#toast').textContent.includes('Link deleted.') && $('#toast .toastbtn'), 'the Undo message shows at once');
+    await waitFor(() => !onServer(), 'removed on the server');
+    click($('#toast .toastbtn'));
+    await waitFor(() => $$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'back after undo');
+    assert.ok(onServer());
   });
 
   await step('notes autosave to a Drive file', async () => {
@@ -491,6 +508,22 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-cancel'));
   });
 
+  await step('deleting a category closes the dialog, says so with Undo at once, and Undo brings it back', async () => {
+    const onServer = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.categories)).some((c) => c.label === 'Garden');
+    const garden = () => $$('.catrow').find((r) => r.querySelector('input').value === 'Garden');
+    click(tab('Projects'));
+    click((await waitFor(() => garden(), 'Garden row')).querySelector('[data-act="categories.remove"]'));
+    await waitFor(() => $('.dialog'), 'confirm');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'dialog closed');
+    assert.ok(!garden(), 'gone at once');
+    assert.ok($('#toast').textContent.includes('Category deleted.') && $('#toast .toastbtn'), 'the Undo message shows at once');
+    await waitFor(() => !onServer(), 'removed on the server');
+    click($('#toast .toastbtn'));
+    await waitFor(() => garden(), 'back after undo');
+    assert.ok(onServer());
+  });
+
   await step('the Add project form can make a new category, and Enter submits it', async () => {
     click(tab('Projects'));
     click(await waitFor(() => $('[data-act="projects.add"]'), 'add button'));
@@ -680,7 +713,8 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#stickylayer [data-sticky]'), 'shown again');
     click($('#stickylayer [data-act="stickies.remove"]'));
     assert.strictEqual($('#stickylayer [data-sticky]'), null);
-    await waitFor(() => $('#toast .toastbtn'), 'undo offer');
+    assert.ok($('#toast').textContent.includes('Sticky note deleted.') && $('#toast .toastbtn'), 'the Undo message shows at once');
+    await sleep(50); // Undo waits for the delete to be saved anyway
     click($('#toast .toastbtn'));
     await waitFor(() => $('#stickylayer [data-sticky][data-color="pink"]'), 'back after undo');
     click(tab('Today'));
@@ -738,6 +772,38 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-wbtool'), '', 'change');
     assert.strictEqual(w.localStorage.getItem('ft.whiteboard.tool'), null);
     click($('#dlg-submit'));
+  });
+
+  await step('Settings starts with Undo, Redo and Back, and "When the app opens" picks Today or the page you were on', async () => {
+    click($('#settingsBtn'));
+    await waitFor(() => $('.dialog'), 'settings');
+    assert.deepStrictEqual($$('.dialog .settingsec').map((s) => s.dataset.section).slice(0, 2), ['history', 'data'], 'Undo, Redo and Back come first');
+    assert.deepStrictEqual($$('.dialog .historyrow button').map((b) => b.id), ['undoBtn', 'redoBtn', 'backBtn']);
+    assert.ok(!$('#backBtn').disabled, 'there is a page to go back to');
+    assert.strictEqual($('input[name="dlg-openon"]:checked').value, '', 'the page I was on by default');
+    const today = $('input[name="dlg-openon"][value="today"]');
+    today.checked = true; today.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.strictEqual(w.localStorage.getItem('ft.openOn'), 'today');
+    click($('#dlg-submit'));
+    // A fresh start of the page (FT.ready false, as on a page load).
+    const restart = async (label) => { w.FT.ready = false; w.FT.boot(); await waitFor(() => w.FT.ready && $('.tab[aria-current="page"]'), label); };
+    click(tab('Lists'));
+    await restart('reopened');
+    assert.strictEqual($('.tab[aria-current="page"]').textContent, 'Today', 'opens on Today');
+    click($('#settingsBtn'));
+    await waitFor(() => $('input[name="dlg-openon"]'), 'settings');
+    const last = $('input[name="dlg-openon"][value=""]');
+    last.checked = true; last.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.strictEqual(w.localStorage.getItem('ft.openOn'), null);
+    click($('#dlg-submit'));
+    click(tab('Lists'));
+    await restart('reopened');
+    assert.strictEqual($('.tab[aria-current="page"]').textContent, 'Lists', 'opens on the page it was on');
+    click($('#settingsBtn'));
+    await waitFor(() => $('#backBtn'), 'settings');
+    click($('#backBtn'));
+    assert.strictEqual($('.dialog'), null, 'Back closes Settings');
+    await waitFor(() => $('.tab[aria-current="page"]').textContent !== 'Lists', 'went back');
   });
 
   await step('whiteboards: make two named boards, rename one, remove one with Undo', async () => {
