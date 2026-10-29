@@ -14,6 +14,8 @@
 .wbbar .btn { white-space: nowrap; }
 .wbcanvas { flex: 1 1 auto; position: relative; min-height: 0; }
 .wbcanvas .wbmsg { padding: 24px; color: var(--muted); }
+/* A dialog asked from the whiteboard (Close without saving) shows above it. */
+body.wb-open .scrim { z-index: 55; }
 /* On a phone the bar is one slim line so the canvas gets the screen. */
 @media (max-width: 760px) {
   .wbbar { gap: 8px; padding: 4px 8px; padding-top: max(4px, env(safe-area-inset-top)); }
@@ -28,13 +30,20 @@
  * Excalidraw uses its own touch layout: finger drawing, pinch zoom, bottom menu). React and
  * Excalidraw (about 1.3 MB) load from the CDN the first time a whiteboard opens, not with the page. Changes save to
  * Drive two seconds after you stop drawing, and again when you close it. The canvas is always Excalidraw's white one.
+ * "Close without saving" puts back the drawing as it was when the board opened. Settings has a favourite tool per device,
+ * selected each time a board opens.
  */
 (function () {
   var CDN = 'https://cdn.jsdelivr.net/npm/';
   var SCRIPTS = [CDN + 'react@18.2.0/umd/react.production.min.js', CDN + 'react-dom@18.2.0/umd/react-dom.production.min.js',
     CDN + '@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js'];
   var SAVE_DELAY_MS = 2000;
-  var libraryLoading = null, open = null; // open: { boardId, root, api, lastJson, timer, ready }
+  var libraryLoading = null, open = null; // open: { boardId, root, api, lastJson, timer, ready, openingJson, saved, saving, discarded }
+  var TOOL_KEY = 'ft.whiteboard.tool';
+  // Excalidraw tool types, with the key that picks each one (used if setActiveTool is missing).
+  var TOOLS = [['', 'None', ''], ['selection', 'Selection', '1'], ['rectangle', 'Rectangle', '2'], ['diamond', 'Diamond', '3'],
+    ['ellipse', 'Ellipse', '4'], ['arrow', 'Arrow', '5'], ['line', 'Line', '6'], ['freedraw', 'Draw', '7'], ['text', 'Text', '8'],
+    ['eraser', 'Eraser', '0'], ['hand', 'Hand', 'h']];
 
   function boardsOf(projectId) {
     return (FT.store.whiteboard || []).filter(function (w) { return w.project_id === projectId; })
@@ -86,20 +95,22 @@
     return lib.serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), 'local');
   }
 
-  /** Save if the drawing changed since the last save. Resolves when done. */
+  /** Save if the drawing changed since the last save. Resolves when done. Never after "Close without saving". */
   function save() {
-    if (!open || !open.api) return Promise.resolve();
+    if (!open || !open.api || open.discarded) return Promise.resolve();
     clearTimeout(open.timer);
     var current = open, json = sceneJson();
     if (json === current.lastJson) return Promise.resolve();
     status('Saving…');
-    return FT.rpc('whiteboard', 'save', { id: current.boardId, json: json }, { render: false, quiet: true })
-      .then(function () { current.lastJson = json; if (open === current) status('Saved'); })
-      .catch(function (e) { if (open === current) status('Not saved: ' + e.message); throw e; });
+    current.saved = true; // from here Drive may hold changes, so closing without saving has to put the old version back
+    current.saving = FT.rpc('whiteboard', 'save', { id: current.boardId, json: json }, { render: false, quiet: true })
+      .then(function () { current.lastJson = json; if (open === current && !current.discarded) status('Saved'); })
+      .catch(function (e) { if (open === current && !current.discarded) status('Not saved: ' + e.message); throw e; });
+    return current.saving;
   }
 
   function scheduleSave() {
-    if (!open || !open.ready) return;
+    if (!open || !open.ready || open.discarded) return;
     // Excalidraw reports every view change (cursor, zoom, selection) here; save() only writes when the drawing changed.
     clearTimeout(open.timer);
     open.timer = setTimeout(function () { save().catch(function () {}); }, SAVE_DELAY_MS);
@@ -110,8 +121,10 @@
     shell.className = 'wbshell'; shell.id = 'wb-shell';
     shell.setAttribute('role', 'dialog'); shell.setAttribute('aria-label', 'Whiteboard: ' + title);
     shell.innerHTML = '<div class="wbbar"><h2>' + FT.esc(title) + '</h2><span class="wbstatus" id="wb-status" aria-live="polite">Loading…</span>' +
+      '<button class="btn sm" data-act="whiteboard.discard">Close without saving</button>' +
       '<button class="btn sm primary" data-act="whiteboard.close">Save and close</button></div><div class="wbcanvas" id="wb-canvas"></div>';
     document.body.appendChild(shell);
+    document.body.classList.add('wb-open');
     return document.getElementById('wb-canvas');
   }
 
@@ -133,13 +146,50 @@
       open.lastJson = sceneJson();
       open.ready = true;
       status(scene.elements.length ? 'Saved' : 'New drawing');
+      pickFavouriteTool(open.api);
     }, 800);
   }
+
+  function favouriteTool() {
+    var t; try { t = localStorage.getItem(TOOL_KEY) || ''; } catch (e) { t = ''; }
+    return TOOLS.some(function (x) { return x[0] === t; }) ? t : '';
+  }
+
+  /** Select the favourite tool from Settings. Older Excalidraw builds without setActiveTool get the tool's key instead. */
+  function pickFavouriteTool(api) {
+    var type = favouriteTool(), tool = TOOLS.filter(function (x) { return x[0] === type; })[0];
+    if (!type) return;
+    if (api.setActiveTool) { api.setActiveTool({ type: type }); return; }
+    var key = tool[2], code = /\d/.test(key) ? 'Digit' + key : 'Key' + key.toUpperCase();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: key, code: code, bubbles: true }));
+  }
+
+  /**
+   * The Settings section for whiteboards: html() and onOpen() to wire it. The tool is kept in this browser and applies at once.
+   * Settings calls it directly for now; it can move to FT.settings.add({ id, order, html, onOpen }) once that exists.
+   */
+  FT.whiteboardSettings = {
+    html: function () {
+      var current = favouriteTool();
+      return '<label for="dlg-wbtool">Whiteboard: favourite tool</label><div class="settingrow"><span style="color:var(--muted)">Selected when a whiteboard opens, on this device.</span>' +
+        '<select id="dlg-wbtool">' + TOOLS.map(function (t) {
+          return '<option value="' + t[0] + '"' + (t[0] === current ? ' selected' : '') + '>' + t[1] + '</option>';
+        }).join('') + '</select></div>';
+    },
+    onOpen: function () {
+      var select = document.getElementById('dlg-wbtool');
+      if (!select) return;
+      select.addEventListener('change', function () {
+        try { if (select.value) localStorage.setItem(TOOL_KEY, select.value); else localStorage.removeItem(TOOL_KEY); } catch (e) {}
+      });
+    }
+  };
 
   function closeShell() {
     if (open && open.root) open.root.unmount();
     var shell = document.getElementById('wb-shell');
     if (shell) shell.remove();
+    document.body.classList.remove('wb-open');
     open = null;
     FT.render();
   }
@@ -150,7 +200,7 @@
     open = { boardId: board.id, ready: false };
     var canvas = showShell((project ? project.name + ': ' : '') + board.name), mine = open;
     Promise.all([loadLibrary(), FT.rpc('whiteboard', 'get', { id: board.id }, { render: false, quiet: true })])
-      .then(function (results) { if (open === mine) mount(canvas, results[1].json); })
+      .then(function (results) { if (open === mine) { mine.openingJson = results[1].json; mount(canvas, results[1].json); } })
       .catch(function (e) {
         if (open !== mine) return;
         canvas.innerHTML = '<p class="wbmsg">' + FT.esc(e.message) + '</p>';
@@ -209,6 +259,39 @@
     var btn = document.querySelector('[data-act="whiteboard.close"]');
     if (btn) btn.disabled = true;
     save().then(closeShell).catch(function () { if (btn) btn.disabled = false; FT.toast('The drawing was not saved. Try again, or close the tab to discard the changes.', 'error'); });
+  });
+
+  /** Close without saving: drawn changes are thrown away (after asking), and Drive gets back the version from when it opened. */
+  function hasChanges(current) {
+    return current.saved || !!(current.ready && current.api && sceneJson() !== current.lastJson);
+  }
+
+  function discard(current) {
+    current.discarded = true; // no autosave or pagehide save from here on
+    clearTimeout(current.timer);
+    var writing = Promise.resolve(current.saving).catch(function () {}).then(function () {
+      if (!current.saved) return;
+      status('Putting back the old version…');
+      return FT.rpc('whiteboard', 'save', { id: current.boardId, json: current.openingJson }, { render: false, quiet: true });
+    });
+    return writing.then(function () { if (open === current) closeShell(); }, function (e) {
+      current.discarded = false;
+      if (open === current) status('Not put back: ' + e.message);
+      throw new Error('The old version could not be put back, so your changes are still saved. ' + FT.errorText(e));
+    });
+  }
+
+  FT.action('whiteboard.discard', function () {
+    var current = open;
+    if (!current) return;
+    if (!current.openingJson || !hasChanges(current)) { current.discarded = true; clearTimeout(current.timer); closeShell(); return; }
+    FT.dialog({
+      title: 'Close without saving',
+      body: '<p>Throw away the changes made since you opened this board?</p>',
+      submit: 'Throw away changes',
+      danger: true,
+      onSubmit: function () { if (open === current) return discard(current); }
+    });
   });
 
   // A closed or reloaded tab still saves what it can.

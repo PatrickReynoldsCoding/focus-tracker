@@ -725,6 +725,21 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
   });
 
+  await step('Settings keeps a favourite whiteboard tool on this device', async () => {
+    click($('#settingsBtn'));
+    const select = await waitFor(() => $('#dlg-wbtool'), 'whiteboard tool setting');
+    assert.strictEqual(select.value, '', 'none by default');
+    assert.ok(Array.from(select.options).some((o) => o.value === 'freedraw' && o.textContent === 'Draw'));
+    setVal(select, 'rectangle', 'change');
+    assert.strictEqual(w.localStorage.getItem('ft.whiteboard.tool'), 'rectangle');
+    click($('#dlg-submit'));
+    click($('#settingsBtn'));
+    assert.strictEqual((await waitFor(() => $('#dlg-wbtool'), 'reopened')).value, 'rectangle', 'shown again next time');
+    setVal($('#dlg-wbtool'), '', 'change');
+    assert.strictEqual(w.localStorage.getItem('ft.whiteboard.tool'), null);
+    click($('#dlg-submit'));
+  });
+
   await step('whiteboards: make two named boards, rename one, remove one with Undo', async () => {
     click(tab('Projects'));
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
@@ -736,8 +751,9 @@ async function waitFor(fn, label, ms = 3000) {
       await waitFor(() => !$('.dialog') && $$('.wblist .wbname').some((b) => b.textContent === name), name + ' listed');
       // Creating a board opens it from a setTimeout(0) once the server replies, so wait for the shell instead of checking once.
       const shell = await waitFor(() => $('#wb-shell'), 'whiteboard opened');
-      click(shell.querySelector('[data-act="whiteboard.close"]'));
-      await waitFor(() => !$('#wb-shell'), 'whiteboard closed');
+      // Nothing was drawn, so "Close without saving" closes without asking; "Save and close" for the other one.
+      click(shell.querySelector('[data-act="' + (name === 'Wiring' ? 'whiteboard.discard' : 'whiteboard.close') + '"]'));
+      await waitFor(() => !$('#wb-shell') && !$('.dialog'), 'whiteboard closed');
     }
     click($$('.wblist li').find((li) => li.textContent.includes('Wiring')).querySelector('[data-act="whiteboard.rename"]'));
     await waitFor(() => $('#dlg-boardname'), 'rename dialog');
