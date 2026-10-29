@@ -200,6 +200,7 @@ function resolveRef_(ref, o, look, forget) {
 
 /** A board with no columns gets one, so a card an assistant added has somewhere to go. Not recorded for undo. */
 function createTarget_(ref, o, name, forget) {
+  if (!tableCache_[tableCacheKey_(ref.table)] && !getSpreadsheet_().getSheetByName(ref.table)) return 'Open the app once, so it can make the ' + ref.table + ' tab.';
   var row = { id: newId_(), name: name, order: 1 };
   (ref.within || []).forEach(function (w) { row[w] = o[w] || ''; });
   appendRaw_(ref.table, row);
