@@ -132,14 +132,14 @@
   // ---------- the queue of changes made offline ----------
   // Calls that can wait: the screen has already been updated (or is updated here), the server only has to catch up.
   var QUEUEABLE = {
-    'kanban.addTask': 1, 'kanban.moveTask': 1, 'kanban.updateTask': 1, 'kanban.deleteTask': 1, 'kanban.addColumn': 1, 'kanban.renameColumn': 1,
+    'kanban.addTask': 1, 'kanban.moveTask': 1, 'kanban.updateTask': 1, 'kanban.deleteTask': 1, 'kanban.addColumn': 1, 'kanban.renameColumn': 1, 'kanban.moveColumn': 1,
     'criteria.add': 1, 'criteria.update': 1, 'criteria.remove': 1,
     'stickies.add': 1, 'stickies.update': 1, 'stickies.remove': 1,
     'lists.rename': 1, 'lists.setColor': 1, 'lists.showToday': 1, 'lists.setDisplay': 1,
     'notes.save': 1, 'projects.update': 1
   };
   // Of those, the ones where a newer call to the same row replaces an older one still waiting right behind it.
-  var MERGEABLE = /\.(update|updateTask|moveTask|rename|renameColumn|save|setColor|showToday|setDisplay)$/;
+  var MERGEABLE = /\.(update|updateTask|moveTask|rename|renameColumn|moveColumn|save|setColor|showToday|setDisplay)$/;
 
   function canQueue(key, args) {
     if (!QUEUEABLE[key]) return false;

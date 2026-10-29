@@ -25,6 +25,21 @@
 .phead h2 { font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
 .pfilters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; align-items: center; }
 @media (max-width: 640px) { .pfilters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .pfilters input { grid-column: 1 / -1; } }
+/* Status filter: a button that opens a short list of checkboxes, so several statuses can be shown at once. */
+.msel { position: relative; min-width: 0; }
+.mselbtn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; }
+.mselbtn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mselbtn[aria-expanded="true"] { border-color: var(--accent); }
+.mselpop { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 100%; display: grid; gap: 2px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); }
+.mselpop label { display: flex; align-items: center; gap: 10px; margin: 0; padding: 7px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; color: var(--ink); }
+.mselpop label:hover { background: var(--surface-2); }
+.mselpop input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+@media (max-width: 760px) { .mselbtn { min-height: 44px; font-size: 16px; } .mselpop label { min-height: 44px; font-size: 16px; } .mselpop input { width: 22px; height: 22px; } }
+:root[data-theme="eink"] .mselbtn { border: 2px solid #000; background: #fff; color: #000; min-height: 44px; border-radius: 6px; }
+:root[data-theme="eink"] .mselpop { border: 3px solid #000; background: #fff; }
+:root[data-theme="eink"] .mselpop label { min-height: 44px; color: #000; }
+:root[data-theme="eink"] .mselpop label:hover { background: #fff; }
+:root[data-theme="eink"] .mselpop label:has(input:checked) { font-weight: 700; }
 .sortbtn { border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .sortbtn:hover { color: var(--ink); }
 .sortbtn .arrow { display: inline-block; width: 1em; }
@@ -48,8 +63,25 @@
     next_action: function (p) { return p.next_action.toLowerCase(); },
     last_touched: function (p) { return p.last_touched; }
   };
-  // view.sort null keeps the default order: active first, then longest untouched.
-  var view = { sort: null, desc: false, category: '', status: '', text: '' };
+  // view.sort null keeps the default order: active first, then longest untouched. view.status: the statuses shown, none for all.
+  var view = { sort: null, desc: false, category: '', status: [], statusOpen: false, text: '' };
+
+  // The chosen statuses are remembered in this browser, per mode, and read again when the mode changes.
+  var statusMode = null;
+  function statusKey() { return 'ft.projects.status.' + FT.state.mode; }
+  function loadStatus() {
+    if (statusMode === FT.state.mode) return;
+    statusMode = FT.state.mode; view.statusOpen = false;
+    var saved = [];
+    try { saved = JSON.parse(localStorage.getItem(statusKey()) || '[]'); } catch (e) {}
+    view.status = STATUSES.filter(function (s) { return Array.isArray(saved) && saved.indexOf(s) !== -1; });
+  }
+  function saveStatus() {
+    try {
+      if (view.status.length) localStorage.setItem(statusKey(), JSON.stringify(view.status));
+      else localStorage.removeItem(statusKey());
+    } catch (e) {}
+  }
 
   function defaultOrder(a, b) {
     return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
@@ -63,24 +95,34 @@
 
   function matchesFilters(p) {
     if (view.category && p.category !== view.category) return false;
-    if (view.status && p.status !== view.status) return false;
+    if (view.status.length && view.status.indexOf(p.status) === -1) return false;
     var text = view.text.trim().toLowerCase();
     return !text || (p.name + ' ' + p.next_action).toLowerCase().indexOf(text) !== -1;
   }
 
-  function isFiltered() { return !!(view.category || view.status || view.text.trim()); }
+  function isFiltered() { return !!(view.category || view.status.length || view.text.trim()); }
+
+  function statusLabel() {
+    if (!view.status.length || view.status.length === STATUSES.length) return 'All statuses';
+    return view.status.join(', ');
+  }
+
+  function statusHtml() {
+    return '<div class="msel"><button type="button" class="mselbtn" id="pj-status" aria-haspopup="true" aria-expanded="' + view.statusOpen + '" aria-controls="pj-status-pop" data-act="projects.statusOpen"' +
+      ' aria-label="Filter by status: ' + statusLabel() + '"><span>' + statusLabel() + '</span><span aria-hidden="true">▾</span></button>' +
+      (view.statusOpen ? '<div class="mselpop" id="pj-status-pop" role="group" aria-label="Statuses to show">' + STATUSES.map(function (s) {
+        return '<label><input type="checkbox" value="' + s + '" data-change="projects.statusFilter"' + (view.status.indexOf(s) !== -1 ? ' checked' : '') + '>' + s + '</label>';
+      }).join('') + '</div>' : '') + '</div>';
+  }
 
   function filtersHtml() {
     var categories = '<option value="">All categories</option>' + FT.categories().map(function (c) {
       return '<option value="' + FT.esc(c.id) + '"' + (c.id === view.category ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
     }).join('');
-    var statuses = '<option value="">All statuses</option>' + STATUSES.map(function (s) {
-      return '<option value="' + s + '"' + (s === view.status ? ' selected' : '') + '>' + s + '</option>';
-    }).join('');
     return '<div class="pfilters">' +
       '<input type="text" id="pj-text" placeholder="Search name or next action" aria-label="Search projects" value="' + FT.esc(view.text) + '" data-input="projects.text">' +
       '<select id="pj-category" aria-label="Filter by category" data-change="projects.category">' + categories + '</select>' +
-      '<select id="pj-status" aria-label="Filter by status" data-change="projects.statusFilter">' + statuses + '</select>' +
+      statusHtml() +
       '<button class="btn sm" data-act="projects.clear"' + (isFiltered() ? '' : ' disabled') + '>Clear</button></div>';
   }
 
@@ -94,6 +136,7 @@
   }
 
   function tabHtml() {
+    loadStatus();
     var all = FT.store.projects || [];
     var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
@@ -189,8 +232,32 @@
   });
   FT.on('input', 'projects.text', function (el) { view.text = el.value; renderKeepingSearchFocus(el); });
   FT.on('change', 'projects.category', function (el) { view.category = el.value; FT.render(); });
-  FT.on('change', 'projects.statusFilter', function (el) { view.status = el.value; FT.render(); });
-  FT.action('projects.clear', function () { view.category = ''; view.status = ''; view.text = ''; FT.render(); });
+
+  /** The status list stays open while boxes are ticked; a click elsewhere or Escape closes it. */
+  FT.action('projects.statusOpen', function () {
+    view.statusOpen = !view.statusOpen;
+    FT.render();
+    var first = view.statusOpen && document.querySelector('#pj-status-pop input');
+    if (first) first.focus();
+  });
+  FT.on('change', 'projects.statusFilter', function (el) {
+    var picked = Array.prototype.filter.call(document.querySelectorAll('#pj-status-pop input'), function (b) { return b.checked; });
+    view.status = picked.map(function (b) { return b.value; });
+    saveStatus();
+    FT.render();
+    var again = document.querySelector('#pj-status-pop input[value="' + el.value + '"]');
+    if (again) again.focus();
+  });
+  function closeStatus(focusButton) {
+    if (!view.statusOpen) return;
+    view.statusOpen = false;
+    FT.render();
+    var btn = focusButton && document.getElementById('pj-status');
+    if (btn) btn.focus();
+  }
+  document.addEventListener('click', function (e) { if (view.statusOpen && !(e.target.closest && e.target.closest('.msel'))) closeStatus(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && view.statusOpen) closeStatus(true); });
+  FT.action('projects.clear', function () { view.category = ''; view.status = []; view.statusOpen = false; view.text = ''; saveStatus(); FT.render(); });
 
   FT.action('projects.add', function () {
     FT.dialog({
