@@ -24,8 +24,8 @@ function notesModule() {
     api: {
       get: function (a) {
         var row = rowFor_(a.projectId);
-        if (!row) return { text: '', url: '' };
-        return { text: DriveApp.getFileById(row.file_id).getBlob().getDataAsString(), url: row.file_url };
+        if (!row) return { text: '', url: '', updated: '' };
+        return { text: DriveApp.getFileById(row.file_id).getBlob().getDataAsString(), url: row.file_url, updated: row.updated };
       },
 
       save: function (a, ctx) {
@@ -35,23 +35,27 @@ function notesModule() {
         var project = ctx.call('projects', 'list', {}).filter(function (p) { return p.id === a.projectId; })[0];
         if (row) {
           var existing = DriveApp.getFileById(row.file_id);
-          // Notes saved after waiting offline carry the version the browser last saw (_base) and when it was edited (_editedAt).
-          // If the file changed since, the newest edit wins and the older text is kept as a conflict copy next to it.
+          // Saves carry the version the browser's text builds on (_base) and when it was edited (_editedAt). If the file
+          // changed since (another device, or a page that never loaded it), the newest edit wins and the older text is kept
+          // as a conflict copy next to it. The same text is no conflict.
           if (a._base !== undefined && row.updated && row.updated !== String(a._base)) {
+            var current = existing.getBlob().getDataAsString();
+            if (current === text) return { url: row.file_url, updated: row.updated };
             var serverNewer = timeOf_(row.updated) >= timeOf_(a._editedAt);
             var stamp = nowIso_().slice(0, 16).replace(/[-:T]/g, '');
             var copyName = slug_(project ? project.name : 'project') + '-' + a.projectId + '-conflict-' + stamp + '.md';
-            var copy = getSubfolder_('Notes').createFile(copyName, serverNewer ? text : existing.getBlob().getDataAsString(), 'text/markdown');
+            var copy = getSubfolder_('Notes').createFile(copyName, serverNewer ? text : current, 'text/markdown');
             reportConflict_({ what: 'notes', kept: serverNewer ? 'server' : 'yours', copyUrl: copy.getUrl() });
             ctx.optional('log', 'conflict', { projectId: a.projectId, text: 'Conflict: the notes were changed on another device. ' +
-              (serverNewer ? 'The newer notes were kept; your offline text' : 'Your offline text was newer and replaced them; the other text') +
+              (serverNewer ? 'The newer notes were kept; your text' : 'Your text was newer and replaced them; the other text') +
               ' is saved as ' + copyName + ' in the Notes folder.' });
-            if (serverNewer) return { url: row.file_url, updated: row.updated };
+            var conflict = { kept: serverNewer ? 'server' : 'yours', copyName: copyName };
+            if (serverNewer) return { url: row.file_url, updated: row.updated, text: current, conflict: conflict };
           }
           existing.setContent(text);
           var stampNow = nowIso_();
           T.update(row.id, { updated: stampNow });
-          return { url: row.file_url, updated: stampNow };
+          return conflict ? { url: row.file_url, updated: stampNow, conflict: conflict } : { url: row.file_url, updated: stampNow };
         }
         assert_(project, 'Project not found.');
         var file = getSubfolder_('Notes').createFile(slug_(project.name) + '-' + project.id + '.md', text, 'text/markdown');

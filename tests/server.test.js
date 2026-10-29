@@ -309,7 +309,7 @@ test('kanban: add, move, rename and delete columns without losing tasks', () => 
 test('notes are stored as a markdown file and read back', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'My Project!', category: 'coding' }).result;
-  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { text: '', url: '' });
+  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { text: '', url: '', updated: '' });
   const saved = s.call('notes', 'save', { projectId: p.id, text: '# hello' }).result;
   assert.ok(saved.url);
   s.call('notes', 'save', { projectId: p.id, text: '# hello again' });
@@ -319,6 +319,16 @@ test('notes are stored as a markdown file and read back', () => {
   assert.ok(/^my-project-[0-9a-f]{8}\.md$/.test(file.name), file.name);
   assert.strictEqual(file.mime, 'text/markdown');
   assert.strictEqual(mdFiles.length, 1, 'second save updates the same file');
+  // A save that builds on an older version (a page left open elsewhere) keeps both texts; the same text is no conflict
+  const v = s.call('notes', 'get', { projectId: p.id }).result.updated;
+  assert.deepStrictEqual(s.call('notes', 'save', { projectId: p.id, text: '# hello again', _base: 'older', _editedAt: new Date().toISOString() }).result.conflict, undefined);
+  const clash = s.call('notes', 'save', { projectId: p.id, text: '# from the old tab', _base: 'older', _editedAt: new Date(Date.parse(v) + 1000).toISOString() }).result;
+  assert.strictEqual(clash.conflict.kept, 'yours');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# from the old tab');
+  assert.ok(Object.values(s.drive.files).some((f) => f.name === clash.conflict.copyName && f.content === '# hello again'), 'the replaced text is kept as a copy');
+  const late = s.call('notes', 'save', { projectId: p.id, text: '# edited long ago', _base: 'older', _editedAt: '2020-01-01T00:00:00.000Z' }).result;
+  assert.strictEqual(late.conflict.kept, 'server');
+  assert.strictEqual(late.text, '# from the old tab', 'the browser is sent the text that was kept');
   assert.strictEqual(s.drive.pathOf(file), 'Focus Tracker/Personal/Notes/' + file.name);
 });
 

@@ -293,6 +293,12 @@
     if (!t) return;
     var host = el.closest('[data-owner]'), word = (host && host.dataset.word) || 'column';
     var columns = board(t.project_id).cols.map(function (c) { return { value: c.id, label: c.name }; });
+    var opened = '';
+    function cardState() {
+      var title = document.getElementById('dlg-cardtitle'), note = document.getElementById('dlg-note'), col = document.getElementById('dlg-cardcolumn');
+      var picked = document.querySelector('input[name="dlg-color"]:checked');
+      return [title && title.value, note && note.innerHTML, col && col.value, picked && picked.value].join('\u0000');
+    }
     FT.dialog({
       title: 'Card',
       wide: true,
@@ -303,7 +309,9 @@
       after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
         '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>' +
         '<div class="hint" style="background:none;padding:4px 0 0">Type <b>- </b> for a list, <b># </b>, <b>## </b> or <b>### </b> for a heading, **bold** or _italic_ and they format as you go. Web addresses become links when you save.</div>',
-      onOpen: wireToolbar,
+      onOpen: function () { wireToolbar(); opened = cardState(); },
+      // A tap outside the dialog or Esc would throw away what was typed: the dialog asks first.
+      isDirty: function () { return cardState() !== opened; },
       onSubmit: function (v) {
         assert(v.cardtitle, 'A card needs a title.');
         var picked = document.querySelector('input[name="dlg-color"]:checked');

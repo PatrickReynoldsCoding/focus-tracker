@@ -18,11 +18,18 @@
 <script>
 (function () {
   var cache = {};        // projectId -> markdown text, once loaded
+  var loaded = {};       // projectId -> the file version (its `updated`) the text in cache builds on; '' when there was no file
+  var edited = {};       // projectId -> when the text was last changed here
+  var modeOf = {};       // projectId -> the mode the notes belong to, so a save after a mode switch still goes to the right sheet
   var timers = {};       // projectId -> debounce timer
   var dirty = {};        // projectId -> true while there are unsaved edits
+  var saving = {};       // projectId -> true while a save is on its way (the next one waits for its version)
+  var failures = {};     // projectId -> failed saves in a row, for the retry delay
+  var loads = {};        // projectId -> number of the newest load, so an older reply is ignored
   var fullOpen = false;  // the phone's full screen editor is open
   var fullEntry = false; // ...and it added a browser history entry, so the phone's back button closes it
   var narrow = window.matchMedia('(max-width: 760px)');
+  var RETRY_MS = [2000, 5000, 15000, 30000, 60000];
 
   // The toolbar edits what the markdown file can hold: bold, italic, headings, lists and quotes.
   var TOOLS = [
@@ -33,9 +40,21 @@
     ['formatBlock', 'blockquote', '❝', 'Quote']
   ];
 
+  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
   function noteRow(projectId) {
     return (FT.store.notes || []).filter(function (n) { return n.project_id === projectId; })[0] || null;
   }
+
+  // ---------- drafts: what was typed is kept on this device until the server has it, so closing the page loses nothing ----------
+  function draftKey(projectId) { return 'ft.draft.notes.' + (modeOf[projectId] || FT.state.mode) + '.' + projectId; }
+  function keepDraft(projectId) {
+    try { localStorage.setItem(draftKey(projectId), JSON.stringify({ text: cache[projectId], base: loaded[projectId], at: edited[projectId] })); } catch (e) {}
+  }
+  function readDraft(projectId) {
+    try { return JSON.parse(localStorage.getItem(draftKey(projectId)) || 'null'); } catch (e) { return null; }
+  }
+  function dropDraft(projectId) { try { localStorage.removeItem(draftKey(projectId)); } catch (e) {} }
 
   function toolbarHtml() {
     return '<div class="rtbar" id="nt-bar" role="toolbar" aria-label="Text formatting">' + TOOLS.map(function (t) {
@@ -45,44 +64,119 @@
 
   function panel(p) {
     var row = noteRow(p.id);
-    var loaded = Object.prototype.hasOwnProperty.call(cache, p.id) || !row;
+    var ready = has(cache, p.id) || !row;
     return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel"><div class="label">Notes</div>' +
       '<div class="notes-top">' + toolbarHtml() + '<button class="btn primary notes-done" type="button" data-act="notes.done">Done</button></div>' +
-      '<div class="rtedit notes-edit" id="nt-text" contenteditable="' + (loaded ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes" data-placeholder="' + (loaded ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '">' + FT.mdToHtml(cache[p.id] || '') + '</div>' +
+      '<div class="rtedit notes-edit" id="nt-text" contenteditable="' + (ready ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes" data-placeholder="' + (ready ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '">' + FT.mdToHtml(cache[p.id] || '') + '</div>' +
       '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
   }
 
-  function status(text) { var el = document.getElementById('nt-status'); if (el) el.textContent = text; }
+  function status(projectId, text) {
+    var el = document.getElementById('nt-status');
+    if (el && FT.state.projectId === projectId) el.textContent = text;
+  }
 
+  /** Put the cached text in the editor, if that project's notes are on screen and nothing is being typed there. */
+  function show(projectId) {
+    var el = document.getElementById('nt-text');
+    if (!el || FT.state.projectId !== projectId) return;
+    el.innerHTML = FT.mdToHtml(cache[projectId] || ''); el.setAttribute('contenteditable', 'true');
+    el.dataset.placeholder = 'Ideas, decisions, links. Saved as a markdown file in Drive.';
+  }
+
+  /** The version this browser now holds, kept on the notes row too (the offline queue checks against it). */
+  function holdVersion(projectId, r) {
+    loaded[projectId] = r.updated || '';
+    var row = noteRow(projectId);
+    if (row) row.updated = r.updated;
+    else if (r.url) {
+      FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: r.updated }]);
+      var link = document.getElementById('nt-link');
+      if (link && FT.state.projectId === projectId) { link.href = r.url; link.hidden = false; }
+    }
+  }
+
+  function retryLater(projectId) {
+    clearTimeout(timers[projectId]);
+    timers[projectId] = setTimeout(function () { save(projectId); }, RETRY_MS[Math.min(failures[projectId] - 1, RETRY_MS.length - 1)]);
+  }
+
+  /**
+   * Send the notes. One save per project at a time: each carries the version it builds on (_base), so a page left open on
+   * another device cannot write old notes over newer ones (the server keeps both, see notes/server.js). A failed save
+   * says so and tries again; the draft stays on the device until the server has the text.
+   */
   function save(projectId) {
     clearTimeout(timers[projectId]);
-    if (!dirty[projectId]) return;
-    dirty[projectId] = false;
-    status('Saving…');
-    FT.rpc('notes', 'save', { projectId: projectId, text: cache[projectId] || '' }, { render: false, quiet: true })
+    if (!dirty[projectId] || saving[projectId]) return;
+    var text = cache[projectId] || '';
+    dirty[projectId] = false; saving[projectId] = true;
+    status(projectId, 'Saving…');
+    var args = { projectId: projectId, text: text, _base: has(loaded, projectId) ? loaded[projectId] : '', _editedAt: edited[projectId] || new Date().toISOString() };
+    FT.rpc('notes', 'save', args, { render: false, quiet: true, mode: modeOf[projectId] })
       .then(function (r) {
-        if (!noteRow(projectId) && r && r.url) {
-          FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: new Date().toISOString() }]);
-          var link = document.getElementById('nt-link');
-          if (link && FT.state.projectId === projectId) { link.href = r.url; link.hidden = false; }
+        saving[projectId] = false; failures[projectId] = 0;
+        if (!r) { status(projectId, 'Saved on this device'); if (dirty[projectId]) save(projectId); return; } // waiting offline, sent later
+        holdVersion(projectId, r);
+        if (r.conflict) {
+          FT.toast('These notes were also changed on another device. Both are kept: ' + (r.conflict.kept === 'server' ? 'the newer text is shown, yours' : 'yours is shown, the other text') +
+            ' is saved as ' + r.conflict.copyName + ' in the Notes folder.', 'error');
+          if (r.conflict.kept === 'server' && !dirty[projectId]) { cache[projectId] = r.text || ''; show(projectId); }
         }
-        if (FT.state.projectId === projectId) status('Saved');
-      })
-      .catch(function (e) { dirty[projectId] = true; status('Could not save: ' + e.message); });
+        if (dirty[projectId]) { save(projectId); return; }
+        if (readDraft(projectId) && readDraft(projectId).text === text) dropDraft(projectId);
+        status(projectId, 'Saved');
+      }, function (e) {
+        saving[projectId] = false; dirty[projectId] = true;
+        failures[projectId] = (failures[projectId] || 0) + 1;
+        status(projectId, 'Not saved: ' + e.message);
+        if (failures[projectId] === 1 || failures[projectId] % 3 === 0) {
+          FT.toast('Notes not saved: ' + e.message + ' Trying again; the text is kept on this device.', 'error', { label: 'Retry now', run: function () { save(projectId); } });
+        }
+        retryLater(projectId);
+      });
+  }
+
+  /** Save every project's notes now, for example when the page is hidden or closing. */
+  function saveAll() { Object.keys(dirty).forEach(function (id) { if (dirty[id]) save(id); }); }
+  FT.onLeave(saveAll);
+
+  // A change that waited offline was sent later: the version it produced is the base for the next save.
+  document.addEventListener('ft:saved', function (e) {
+    var d = e.detail || {};
+    if (d.key !== 'notes.save' || !d.version) return;
+    var id = d.args.projectId;
+    loaded[id] = d.version;
+    if (!dirty[id] && !saving[id] && cache[id] === d.args.text) { dropDraft(id); status(id, 'Saved'); }
+  });
+
+  /**
+   * Load a project's notes. Also when they changed on the server since this page loaded them (fresh data from another
+   * device), unless something is being typed. A draft left on this device by a page that closed before saving is put back and saved.
+   */
+  function load(projectId) {
+    var seq = loads[projectId] = (loads[projectId] || 0) + 1;
+    modeOf[projectId] = modeOf[projectId] || FT.state.mode;
+    FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true, parallel: true }).then(function (r) {
+      if (seq !== loads[projectId] || dirty[projectId] || saving[projectId]) return; // a newer load, or typing: keep what is on screen
+      cache[projectId] = r.text || '';
+      loaded[projectId] = r.updated || '';
+      var draft = readDraft(projectId);
+      if (draft && draft.text !== cache[projectId]) {
+        cache[projectId] = draft.text; loaded[projectId] = draft.base || ''; edited[projectId] = draft.at; dirty[projectId] = true;
+      } else if (draft) dropDraft(projectId);
+      show(projectId);
+      if (dirty[projectId]) save(projectId);
+    }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
   }
 
   FT.module({
     id: 'notes',
     slots: { 'project.page': [{ id: 'notes', title: 'Notes', order: 20, span: 'half', render: panel }] },
     onProject: function (projectId) {
-      if (!noteRow(projectId) || Object.prototype.hasOwnProperty.call(cache, projectId)) return;
-      FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true }).then(function (r) {
-        cache[projectId] = r.text || '';
-        var el = document.getElementById('nt-text');
-        if (el && FT.state.projectId === projectId && !dirty[projectId]) {
-          el.innerHTML = FT.mdToHtml(cache[projectId]); el.setAttribute('contenteditable', 'true'); el.dataset.placeholder = 'Ideas, decisions, links. Saved as a markdown file in Drive.';
-        }
-      }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
+      var row = noteRow(projectId);
+      var stale = has(cache, projectId) && row && row.updated !== loaded[projectId];
+      if (!has(cache, projectId) || (stale && !dirty[projectId] && !saving[projectId])) load(projectId);
     }
   });
 
@@ -99,7 +193,9 @@
   document.addEventListener('input', function (e) {
     if (!e.target || e.target.id !== 'nt-text') return;
     var id = FT.state.projectId;
-    cache[id] = FT.htmlToMd(e.target); dirty[id] = true; status('Editing…');
+    modeOf[id] = modeOf[id] || FT.state.mode;
+    cache[id] = FT.htmlToMd(e.target); dirty[id] = true; edited[id] = new Date().toISOString();
+    keepDraft(id); status(id, 'Editing…');
     clearTimeout(timers[id]);
     timers[id] = setTimeout(function () { save(id); }, 1200);
   });

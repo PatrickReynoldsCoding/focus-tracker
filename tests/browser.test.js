@@ -196,6 +196,31 @@ async function run(browser, size) {
   assert.deepStrictEqual(hidden, [], 'a new sticky note landed on top of: ' + hidden.join(', '));
   log('A new sticky note does not land on the project buttons');
 
+  // ---------- 6: typed notes are never lost ----------
+  // Type, make a heading inside a list item (the converter used to drop that text), press Done or move on, and reload
+  // before any save could reach the server (they are refused meanwhile). The text must come back and reach the server.
+  await pg.evaluate(() => document.querySelectorAll('.sticky').forEach((n) => n.remove())); // the notes float over the editor
+  const notesId = await projectId();
+  const unfailNotes = env.failWhere((name, args) => name === 'rpc' && args[0] === 'notes' && args[1] === 'save');
+  env.latency = LATENCY;
+  await pg.click('#nt-text');
+  await pg.keyboard.press('Control+End');
+  await pg.keyboard.press('Enter');
+  await pg.keyboard.type('Kept after a quick reload');
+  await pg.keyboard.press('Enter');
+  await pg.keyboard.type('- a list item that becomes a heading');
+  await pg.click('#nt-bar button[data-val="h2"]');
+  if (size.mobile) await pg.click('.notes-done');
+  await pg.reload();
+  unfailNotes();
+  await pg.waitForSelector('#nt-text[contenteditable="true"]', { timeout: 15000 });
+  const notesText = () => env.server.run('rpc')('notes', 'get', { projectId: notesId }, null).result.text;
+  for (let t0 = Date.now(); !/Kept after a quick reload[\s\S]*a list item that becomes a heading/.test(notesText()); await sleep(100)) {
+    assert.ok(Date.now() - t0 < 15000, '[' + size.name + '] the notes typed before the reload never reached the server: ' + JSON.stringify(notesText()));
+  }
+  assert.ok((await pg.innerText('#nt-text')).includes('a list item that becomes a heading'), 'and they are in the editor');
+  log('Notes typed just before a reload come back and are saved, including a heading inside a list item');
+
   await ctx.close();
   await env.close();
   assert.deepStrictEqual(errors, [], 'page errors: ' + errors.join(' | '));

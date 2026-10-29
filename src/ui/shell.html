@@ -111,7 +111,7 @@ var FT = (function () {
    */
   FT.rpc = function (moduleId, fn, args, opts) {
     opts = opts || {};
-    var mode = FT.state.mode;
+    var mode = opts.mode || FT.state.mode; // opts.mode: a save that belongs to a mode the user has since switched away from
     // opts.raw: resolve with the whole reply (result, slices, version, conflicts). opts.noMerge: do not use the reply's slices.
     // opts.timeout (ms): give up waiting, so a call that never answers cannot hold up every later change.
     function send() {
@@ -158,9 +158,18 @@ var FT = (function () {
   /** How many changes are on their way to the server. */
   FT.pendingSaves = function () { return waiting; };
 
+  // Editors that save after a delay register here, so their text is sent when the page may be going away:
+  // hidden (another app, the phone locked), closed, or switching mode.
+  var leaveHooks = [];
+  FT.onLeave = function (fn) { leaveHooks.push(fn); };
+  FT.leaving = function () { leaveHooks.forEach(function (fn) { try { fn(); } catch (e) {} }); };
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') FT.leaving(); });
+  window.addEventListener('pagehide', FT.leaving);
+
   // Closing or reloading the tab while changes are still on their way would lose them, so the browser asks first.
   // (Changes the offline queue holds are kept on this device, so they do not count.)
   window.addEventListener('beforeunload', function (e) {
+    FT.leaving();
     if (waiting > 0) { e.preventDefault(); e.returnValue = ''; }
   });
 
@@ -288,7 +297,11 @@ var FT = (function () {
 
   // ---------- dialog ----------
   var dialogOpener = null;
+  var requestClose = null; // the open dialog's "close unless it would lose changes"
+  /** Close the open dialog the way a tap outside it or Esc does: dialogs with unsaved changes warn first. */
+  FT.requestCloseDialog = function () { if (requestClose) requestClose(); else FT.closeDialog(); };
   FT.closeDialog = function () {
+    requestClose = null;
     $('dialogRoot').innerHTML = '';
     document.body.classList.remove('dlg-open');
     var wrap = document.querySelector('.wrap');
@@ -333,9 +346,19 @@ var FT = (function () {
         .then(function () { FT.closeDialog(); })
         .catch(function (e) { btn.disabled = false; $('dlg-err').textContent = FT.errorText(e); });
     }
+    // opts.isDirty(): true when closing would lose changes. A tap outside or Esc then warns once; a second one discards.
+    var warned = false;
+    requestClose = function () {
+      if (!warned && opts.isDirty && opts.isDirty()) {
+        warned = true;
+        $('dlg-err').textContent = 'You have unsaved changes. Press ' + (opts.submit || 'Save') + ' to keep them, or tap outside again (or Esc) to discard them.';
+        return;
+      }
+      FT.closeDialog();
+    };
     $('dlg-submit').onclick = submit;
     if ($('dlg-cancel')) $('dlg-cancel').onclick = FT.closeDialog;
-    $('dlg-scrim').onclick = function (e) { if (e.target.id === 'dlg-scrim') FT.closeDialog(); };
+    $('dlg-scrim').onclick = function (e) { if (e.target.id === 'dlg-scrim') requestClose(); };
     $('dialogRoot').onkeydown = function (e) {
       if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submit(); }
       if (e.key === 'Tab') {
@@ -702,13 +725,17 @@ var FT = (function () {
 
   /** The rich editor's HTML back to markdown (what is stored in the notes file). Underline and colours have no markdown form and are dropped. */
   FT.htmlToMd = function (root) {
+    var BREAK = '\u0003'; // where a block sat inside inline content: a line break, or a space inside a list item or heading
+    function oneLine(t) { return t.replace(/[\u0003\n]+/g, ' ').replace(/ {2,}/g, ' ').trim(); }
     function esc(t) { return t.replace(/ /g, ' ').replace(/([\\*_`\[\]~])/g, '\\$1'); }
     function inline(node) {
       return Array.prototype.map.call(node.childNodes, function (n) {
         if (n.nodeType === 3) return esc(n.data);
         if (n.nodeType !== 1) return '';
-        var tag = n.tagName.toLowerCase(), inner = /^(ul|ol|div|p|h[1-6]|blockquote)$/.test(tag) ? '' : inline(n);
+        var tag = n.tagName.toLowerCase(), inner = inline(n);
         if (tag === 'br') return '\n';
+        // A block inside inline content (a heading or paragraph in a list item, a div in a span) keeps its text on its own line.
+        if (/^(ul|ol|li|div|p|h[1-6]|blockquote)$/.test(tag)) return BREAK + inner + BREAK;
         if (!inner.trim()) return inner;
         if (tag === 'b' || tag === 'strong') return '**' + inner + '**';
         if (tag === 'i' || tag === 'em') return '_' + inner + '_';
@@ -726,17 +753,20 @@ var FT = (function () {
           if (c.nodeType === 1 && /^(ul|ol)$/i.test(c.tagName)) nested.push(c); else own.appendChild(c.cloneNode(true));
         });
         n++;
-        lines.push(pad + (node.tagName.toLowerCase() === 'ol' ? n + '. ' : '- ') + inline(own).replace(/\n/g, ' ').trim());
+        lines.push(pad + (node.tagName.toLowerCase() === 'ol' ? n + '. ' : '- ') + oneLine(inline(own)));
         nested.forEach(function (c) { lines = lines.concat(list(c, depth + 1)); });
       });
       return lines;
     }
     function blocks(node) {
       var lines = [], buf = '';
-      function flush() { if (buf !== '') { lines = lines.concat(buf.replace(/\n+$/, '').split('\n')); buf = ''; } }
+      function flush() {
+        buf = buf.replace(/^\u0003+|\u0003+$/g, '').replace(/\u0003+/g, '\n');
+        if (buf !== '') { lines = lines.concat(buf.replace(/\n+$/, '').split('\n')); buf = ''; }
+      }
       Array.prototype.forEach.call(node.childNodes, function (n) {
         var tag = n.nodeType === 1 ? n.tagName.toLowerCase() : '';
-        if (/^h[1-6]$/.test(tag)) { flush(); lines.push(new Array(Number(tag.charAt(1)) + 1).join('#') + ' ' + inline(n).replace(/\n/g, ' ').trim()); }
+        if (/^h[1-6]$/.test(tag)) { flush(); lines.push(new Array(Number(tag.charAt(1)) + 1).join('#') + ' ' + oneLine(inline(n))); }
         else if (tag === 'ul' || tag === 'ol') { flush(); lines = lines.concat(list(n, 0)); }
         else if (tag === 'blockquote') { flush(); lines = lines.concat(blocks(n).map(function (l) { return '> ' + l; })); }
         else if (tag === 'div' || tag === 'p') {
@@ -966,6 +996,7 @@ var FT = (function () {
 
   FT.switchMode = function (mode) {
     if (mode === FT.state.mode) return;
+    FT.leaving(); // edits waiting on a timer are sent to the mode they were made in
     try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
     FT.state.mode = mode; FT.state.projectId = null; FT.state.editLayout = false; FT.ready = false;
     renderModeBar();
@@ -1141,7 +1172,7 @@ var FT = (function () {
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
-      if ($('dialogRoot').innerHTML) FT.closeDialog();
+      if ($('dialogRoot').innerHTML) FT.requestCloseDialog();
       else if (FT.state.editLayout) { FT.state.editLayout = false; FT.render(); }
     }
     // Clickable areas that are not buttons (they hold links, which may not sit inside a button) answer Enter and Space.

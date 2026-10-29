@@ -57,18 +57,30 @@
   function hidden() { try { return localStorage.getItem(HIDDEN_KEY) === '1'; } catch (e) { return false; } }
   function setHidden(on) { try { localStorage.setItem(HIDDEN_KEY, on ? '1' : '0'); } catch (e) {} }
 
-  function notesOf(projectId) { return (FT.store.stickies || []).filter(function (s) { return s.project_id === projectId; }); }
-  function byId(id) { return (FT.store.stickies || []).filter(function (s) { return s.id === id; })[0] || null; }
+  // Changes made here that the server has not confirmed yet. A reply to an earlier save brings the server's copy of the note,
+  // which can be older than what was typed since; these are laid over it so a redraw never puts older text back.
+  var unsent = {}; // noteId -> { field: value }
+  function current(s) { if (unsent[s.id]) Object.assign(s, unsent[s.id]); return s; }
+
+  function notesOf(projectId) { return (FT.store.stickies || []).filter(function (s) { return s.project_id === projectId; }).map(current); }
+  function byId(id) { var s = (FT.store.stickies || []).filter(function (s) { return s.id === id; })[0]; return s ? current(s) : null; }
 
   /** Save some fields of a note shortly after the last change, so typing or resizing is one save, not hundreds. */
   function saveSoon(note, fields) {
     var key = note.id + ':' + fields.join(',');
     if (timers[key]) clearTimeout(timers[key].id);
+    unsent[note.id] = unsent[note.id] || {};
+    fields.forEach(function (f) { unsent[note.id][f] = note[f]; });
     function run() {
       delete timers[key];
       var args = { id: note.id };
       fields.forEach(function (f) { args[f] = note[f]; });
-      FT.rpc('stickies', 'update', args, { render: false }).catch(FT.saveFailed);
+      FT.rpc('stickies', 'update', args, { render: false }).then(function () {
+        var u = unsent[note.id];
+        if (!u) return;
+        fields.forEach(function (f) { if (u[f] === args[f]) delete u[f]; });
+        if (!Object.keys(u).length) delete unsent[note.id];
+      }, function (e) { delete unsent[note.id]; FT.saveFailed(e); });
     }
     timers[key] = { id: setTimeout(run, SAVE_DELAY_MS), run: run };
   }
@@ -77,10 +89,11 @@
   function saveWaiting() {
     Object.keys(timers).forEach(function (key) { clearTimeout(timers[key].id); timers[key].run(); });
   }
-  window.addEventListener('pagehide', saveWaiting);
+  FT.onLeave(saveWaiting);
 
   /** Drop the waiting saves of a deleted note. */
   function forget(noteId) {
+    delete unsent[noteId];
     Object.keys(timers).forEach(function (key) {
       if (key.indexOf(noteId + ':') === 0) { clearTimeout(timers[key].id); delete timers[key]; }
     });

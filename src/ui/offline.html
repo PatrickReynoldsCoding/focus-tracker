@@ -166,7 +166,10 @@
     if (key === 'projects.update') { row = FT.project(a.id); return row ? row.updated_at || '' : undefined; }
     if (key === 'kanban.updateTask' || key === 'kanban.moveTask') { row = find((s.kanban || {}).tasks, function (t) { return t.id === a.id; }); return row ? row.updated_at || '' : undefined; }
     if (key === 'criteria.update') { row = find(s.criteria, function (c) { return c.id === a.id; }); return row ? row.updated_at || '' : undefined; }
-    if (key === 'notes.save') { row = find(s.notes, function (n) { return n.project_id === a.projectId; }); return row ? row.updated || '' : undefined; }
+    if (key === 'notes.save') {
+      if (a._base !== undefined) return a._base; // the notes editor says which version its text builds on
+      row = find(s.notes, function (n) { return n.project_id === a.projectId; }); return row ? row.updated || '' : undefined;
+    }
     return undefined;
   }
 
@@ -245,6 +248,11 @@
     return Promise.resolve();
   }
 
+  /** Tell the page a change that waited here reached the server, with the row's new version (the notes editor builds on it). */
+  function saved(key, args, version) {
+    try { document.dispatchEvent(new CustomEvent('ft:saved', { detail: { key: key, args: args, version: version } })); } catch (e) {}
+  }
+
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
   function pump() {
@@ -261,6 +269,7 @@
         down = false; sent++;
         st.list.shift();
         chain(st.list, e, res && res.version);
+        saved(e.m + '.' + e.f, e.a, res && res.version);
         ((res && res.conflicts) || []).forEach(function (c) { conflicts.push(c); });
         persist(st); showStatus();
         return step();

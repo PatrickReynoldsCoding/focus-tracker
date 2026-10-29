@@ -163,6 +163,16 @@ Three read-only reviews (phone and dialogs; dark, E-ink and Work themes; desktop
 - Tests: `tests/browser.test.js` (in `npm test`, skips without Chrome) at 1280 px and phone size with a 900 ms server: every listed button must show something within 300 ms, the change must reach the server, a refused save must roll back with the reason, a hung call must not stop buttons responding, nothing may cover the visible controls, and a new sticky note must not land on the project buttons. `tests/support/devserver.js` serves the real page over the real server code with adjustable delay, held calls and refused calls. It was checked by putting the old Mark done behaviour back, which made it fail.
 - Not optimistic (they still wait, with the bar and the dot showing): the pomodoro button (the server works out the period), Finish session, Swap focus, and the dialogs' own Save buttons.
 
+### Lost notes text (done 2026-10-29, reported by Paddy: "text written in the notes editor, you press done and move on and it wasn't saved")
+- Reproduced in `tests/saving.test.js` (jsdom) and in real Chrome (`tests/browser.test.js` part 6, which failed on the old code). Causes found and fixed:
+  - Nothing was sent when the page was hidden or closed within the 1.2 s save delay. Now every keystroke keeps a draft on the device (`ft.draft.notes.<mode>.<project>`, localStorage), the next visit puts it back and saves it, and hiding or closing the page saves at once (`FT.onLeave`, also used by sticky notes and before a mode switch).
+  - A page left open on another device wrote its old notes over newer ones. Every save now carries the version it builds on; if the file changed since, the newer edit wins and the other text is kept as a conflict copy in the Notes folder, with a message and a Log line. The same text is not a conflict. A page whose data had no notes row for the project loads the file before its text can replace it.
+  - Failed saves were silent and never retried. Now an error message with "Retry now", automatic retries (2 s, 5 s, 15 s, 30 s, then every minute), and the draft stays on the device.
+  - `FT.htmlToMd` dropped text inside list items that held a heading or paragraph (Chrome makes that when H1/H2 is pressed in a list). It keeps the text now.
+  - A late notes load could replace text typed meanwhile; it is ignored while typing. Notes changed elsewhere are loaded again when the project opens.
+  - Other editors: the card dialog warns once before a tap outside or Esc throws away changes; a sticky note no longer goes back to older text when the reply to an earlier save arrives.
+- Not checked on Google's runtime or a real phone: whether a save started while the page is being hidden gets out (the draft covers it if not).
+
 ### Separate project: PR notifications (dropped 2026-10-28, not wanted)
 - Wanted: search work GitHub for his open PRs and notify him when someone comments, as a macOS notification on his work Mac.
 - Apps Script cannot show native macOS notifications. Recommendation: a small local tool on the work Mac using the `gh` CLI (already signed in) run by a scheduled job (launchd) that checks for new comments and calls the macOS notification command. This also keeps a work token out of his personal Google account.
