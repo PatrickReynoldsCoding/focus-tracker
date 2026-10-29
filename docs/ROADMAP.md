@@ -18,6 +18,8 @@ Paddy juggles several coding projects, job-search goals and house maintenance, a
 
 ## Requested changes, in the suggested order
 
+The current batch of requests (November 2026) is in `docs/SPEC-2026-11.md`, with its order of work.
+
 ### Batch 1: quick wins (done, 2026-10-28; tested with fakes only, not yet on Google's runtime)
 Decisions Paddy made while it was built:
 - Pomodoro breaks count as session time. Only Pause stops the session clock (and the pomodoro).
