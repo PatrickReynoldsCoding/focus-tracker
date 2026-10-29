@@ -5,7 +5,7 @@
  */
 
 function categoriesModule() {
-  var T = new Table('Categories', ['id', 'label', 'color', 'order'], ['order']);
+  var T = new Table('Categories', ['label', 'color', 'id', 'order'], ['order']);
   var COLORS = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
   function byOrder_(a, b) { return a.order - b.order; }

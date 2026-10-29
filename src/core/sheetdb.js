@@ -2,6 +2,8 @@
  * Tiny table layer over a Google Sheet tab. One tab per table, header row on row 1.
  * Every cell is stored as plain text, so dates stay as ISO strings and ids never turn into numbers.
  * Columns are matched by header name, so you can reorder columns or add your own by hand.
+ * How each tab looks and where it sits comes from TAB_STYLE (core/schema.js); rows typed by hand are completed and
+ * checked as they are read (core/complete.js).
  */
 
 // Spreadsheets opened during this request, by mode id. Opening one is slow and every table read needs it.
@@ -36,7 +38,7 @@ function openModeSpreadsheet_() {
 
 /**
  * @param {string} name     tab name
- * @param {string[]} headers column names; the first must be 'id'
+ * @param {string[]} headers column names, people columns first (docs/schema.md); one of them must be 'id'
  * @param {string[]=} numeric column names that hold numbers
  */
 function Table(name, headers, numeric) {
@@ -51,9 +53,10 @@ Table.prototype.ensure = function () {
   var sh = ss.getSheetByName(this.name);
   if (!sh) {
     sh = ss.insertSheet(this.name);
-    sh.getRange(1, 1, 1, this.headers.length).setValues([this.headers]).setFontWeight('bold');
-    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, this.headers.length).setValues([this.headers]);
     sh.getRange(2, 1, Math.max(sh.getMaxRows() - 1, 1), this.headers.length).setNumberFormat('@');
+    styleTab_(sh, this.headers);
+    placeTab_(ss, sh);
     return sh;
   }
   var lastCol = Math.max(sh.getLastColumn(), 1);
@@ -61,7 +64,10 @@ Table.prototype.ensure = function () {
   var missing = this.headers.filter(function (h) { return existing.indexOf(h) === -1; });
   if (missing.length) {
     var start = existing.filter(Boolean).length + 1;
-    sh.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    var added = sh.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    // Columns added later are app columns (people columns are in place from the start), so they get the grey header.
+    var spec = tabSpec_(this.name);
+    if (spec && (!spec.people || existing.indexOf('id') !== -1)) added.setBackground(APP_HEADER_BACKGROUND_).setFontColor(APP_HEADER_FONT_);
     sh.getRange(2, start, Math.max(sh.getMaxRows() - 1, 1), missing.length).setNumberFormat('@');
   }
   return sh;
@@ -87,14 +93,28 @@ Table.prototype.read_ = function (forWrite) {
     all = readAll_(sh);
   }
   tableCache_[key] = { sh: sh, headers: all[0], rows: all.slice(1), fresh: !!forWrite };
+  completeRows_(this, tableCache_[key]);
   return tableCache_[key];
 };
+
+/**
+ * A cell typed by hand into a cell not formatted as text comes back as a Date: keep it as the ISO text the app uses
+ * (a date alone when it is midnight in the script's time zone).
+ */
+function cellText_(date) {
+  var tz = Session.getScriptTimeZone();
+  var time = Utilities.formatDate(date, tz, 'HH:mm:ss');
+  return time === '00:00:00' ? Utilities.formatDate(date, tz, 'yyyy-MM-dd') : date.toISOString();
+}
 
 /** Header and rows in one read: [headers, row, row, ...]. */
 function readAll_(sh) {
   var lastRow = Math.max(sh.getLastRow(), 1), lastCol = Math.max(sh.getLastColumn(), 1);
   var values = sh.getRange(1, 1, lastRow, lastCol).getValues();
   values[0] = values[0].map(String);
+  for (var r = 1; r < values.length; r++) {
+    for (var c = 0; c < values[r].length; c++) if (values[r][c] instanceof Date) values[r][c] = cellText_(values[r][c]);
+  }
   return values;
 }
 
@@ -117,11 +137,12 @@ function rawRow_(headers, row) {
   return obj;
 }
 
+/** Every usable row: it has an id and no problem (a row typed by hand that the app could not use, see core/complete.js). */
 Table.prototype.all = function () {
   var d = this.read_(), self = this;
   return d.rows
     .map(function (r) { return self.toObject_(d.headers, r); })
-    .filter(function (o) { return o.id; });
+    .filter(function (o) { return o.id && !o.problem; });
 };
 
 Table.prototype.get = function (id) {
@@ -154,6 +175,8 @@ Table.prototype.insertMany = function (objs) {
     var taken = {};
     d.rows.forEach(function (r) { taken[String(r[idCol])] = true; });
     var rows = objs.map(function (obj) {
+      obj = Object.assign({}, obj);
+      fillNames_(self.name, d.headers, obj);
       var row = self.rowFor_(d.headers, obj);
       assert_(!taken[row[idCol]], 'That item already exists: ' + row[idCol]);
       taken[row[idCol]] = true;
@@ -178,6 +201,8 @@ Table.prototype.update = function (id, patch) {
       var before = d.rows[i], row = before.slice();
       // A table with an updated_at column stamps it on every change, so a device can tell the row changed since it last looked.
       if (self.headers.indexOf('updated_at') !== -1 && patch.updated_at === undefined) patch = Object.assign({}, patch, { updated_at: nowIso_() });
+      patch = Object.assign({}, patch);
+      fillNames_(self.name, d.headers, patch);
       Object.keys(patch).forEach(function (k) {
         var c = d.headers.indexOf(k);
         if (c !== -1) row[c] = patch[k];
@@ -185,6 +210,11 @@ Table.prototype.update = function (id, patch) {
       d.sh.getRange(i + 2, 1, 1, row.length).setValues([row]);
       d.rows[i] = row;
       recordChange_({ table: self.name, op: 'update', id: id, before: rawRow_(d.headers, before) });
+      // A new name is shown next to this row's id in other tabs (Tasks.project, Lists.project...): keep those in step.
+      Object.keys(patch).forEach(function (k) {
+        var c = d.headers.indexOf(k);
+        if (c !== -1 && String(before[c]) !== String(patch[k])) syncNames_(self.name, id, k, String(patch[k]));
+      });
       return self.toObject_(d.headers, row);
     }
     throw new Error('Not found in ' + self.name + ': ' + id);
@@ -210,7 +240,9 @@ Table.prototype.removeWhere = function (predicate) {
     var d = self.read_(true);
     var removed = 0;
     for (var i = d.rows.length - 1; i >= 0; i--) {
-      if (predicate(self.toObject_(d.headers, d.rows[i]))) { self.deleteAt_(d, i); removed++; }
+      var row = self.toObject_(d.headers, d.rows[i]);
+      if (row.problem) continue; // a row typed by hand that the app could not use is never deleted by the app
+      if (predicate(row)) { self.deleteAt_(d, i); removed++; }
     }
     return removed;
   });

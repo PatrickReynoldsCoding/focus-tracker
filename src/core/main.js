@@ -23,7 +23,8 @@ function include(name) {
 
 /**
  * Run once from the Apps Script editor after pushing the code.
- * Remembers the spreadsheet as the first mode's, creates every module's tab and finds or creates the Drive folders.
+ * Remembers the spreadsheet as the first mode's, brings it up to the current layout (core/migrate.js), creates every
+ * module's tab, writes the Start here tab and finds or creates the Drive folders.
  * Other modes need no setup: their spreadsheet and folder are created the first time the app opens them.
  */
 function setup() {
@@ -32,10 +33,12 @@ function setup() {
   if (active && !PropertiesService.getScriptProperties().getProperty('SHEET_ID')) {
     PropertiesService.getScriptProperties().setProperty('SHEET_ID', active.getId());
   }
+  ensureSchema_();
   var mods = loadModules_();
   Object.keys(mods).forEach(function (id) {
     (mods[id].tables || []).forEach(function (t) { t.ensure(); });
   });
+  writeStartHere_(getSpreadsheet_());
   var folder = getModeFolder_();
   Logger.log('Ready. Spreadsheet: ' + getSpreadsheet_().getUrl() + ' | Drive folder: ' + folder.getUrl());
 }

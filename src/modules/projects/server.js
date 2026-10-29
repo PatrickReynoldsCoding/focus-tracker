@@ -12,8 +12,8 @@ function lockEndMs_(until) {
 function projectLocked_(p) { return !!p && lockEndMs_(p.locked_until) > Date.now(); }
 
 function projectsModule() {
-  var T = new Table('Projects', ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until', 'updated_at']);
-  var STATUSES = ['active', 'paused', 'done', 'archived'];
+  var T = new Table('Projects', ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at']);
+  var STATUSES = PROJECT_STATUSES_;
 
   function list() { return T.all(); }
 
@@ -74,6 +74,13 @@ function projectsModule() {
         var saved = T.update(a.id, { locked_until: until });
         ctx.refresh('projects', 'today');
         return saved;
+      },
+
+      /** The link to the project's notes, shown in the sheet's notes column. Set by the notes module when it makes the file. */
+      setNotesLink: function (a) {
+        var row = T.get(a.id);
+        if (!row || row.notes === a.url) return row;
+        return T.update(a.id, { notes: clean_(a.url, 500), updated_at: row.updated_at }); // not an edit: an offline edit of the project is no conflict
       },
 
       countInCategory: function (a) {

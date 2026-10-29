@@ -1,21 +1,29 @@
 /**
- * Layout module: where each panel sits on a page, saved per user and per mode, so it follows you across devices.
+ * Layout module: where each panel sits on a page, saved per mode in the mode's Settings tab (one row per page,
+ * layout.<page>), so it follows you across devices.
  * Stored as { page: { panelId: { x, y, w, hidden } } } on a 12-column grid. Heights follow each panel's content.
  * A hidden panel is left off the page until it is shown again.
  */
 
 function layoutModule() {
-  var KEY = modeKey_('layout');
+  var PREFIX = 'layout.';
   var COLUMNS = 12;
   var MAX_PANELS = 60;
 
   function load_() {
-    var raw = PropertiesService.getUserProperties().getProperty(KEY);
-    return raw ? JSON.parse(raw) : {};
+    var saved = settingsWithPrefix_(PREFIX), all = {};
+    Object.keys(saved).forEach(function (key) {
+      try { all[key.slice(PREFIX.length)] = JSON.parse(saved[key]); } catch (e) { /* a row edited by hand into something unreadable: the default layout */ }
+    });
+    return all;
   }
 
+  /** Write the pages in `all`; a page left out of `all` that was saved before is cleared. */
   function save_(all) {
-    PropertiesService.getUserProperties().setProperty(KEY, JSON.stringify(all));
+    var values = {};
+    Object.keys(settingsWithPrefix_(PREFIX)).forEach(function (key) { values[key] = ''; });
+    Object.keys(all).forEach(function (page) { values[PREFIX + page] = JSON.stringify(all[page]); });
+    setSettings_(values);
   }
 
   function pageKey_(page) {

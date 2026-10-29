@@ -3,10 +3,11 @@
  * Each list's groups and items are a Kanban board owned by the list, so they are edited the same way.
  * A list can be shown as a panel on Today, either in full or one item at a time (display 'one'): a random item that
  * changes every `seconds` seconds.
+ * project_id / project link a list to a project (schema v2). Only kept in the sheet so far; the project page shows it later.
  */
 
 function listsModule() {
-  var T = new Table('Lists', ['id', 'name', 'order', 'show_today', 'created', 'color', 'display', 'seconds'], ['order', 'seconds']);
+  var T = new Table('Lists', ['name', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'], ['order', 'seconds']);
   var DISPLAYS = ['', 'one'];
   var COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var FIRST_GROUP = 'Items';
@@ -35,7 +36,7 @@ function listsModule() {
           show_today: a.showToday ? 'yes' : '',
           created: nowIso_()
         });
-        ctx.call('kanban', 'initProject', { projectId: row.id, columns: a.groups && a.groups.length ? a.groups : [FIRST_GROUP] });
+        ctx.call('kanban', 'initProject', { listId: row.id, columns: a.groups && a.groups.length ? a.groups : [FIRST_GROUP] });
         ctx.refresh('lists', 'kanban');
         return row;
       },
@@ -84,7 +85,7 @@ function listsModule() {
 
       remove: function (a, ctx) {
         T.remove(a.id);
-        ctx.call('kanban', 'removeProject', { projectId: a.id });
+        ctx.call('kanban', 'removeProject', { listId: a.id });
         ctx.refresh('lists', 'kanban');
         return true;
       }

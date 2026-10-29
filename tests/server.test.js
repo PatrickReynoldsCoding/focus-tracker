@@ -7,6 +7,9 @@ function test(name, fn) {
   catch (e) { console.error('FAIL  ' + name + '\n' + (e.stack || e)); process.exitCode = 1; }
 }
 const json = (x) => JSON.parse(JSON.stringify(x));
+// A fake tab's rows as objects by header, and an object as a row in the tab's column order.
+const rowsOf = (sh) => sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, i) => [h, r[i] === undefined ? '' : r[i]])));
+const rowFrom = (sh, obj) => sh.rows[0].map((h) => (obj[h] === undefined ? '' : obj[h]));
 
 function fresh() {
   const s = loadServer();
@@ -18,7 +21,7 @@ function fresh() {
 test('setup creates a tab per table and a Drive folder', () => {
   const s = fresh();
   ['Projects', 'Columns', 'Tasks', 'Notes', 'Resources', 'Log'].forEach((n) => assert.ok(s.ss.sheets[n], 'missing tab ' + n));
-  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['id', 'name', 'category', 'status', 'next_action', 'last_touched', 'created', 'locked_until', 'updated_at']);
+  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at']);
   assert.ok(s.script._m.FOLDER_ID && s.script._m.SHEET_ID);
 });
 
@@ -255,9 +258,13 @@ test('the rotation can be edited; this-week changes and away days apply only thi
   assert.deepStrictEqual([t.labels[1], t.labels[3], t.labels[4], t.labels[6]], ['House', 'Away', 'Job search', 'Away']);
   assert.strictEqual(t.usual[4], null);
   assert.strictEqual(t.dailyMinimum, null, 'daily minimum switched off');
+  // Saved in the mode's Settings tab as readable rows, not in user properties
+  const settings = Object.fromEntries(s.ss.sheets.Settings.rows.slice(1));
+  assert.deepStrictEqual([settings['rotation.monday'], settings['rotation.thursday'], settings['rotation.saturday'], settings['rotation.daily_minimum']], ['house', 'any', 'away', 'none']);
+  assert.deepStrictEqual([settings['week.wednesday'], settings['week.thursday'], settings['week.friday']], ['away', 'job', undefined], 'only the changed days have a value');
+  assert.ok(!s.user._m['today.rotation'] && !s.user._m['today.week']);
   // A new week: the saved week no longer matches, so only the usual rotation applies
-  const props = s.user._m;
-  props['today.week'] = JSON.stringify(Object.assign(JSON.parse(props['today.week']), { week: '1999-01-04' }));
+  s.ss.sheets.Settings.rows.find((r) => r[0] === 'week.of')[1] = '1999-01-04';
   t = s.call('today', 'state').result;
   assert.strictEqual(t.away, false);
   assert.strictEqual(t.lead, 'coding');
@@ -481,13 +488,13 @@ test('lists have groups and items on their own board, can be shown on Today, reo
   const s = fresh();
   assert.throws(() => s.call('lists', 'create', { name: ' ' }), /needs a name/);
   const reading = s.call('lists', 'create', { name: 'Read and watch', groups: ['Work', 'Rainy day'] });
-  assert.deepStrictEqual(reading.slices.kanban.columns.filter((c) => c.project_id === reading.result.id).map((c) => c.name), ['Work', 'Rainy day']);
+  assert.deepStrictEqual(reading.slices.kanban.columns.filter((c) => c.list_id === reading.result.id && c.owner === reading.result.id).map((c) => c.name), ['Work', 'Rainy day']);
   const keep = s.call('lists', 'create', { name: 'Keep in mind', showToday: true }).result;
   assert.strictEqual(keep.show_today, 'yes');
-  const groups = (id) => json(s.run('bootstrap()')).data.kanban.columns.filter((c) => c.project_id === id);
+  const groups = (id) => json(s.run('bootstrap()')).data.kanban.columns.filter((c) => c.list_id === id);
   assert.deepStrictEqual(groups(keep.id).map((c) => c.name), ['Items']);
   const item = s.call('kanban', 'addTask', { projectId: keep.id, columnId: groups(keep.id)[0].id, title: 'Tell a story with commits' }).result;
-  assert.strictEqual(item.project_id, keep.id);
+  assert.deepStrictEqual([item.list_id, item.project_id, item.owner, item.list, item.column], [keep.id, '', keep.id, 'Keep in mind', 'Items'], 'a list item is kept in list_id, with readable names');
   s.call('lists', 'showToday', { id: reading.result.id, on: true });
   s.call('lists', 'rename', { id: keep.id, name: 'How I work' });
   let lists = s.call('lists', 'move', { id: keep.id, d: -1 }).slices.lists;
@@ -496,8 +503,8 @@ test('lists have groups and items on their own board, can be shown on Today, reo
   assert.strictEqual(s.call('lists', 'move', { id: keep.id, d: -1 }).result, false, 'already first');
   const after = s.call('lists', 'remove', { id: keep.id }).slices;
   assert.deepStrictEqual(after.lists.map((l) => l.name), ['Read and watch']);
-  assert.ok(!after.kanban.tasks.some((t) => t.project_id === keep.id), 'its items are removed');
-  assert.ok(!after.kanban.columns.some((c) => c.project_id === keep.id), 'its groups are removed');
+  assert.ok(!after.kanban.tasks.some((t) => t.owner === keep.id), 'its items are removed');
+  assert.ok(!after.kanban.columns.some((c) => c.owner === keep.id), 'its groups are removed');
 });
 
 test('rich-text notes keep safe formatting and drop anything that could run or load', () => {
@@ -536,9 +543,9 @@ test('a card gets a colour and a cleaned note with a plain-text copy in the shee
   assert.strictEqual(r.result.title, 'Renamed');
   assert.strictEqual(r.result.color, '4');
   assert.strictEqual(r.result.note_html, '<b>Do</b> this<br>then <a href="https://x.io" target="_blank" rel="noopener noreferrer">that</a>');
-  assert.strictEqual(r.result.note_text, 'Do this\nthen that (https://x.io)');
+  assert.strictEqual(r.result.note, 'Do this\nthen that (https://x.io)');
   const header = s.ss.sheets.Tasks.rows[0];
-  assert.ok(['color', 'note_html', 'note_text'].every((h) => header.includes(h)));
+  assert.ok(['color', 'note_html', 'note'].every((h) => header.includes(h)));
   assert.throws(() => s.call('kanban', 'updateTask', { id: t.id, color: '12' }), /Unknown colour/);
   assert.strictEqual(s.call('kanban', 'updateTask', { id: t.id, noteHtml: '<div><br></div>' }).result.note_html, '', 'an empty note is stored as empty');
   assert.strictEqual(s.call('kanban', 'updateTask', { id: t.id, color: '' }).result.color, '');
@@ -577,7 +584,7 @@ test('a pending import runs once, in its own mode, when that mode is first opene
   const token = w.kanban.tasks.find((t) => t.title === 'Token');
   assert.strictEqual(w.kanban.columns.find((c) => c.id === token.column_id).name, 'Waiting');
   assert.strictEqual(token.color, '4');
-  assert.strictEqual(token.note_text, 'See https://x.io/a?b=1&c=2\n<script>x</script>', 'the note is text, not markup');
+  assert.strictEqual(token.note, 'See https://x.io/a?b=1&c=2\n<script>x</script>', 'the note is text, not markup');
   assert.ok(!token.note_html.includes('<script'), 'imported notes are escaped');
   assert.strictEqual(w.kanban.columns.find((c) => c.id === w.kanban.tasks.find((t) => t.title === 'Lands in the first column').column_id).name, 'in-progress');
   assert.deepStrictEqual(w.lists.map((l) => [l.name, l.show_today]), [['Keep in mind', 'yes']]);
@@ -592,7 +599,7 @@ test('a project can have several named whiteboards, each its own .excalidraw fil
   assert.throws(() => s.call('whiteboard', 'create', { projectId: p.id, name: ' ' }), /needs a name/);
   const a = s.call('whiteboard', 'create', { id: 'dddd0001', projectId: p.id, name: 'Touch pad layout' }).result;
   const b = s.call('whiteboard', 'create', { projectId: p.id, name: 'Signal flow' }).result;
-  const file = (id) => s.drive.getFileById(json(s.run('bootstrap()')).data.whiteboard.length && s.ss.sheets.Whiteboards.rows.find((r) => r[0] === id)[2]);
+  const file = (id) => s.drive.getFileById(json(s.run('bootstrap()')).data.whiteboard.length && rowsOf(s.ss.sheets.Whiteboards).find((r) => r.id === id).file_id);
   assert.strictEqual(s.drive.pathOf(file(a.id)), 'Focus Tracker/Personal/Whiteboards/midi-app-touch-pad-layout-dddd0001.excalidraw');
   assert.deepStrictEqual(JSON.parse(s.call('whiteboard', 'get', { id: a.id }).result.json).elements, [], 'starts empty and white');
   const scene = (n) => JSON.stringify({ type: 'excalidraw', version: 2, elements: Array.from({ length: n }, (_, i) => ({ id: 'e' + i, type: 'rectangle' })), appState: {}, files: {} });
@@ -610,10 +617,10 @@ test('a project can have several named whiteboards, each its own .excalidraw fil
   assert.strictEqual(json(s.run('undo')()).undone, 'whiteboard.remove');
   assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 2, 'undo brings the link back');
   // A row from before names existed still opens, as "Whiteboard"
-  s.ss.sheets.Whiteboards.rows.push(['old00001', p.id, file(a.id).id, 'https://x', '2026-10-01T00:00:00Z', '', '']);
+  s.ss.sheets.Whiteboards.rows.push(rowFrom(s.ss.sheets.Whiteboards, { id: 'old00001', project_id: p.id, file_id: file(a.id).id, file: 'https://x', updated: '2026-10-01T00:00:00Z' }));
   assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.find((w) => w.id === 'old00001').name, 'Whiteboard');
   assert.ok(s.call('whiteboard', 'get', { id: 'old00001' }).result.json);
-  const fileIds = s.ss.sheets.Whiteboards.rows.slice(1).map((r) => r[2]);
+  const fileIds = rowsOf(s.ss.sheets.Whiteboards).map((r) => r.file_id);
   s.call('projects', 'remove', { id: p.id });
   assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.length, 0, 'the links go with the project');
   assert.ok(fileIds.every((id) => s.drive.files[id]), 'the drawing files stay in Drive');

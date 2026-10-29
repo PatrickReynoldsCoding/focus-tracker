@@ -5,6 +5,7 @@
  */
 function seedStarterData() {
   setMode_(MODES[0].id);
+  ensureSchema_();
   var mods = loadModules_();
   var ctx = makeCtx_(mods);
   Object.keys(mods).forEach(function (id) { (mods[id].tables || []).forEach(function (t) { t.ensure(); }); });

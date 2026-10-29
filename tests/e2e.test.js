@@ -588,7 +588,7 @@ async function waitFor(fn, label, ms = 3000) {
     click(tab('Today'));
     const quote = await waitFor(() => $('#app .rotq'), 'quote card on Today');
     assert.strictEqual(quote.querySelector('.rotbar'), null, 'no progress bar');
-    const items = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban.tasks)).filter((t) => t.project_id === quote.dataset.rotate).length;
+    const items = JSON.parse(JSON.stringify(server.run('bootstrap()').data.kanban.tasks)).filter((t) => t.list_id === quote.dataset.rotate).length;
     assert.strictEqual(quote.querySelector('[data-pos]').textContent, '1 / ' + items);
     const first = quote.querySelector('.rq').textContent;
     click(quote.querySelector('[data-act="lists.rotate"][data-d="1"]'));

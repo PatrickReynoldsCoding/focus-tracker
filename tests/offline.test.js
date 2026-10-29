@@ -166,7 +166,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(p.w.FT.ready, false, 'nothing is drawn from a copy with a different version');
     net.hold = null; net.release();
     await waitFor(() => p.$('.focus-name'), 'loads normally');
-    await waitFor(() => JSON.parse(p.w.localStorage.getItem('ft.kv.snap:personal')).v === 1, 'and writes a fresh copy');
+    await waitFor(() => JSON.parse(p.w.localStorage.getItem('ft.kv.snap:personal')).v === 2, 'and writes a fresh copy');
     p.close();
     const blocked = page({}, { blockedStorage: true });
     await waitFor(() => blocked.$('.focus-name'), 'loads with storage blocked');

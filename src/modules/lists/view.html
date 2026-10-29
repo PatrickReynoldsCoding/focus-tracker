@@ -66,7 +66,7 @@
 
   function itemsOf(l) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
-    return k.tasks.filter(function (t) { return t.project_id === l.id; });
+    return k.tasks.filter(function (t) { return t.owner === l.id; });
   }
 
   function shuffle(ids) {
@@ -217,7 +217,7 @@
   /** A small copy of the list as it will look, with its real first items. */
   function previewHtml(l) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
-    var group = k.columns.filter(function (c) { return c.project_id === l.id; }).sort(function (a, b) { return a.order - b.order; })[0];
+    var group = k.columns.filter(function (c) { return c.owner === l.id; }).sort(function (a, b) { return a.order - b.order; })[0];
     var items = group ? k.tasks.filter(function (t) { return t.column_id === group.id; }).sort(function (a, b) { return a.order - b.order; }).slice(0, 2) : [];
     if (!items.length) items = [{ title: 'An item' }, { title: 'Another item' }];
     return '<label>Preview</label><section class="panel listpanel listpreview" id="dlg-listpreview" aria-hidden="true">' +

@@ -48,7 +48,8 @@
 /**
  * Kanban boards. A board belongs to an owner: a project (shown on its page) or any other module's item, such as a list.
  * Other modules draw a board with FT.kanban.boardHtml(ownerId, opts). Every control finds its board through the
- * nearest [data-owner], so several boards can share a page.
+ * nearest [data-owner], so several boards can share a page. Columns and cards carry the owner's id as `owner`
+ * (the sheet keeps it in project_id or list_id).
  *
  * Cards move by drag and drop (SortableJS from the CDN; a short press on touch screens) or with "Column" in the card
  * dialog. Columns (groups on a list) move the same way, dragged by their header. Adding, moving, editing and deleting
@@ -69,8 +70,8 @@
   function board(ownerId) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
     return {
-      cols: k.columns.filter(function (c) { return c.project_id === ownerId; }).sort(byOrder),
-      tasks: k.tasks.filter(function (t) { return t.project_id === ownerId; }).sort(byOrder)
+      cols: k.columns.filter(function (c) { return c.owner === ownerId; }).sort(byOrder),
+      tasks: k.tasks.filter(function (t) { return t.owner === ownerId; }).sort(byOrder)
     };
   }
 
@@ -88,7 +89,7 @@
   function cardHtml(t) {
     var id = FT.esc(t.id);
     var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
-    var note = t.note_text ? '<span class="knote">' + FT.linkify(t.note_text.slice(0, 160)) + '</span>' : '';
+    var note = t.note ? '<span class="knote">' + FT.linkify(t.note.slice(0, 160)) + '</span>' : '';
     // A div, not a button: titles and notes can hold links, and a link may not sit inside a button.
     return '<div class="kcard" data-id="' + id + '"' + color + '><div class="ktitle" role="button" tabindex="0" data-act="kanban.open-card" data-id="' + id + '">' +
       '<span class="kt">' + FT.linkify(t.title) + '</span>' + note + '</div><span class="mv">' +
@@ -138,7 +139,7 @@
 
   /** Move a card on screen now and save it in the background. index: its place in the target column. */
   function moveCard(task, columnId, index) {
-    var others = board(task.project_id).tasks.filter(function (t) { return t.column_id === columnId && t.id !== task.id; });
+    var others = board(task.owner).tasks.filter(function (t) { return t.column_id === columnId && t.id !== task.id; });
     var at = index === undefined ? others.length : index;
     task.column_id = columnId;
     task.order = orderBetween(others[at - 1], others[at]);
@@ -175,7 +176,7 @@
     if (at < 0) return;
     var before = columnById(ids[at - 1]), after = columnById(ids[at + 1]), was = col.order;
     FT.optimistic(function () { col.order = orderBetween(before, after); return function () { col.order = was; }; },
-      function () { return FT.rpc('kanban', 'moveColumn', { id: col.id, projectId: col.project_id, order: col.order }, { render: false }); }).catch(function () {});
+      function () { return FT.rpc('kanban', 'moveColumn', { id: col.id, projectId: col.owner, order: col.order }, { render: false }); }).catch(function () {});
   }
 
   /** The columns of one board, dragged by their header. A group of its own, so cards and columns never mix. */
@@ -221,8 +222,8 @@
     if (!title) { if (input) input.focus(); return; }
     var ownerId = ownerOf(el), others = board(ownerId).tasks.filter(function (t) { return t.column_id === columnId; });
     var task = {
-      id: FT.newId(), project_id: ownerId, column_id: columnId, title: title.slice(0, 200), order: orderBetween(others[others.length - 1], null),
-      created: new Date().toISOString(), color: '', note_html: '', note_text: ''
+      id: FT.newId(), owner: ownerId, column_id: columnId, title: title.slice(0, 200), order: orderBetween(others[others.length - 1], null),
+      created: new Date().toISOString(), color: '', note_html: '', note: ''
     };
     FT.store.kanban.tasks.push(task);
     FT.render();
@@ -235,7 +236,7 @@
 
   FT.action('kanban.add-col', function (el) {
     var ownerId = ownerOf(el), word = wordOf(el), cols = board(ownerId).cols;
-    var col = { id: FT.newId(), project_id: ownerId, name: 'New ' + word, order: orderBetween(cols[cols.length - 1], null) };
+    var col = { id: FT.newId(), owner: ownerId, name: 'New ' + word, order: orderBetween(cols[cols.length - 1], null) };
     FT.store.kanban.columns.push(col);
     FT.render();
     var input = document.querySelector('.colname[data-id="' + col.id + '"]');
@@ -342,7 +343,7 @@
     var t = taskById(el.dataset.id);
     if (!t) return;
     var host = el.closest('[data-owner]'), word = (host && host.dataset.word) || 'column';
-    var columns = board(t.project_id).cols.map(function (c) { return { value: c.id, label: c.name }; });
+    var columns = board(t.owner).cols.map(function (c) { return { value: c.id, label: c.name }; });
     var opened = '';
     function cardState() {
       var title = document.getElementById('dlg-cardtitle'), note = document.getElementById('dlg-note'), col = document.getElementById('dlg-cardcolumn');
@@ -369,7 +370,7 @@
         // Shown at once; the server cleans the note and sends the stored version back.
         t.title = v.cardtitle.slice(0, 200); t.color = color;
         var editor = document.getElementById('dlg-note');
-        t.note_html = noteHtml; t.note_text = (editor.innerText || editor.textContent || '').trim();
+        t.note_html = noteHtml; t.note = (editor.innerText || editor.textContent || '').trim();
         FT.rpc('kanban', 'updateTask', { id: t.id, title: t.title, color: color, noteHtml: noteHtml }).catch(FT.saveFailed);
         if (v.cardcolumn !== t.column_id) moveCard(t, v.cardcolumn); else FT.render();
       }

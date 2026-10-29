@@ -18,7 +18,11 @@
  * Privacy: the saved copy holds the same project data the page shows (no Drive file contents) in this browser's storage.
  */
 (function () {
-  var SCHEMA = 1;            // bump when the shape of the saved copy or the queue changes: older ones are then ignored
+  // Bump SCHEMA when the shape of the saved copy (bootstrap data) changes: older copies are then dropped. 2: sheet layout v2
+  // (kanban rows carry owner, cards note, resources value). QUEUE_SCHEMA is for the queue: queued changes are api calls,
+  // which the server still takes after a layout change, so they are kept unless the calls themselves change.
+  var SCHEMA = 2;
+  var QUEUE_SCHEMA = 1;
   var QUEUE_TIMEOUT = 30000; // a queued kind of change that has not been answered after this long is treated as offline
   var OTHER_TIMEOUT = 60000;
   var RETRY_MS = 8000;
@@ -79,7 +83,7 @@
   var baseRpc = FT.rpc;
 
   function persist(st) {
-    return kv.set('queue:' + st.key, { v: SCHEMA, list: st.list });
+    return kv.set('queue:' + st.key, { v: QUEUE_SCHEMA, list: st.list });
   }
 
   // ---------- the indicator in the header ----------
@@ -354,7 +358,7 @@
       if (state && state.key === key) return;
       var st = { key: key, list: [], ready: false };
       st.loaded = kv.get('queue:' + key).then(function (v) {
-        if (v && v.v === SCHEMA && Array.isArray(v.list)) st.list = v.list.concat(st.list);
+        if (v && v.v === QUEUE_SCHEMA && Array.isArray(v.list)) st.list = v.list.concat(st.list);
       }).catch(noop).then(function () {
         st.ready = true;
         if (state !== st) return;

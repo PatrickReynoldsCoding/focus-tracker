@@ -4,7 +4,8 @@
  */
 
 function notesModule() {
-  var T = new Table('Notes', ['id', 'project_id', 'file_id', 'file_url', 'updated']);
+  // doc_id: the Google Doc for the notes, if Docs notes ship (docs/schema.md). Empty until then.
+  var T = new Table('Notes', ['id', 'project_id', 'file_id', 'file_url', 'updated', 'doc_id']);
 
   function rowFor_(projectId) {
     var all = T.all();
@@ -61,6 +62,7 @@ function notesModule() {
         var file = getSubfolder_('Notes').createFile(slug_(project.name) + '-' + project.id + '.md', text, 'text/markdown');
         var created = nowIso_();
         T.insert({ project_id: a.projectId, file_id: file.getId(), file_url: file.getUrl(), updated: created });
+        ctx.call('projects', 'setNotesLink', { id: a.projectId, url: file.getUrl() });
         return { url: file.getUrl(), updated: created };
       },
 

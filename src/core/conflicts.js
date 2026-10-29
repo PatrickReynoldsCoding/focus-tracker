@@ -9,7 +9,7 @@
 // api call -> table, the fields the call changes (argument name -> row field), and how to name the row.
 var CONFLICT_TARGETS_ = {
   'projects.update': { table: 'Projects', fields: { name: 'name', category: 'category', status: 'status', next_action: 'next_action' }, owner: 'self', label: function (r) { return 'project "' + r.name + '"'; } },
-  'kanban.updateTask': { table: 'Tasks', fields: { title: 'title', color: 'color', noteHtml: 'note_text' }, owner: 'project_id', label: function (r) { return 'card "' + r.title + '"'; } },
+  'kanban.updateTask': { table: 'Tasks', fields: { title: 'title', color: 'color', noteHtml: 'note' }, owner: 'project_id', label: function (r) { return 'card "' + r.title + '"'; } },
   'kanban.moveTask': { table: 'Tasks', fields: { columnId: 'column_id', order: 'order' }, owner: 'project_id', label: function (r) { return 'card "' + r.title + '"'; } },
   'criteria.update': { table: 'Criteria', fields: { text: 'text', done: 'done', order: 'order' }, owner: 'project_id', label: function (r) { return 'criterion "' + r.text + '"'; } }
 };

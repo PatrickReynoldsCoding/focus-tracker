@@ -73,13 +73,16 @@ function addMode_(label) {
 
 /**
  * Forget everything cached during a request. Every browser call starts with this: on Google each call is a fresh
- * execution anyway, and in tests several calls share one runtime.
+ * execution anyway, and in tests several calls share one runtime. Then bring the mode's spreadsheet up to the current
+ * layout if it is older (core/migrate.js; one property read when it is not).
  */
 function startRequest_(modeId) {
   tableCache_ = {};
   openSpreadsheets_ = {};
   allModesCache_ = null;
-  return setMode_(modeId);
+  var mode = setMode_(modeId);
+  ensureSchema_();
+  return mode;
 }
 
 function setMode_(id) {

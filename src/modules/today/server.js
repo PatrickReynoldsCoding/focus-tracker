@@ -8,7 +8,9 @@
  *
  * The weekly rotation (a lead category, "any", or away for each weekday) is the mode's default until edited.
  * "This week" changes are saved with the week's Monday and stop applying when a new week starts.
- * Session, rotation and week state are per user and per mode and live in user properties, so they follow you across devices.
+ * The rotation and this week's changes are per mode and live in the mode's Settings tab (core/settings.js), one row
+ * per day, for example rotation.monday = coding. The session and pomodoro state are per user and live in user
+ * properties (they change every few seconds). Both follow you across devices.
  *
  * A session is { projectId, start, pausedMs, pausedAt, pomodoro }. Worked time is wall time minus pauses.
  * pomodoro is null when off, else { phase: 'work' | 'break', phaseStartMs, lengthMin } where phaseStartMs is the
@@ -21,8 +23,8 @@ function todayModule() {
   var POMODORO_KEY = 'today.pomodoro';
   var POMODORO_DEFAULTS = { work: 25, break: 5 };
   var NEXT_PHASE = { work: 'break', break: 'work' };
-  var ROTATION_KEY = modeKey_('today.rotation');
-  var WEEK_KEY = modeKey_('today.week');
+  var ANY = 'any';   // Settings text for "any category"
+  var NONE = 'none'; // Settings text for "no daily minimum"
   var ANY_LABEL = 'Any category';
   var AWAY = 'away';
   var AWAY_LABEL = 'Away';
@@ -46,15 +48,6 @@ function todayModule() {
 
   function dateInDays_(days) {
     return Utilities.formatDate(new Date(Date.now() + days * DAY_MS), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  }
-
-  function readJson_(key) {
-    var raw = PropertiesService.getUserProperties().getProperty(key);
-    return raw ? JSON.parse(raw) : null;
-  }
-
-  function writeJson_(key, value) {
-    PropertiesService.getUserProperties().setProperty(key, JSON.stringify(value));
   }
 
   function load_(dayKey) {
@@ -123,21 +116,30 @@ function todayModule() {
     return value;
   }
 
-  /** The usual rotation: the user's own once saved, else the mode's default. */
+  /** A day as Settings text (a category id, away or any) and back. */
+  function planText_(plan) { return plan === null || plan === undefined ? ANY : plan; }
+  function planOf_(text) { return text === ANY ? null : text; }
+
+  /** The usual rotation: each day as saved in Settings (rotation.monday ...), else the mode's default for that day. */
   function usual_(ids) {
-    var saved = readJson_(ROTATION_KEY);
-    var days = saved && saved.days ? saved.days : activeMode_().rotation;
+    var saved = settingsWithPrefix_('rotation.'), defaults = activeMode_().rotation;
     var usual = {};
-    WEEKDAYS.forEach(function (day) { usual[day] = dayPlan_(days[day], ids); });
+    WEEKDAYS.forEach(function (day) {
+      var text = saved['rotation.' + WEEKDAY_NAMES_[day]];
+      usual[day] = dayPlan_(text === undefined ? defaults[day] : planOf_(text), ids);
+    });
     return usual;
   }
 
-  /** This week's changes by weekday. Empty once the saved week is over, so they reset on Monday. */
+  /** This week's changes by weekday (week.of and week.monday ...). Empty once the saved week is over, so they reset on Monday. */
   function weekChanges_(weekKey, ids) {
-    var saved = readJson_(WEEK_KEY);
+    var saved = settingsWithPrefix_('week.');
     var changes = {};
-    if (!saved || saved.week !== weekKey) return changes;
-    Object.keys(saved.days || {}).forEach(function (day) { changes[day] = dayPlan_(saved.days[day], ids); });
+    if (saved['week.of'] !== weekKey) return changes;
+    WEEKDAYS.forEach(function (day) {
+      var text = saved['week.' + WEEKDAY_NAMES_[day]];
+      if (text !== undefined) changes[day] = dayPlan_(planOf_(text), ids);
+    });
     return changes;
   }
 
@@ -158,8 +160,8 @@ function todayModule() {
 
   /** The daily-minimum category: the user's choice once saved, else the mode's. null when none or deleted. */
   function dailyMinimum_(ids) {
-    var saved = readJson_(ROTATION_KEY);
-    var id = saved && Object.prototype.hasOwnProperty.call(saved, 'dailyMinimum') ? saved.dailyMinimum : activeMode_().dailyMinimum;
+    var saved = settingsWithPrefix_('rotation.')['rotation.daily_minimum'];
+    var id = saved === undefined ? activeMode_().dailyMinimum : saved === NONE ? null : saved;
     return ids.indexOf(id) !== -1 ? id : null;
   }
 
@@ -271,8 +273,12 @@ function todayModule() {
           week[day] = planFromInput_(a.week[day], ids);
         });
         assert_(!a.dailyMinimum || ids.indexOf(a.dailyMinimum) !== -1, 'Unknown category: ' + a.dailyMinimum);
-        writeJson_(ROTATION_KEY, { days: days, dailyMinimum: a.dailyMinimum || null });
-        writeJson_(WEEK_KEY, { week: d.weekKey, days: week });
+        var values = { 'rotation.daily_minimum': a.dailyMinimum || NONE, 'week.of': d.weekKey };
+        WEEKDAYS.forEach(function (day) {
+          values['rotation.' + WEEKDAY_NAMES_[day]] = planText_(days[day]);
+          values['week.' + WEEKDAY_NAMES_[day]] = Object.prototype.hasOwnProperty.call(week, day) ? planText_(week[day]) : '';
+        });
+        setSettings_(values);
         ctx.refresh('today');
         return true;
       },

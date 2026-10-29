@@ -4,7 +4,7 @@
   "private": true,
   "description": "Daily focus picker and project tracker. Google Sheets + Apps Script, modular.",
   "scripts": {
-    "test": "node tests/server.test.js && node tests/e2e.test.js && node tests/offline.test.js && node tests/saving.test.js && node tests/browser.test.js",
+    "test": "node tests/server.test.js && node tests/migrate.test.js && node tests/e2e.test.js && node tests/offline.test.js && node tests/saving.test.js && node tests/browser.test.js",
     "push": "clasp push",
     "deploy": "clasp deploy"
   },

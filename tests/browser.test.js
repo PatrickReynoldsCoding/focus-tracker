@@ -136,7 +136,7 @@ async function run(browser, size) {
     await pg.mouse.up();
     const want = [before[1], before[0]].concat(before.slice(2)).join('|');
     // Sortable moves the element itself while dragging, so check the page's own data, drawn again from it, not just the elements
-    await pg.waitForFunction((w) => !FT.state.dragging && FT.store.kanban.columns.filter((c) => c.project_id === FT.state.projectId).sort((x, y) => x.order - y.order).map((c) => c.name).join('|') === w &&
+    await pg.waitForFunction((w) => !FT.state.dragging && FT.store.kanban.columns.filter((c) => c.owner === FT.state.projectId).sort((x, y) => x.order - y.order).map((c) => c.name).join('|') === w &&
       [...document.querySelectorAll('#app .board .colname')].map((i) => i.value).join('|') === w, want, { timeout: FEEDBACK_MS + 100 });
     assert.ok(Date.now() - t0 <= FEEDBACK_MS + 100, 'the column shows in its new place at once');
     assert.notStrictEqual(serverNames().join('|'), want, 'before the slow server has saved it');

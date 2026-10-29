@@ -19,7 +19,10 @@
     });
     if (!items.length) return '<p class="empty">No links yet.</p>';
     return '<ul class="reslist">' + items.map(function (r) {
-      return '<li><span><a href="' + FT.esc(r.url) + '" target="_blank" rel="noopener noreferrer">' + FT.esc(r.title) + '</a>' +
+      // A phone number, email address or text (typed into the sheet) shows as text; only a web address is a link.
+      var head = /^https:\/\//i.test(r.value || '') ? '<a href="' + FT.esc(r.value) + '" target="_blank" rel="noopener noreferrer">' + FT.esc(r.title) + '</a>'
+        : '<b>' + FT.esc(r.title) + '</b> ' + FT.esc(r.value || '');
+      return '<li><span>' + head +
         (r.note ? '<span class="rnote">' + FT.linkify(r.note) + '</span>' : '') + '</span>' +
         '<button class="rrm" data-act="resources.remove" data-id="' + FT.esc(r.id) + '" aria-label="Remove link to ' + FT.esc(r.title) + '">Remove</button></li>';
     }).join('') + '</ul>';
