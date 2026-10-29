@@ -474,6 +474,8 @@ test('rich-text notes keep safe formatting and drop anything that could run or l
   const s = fresh();
   const clean = (html) => s.run('sanitizeRichText_')(html);
   assert.strictEqual(clean('<b>Bold</b> <i>it</i><ul><li>one</li></ul>'), '<b>Bold</b> <i>it</i><ul><li>one</li></ul>');
+  assert.strictEqual(clean('<h1>One</h1><h2>Two</h2><h3 class="x">Three</h3><p>Text</p>'), '<h1>One</h1><h2>Two</h2><h3>Three</h3><p>Text</p>', 'headings 1 to 3 (Ctrl+Alt+1 to 3) are kept');
+  assert.strictEqual(s.run('richTextToPlain_')('<h1>Title</h1><h2>Part</h2>Body'), 'Title\nPart\nBody', 'each heading is its own line in the plain copy');
   assert.strictEqual(clean('<font size="5" color="#d64545" face="x">Big</font>'), '<font color="#d64545" size="5">Big</font>');
   assert.strictEqual(clean('a<script>alert(1)</script>b'), 'ab');
   assert.strictEqual(clean('<img src=x onerror="alert(1)">hi'), 'hi');

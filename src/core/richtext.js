@@ -89,7 +89,7 @@ function richTextToPlain_(html) {
     })
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<li\b[^>]*>/gi, '\n- ')
-    .replace(/<\/(p|div|h3|h4|blockquote|ul|ol)>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|blockquote|ul|ol)>/gi, '\n')
     .replace(/<[^>]+>/g, '');
   return decodeRichEntities_(text).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }

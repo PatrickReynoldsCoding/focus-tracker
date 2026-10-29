@@ -28,7 +28,8 @@
   var TOOLS = [
     ['undo', null, '↶', 'Undo'], ['redo', null, '↷', 'Redo'],
     ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'],
-    ['formatBlock', 'h1', 'H1', 'Heading 1'], ['formatBlock', 'h2', 'H2', 'Heading 2'], ['formatBlock', 'p', 'Text', 'Normal text'],
+    ['formatBlock', 'h1', 'H1', 'Heading 1 (' + FT.headingKeyName(1) + ')'], ['formatBlock', 'h2', 'H2', 'Heading 2 (' + FT.headingKeyName(2) + ')'],
+    ['formatBlock', 'h3', 'H3', 'Heading 3 (' + FT.headingKeyName(3) + ')'], ['formatBlock', 'p', 'Text', 'Normal text (' + FT.headingKeyName(0) + ')'],
     ['insertUnorderedList', null, '• List', 'Bullet list'], ['insertOrderedList', null, '1. List', 'Numbered list'],
     ['formatBlock', 'blockquote', '❝', 'Quote']
   ];
@@ -92,7 +93,7 @@
   FT.onRender(function () {
     var el = editor();
     if (!el) { fullOpen = false; if (fullEntry) { fullEntry = false; FT.popHistory(); } }
-    if (el && !el.dataset.md) { el.dataset.md = '1'; FT.richShortcuts(el); }
+    if (el && !el.dataset.md) { el.dataset.md = '1'; FT.richShortcuts(el); FT.headingKeys(el); }
     if (el && fullOpen && narrow.matches) fitToScreen();
   });
 

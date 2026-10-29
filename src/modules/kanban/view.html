@@ -272,6 +272,7 @@
     var bar = document.querySelector('.rtbar');
     if (!bar) return;
     FT.richShortcuts(document.getElementById('dlg-note'));
+    FT.headingKeys(document.getElementById('dlg-note'));
     bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
     // Links in the note open with Cmd or Ctrl + click, so a plain click still places the cursor to edit the text.
     document.getElementById('dlg-note').addEventListener('click', function (e) {

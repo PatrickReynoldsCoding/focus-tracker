@@ -21,6 +21,7 @@ function findChrome() {
 
 const LATENCY = Number(process.env.BROWSER_LATENCY || 900);
 const FEEDBACK_MS = 300; // a button must show something within this, whatever the server is doing
+const SAVE_WAIT_MS = 2500; // longer than the whiteboard's 2 s autosave delay
 const SIZES = [
   { name: 'desktop', viewport: { width: 1280, height: 800 }, mobile: false },
   { name: 'phone', viewport: { width: 393, height: 851 }, mobile: true }
@@ -195,6 +196,65 @@ async function run(browser, size) {
   }).map((el) => el.dataset.act));
   assert.deepStrictEqual(hidden, [], 'a new sticky note landed on top of: ' + hidden.join(', '));
   log('A new sticky note does not land on the project buttons');
+
+  // ---------- 6: things only a real browser can do (desktop only: keyboard shortcuts and drawing) ----------
+  if (!size.mobile) {
+    const serverCall = (m, fn, args) => JSON.parse(JSON.stringify(env.server.run('rpc')(m, fn, args))).result;
+    await pg.evaluate(() => document.querySelectorAll('.sticky').forEach((n) => n.remove())); // the new note from above may float over the editor
+    const pid = await projectId();
+    await pg.waitForSelector('#nt-text[contenteditable="true"]');
+    await pg.click('#nt-text');
+    await pg.keyboard.press('Control+End');
+    await pg.keyboard.press('Enter');
+    await pg.keyboard.type('Wiring plan');
+    await pg.keyboard.press('Control+Alt+2');
+    assert.ok(await pg.isVisible('#nt-text h2:text("Wiring plan")'), 'Ctrl+Alt+2 makes the line a heading 2');
+    await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+    assert.ok(serverCall('notes', 'get', { projectId: pid }).text.split('\n').some((l) => l === '## Wiring plan'), 'saved as a markdown heading');
+    await pg.keyboard.press('Control+Alt+0');
+    assert.ok(!(await pg.isVisible('#nt-text h2')) && await pg.isVisible('#nt-text p:text("Wiring plan")'), 'Ctrl+Alt+0 makes it normal text again');
+    await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+    assert.ok(!/^## Wiring plan$/m.test(serverCall('notes', 'get', { projectId: pid }).text), 'and that is saved too');
+    await pg.click('[data-act="notes.done"]').catch(() => {});
+    log('Notes: Ctrl+Alt+2 makes a heading 2 and Ctrl+Alt+0 normal text, and both are saved');
+
+    await quickly(async () => { await pg.locator('[data-act="kanban.open-card"]').first().click(); await pg.waitForSelector('#dlg-note'); });
+    await pg.click('#dlg-note'); await pg.keyboard.press('Control+End'); await pg.keyboard.press('Enter');
+    await pg.keyboard.type('Parts'); await pg.keyboard.press('Control+Alt+3');
+    assert.ok(await pg.isVisible('#dlg-note h3:text("Parts")'), 'Ctrl+Alt+3 makes a heading 3 in a card note');
+    await closeDialog();
+    log('Card note: Ctrl+Alt+3 makes a heading 3');
+
+    // Excalidraw loads from jsDelivr, so without a network this part is skipped.
+    env.latency = 0;
+    await pg.evaluate(() => localStorage.setItem('ft.whiteboard.tool', 'rectangle'));
+    await pg.click('[data-act="whiteboard.new"]'); await pg.fill('#dlg-boardname', 'Browser test'); await pg.keyboard.press('Enter');
+    const loaded = await pg.waitForFunction(() => /New drawing|Saved/.test((document.getElementById('wb-status') || {}).textContent || ''), null, { timeout: 30000 })
+      .then(() => true, () => false);
+    if (!loaded) {
+      out.push('  skip [' + size.name + '] Whiteboard: Excalidraw did not load (no network?), so favourite tool and Close without saving were not tried');
+      await pg.evaluate(() => { const b = document.querySelector('[data-act="whiteboard.discard"]'); if (b) b.click(); });
+    } else {
+      await sleep(300);
+      assert.ok(await pg.isChecked('[data-testid="toolbar-rectangle"]'), 'the favourite tool from Settings is selected');
+      const board = env.server.run('bootstrap()').data.whiteboard.find((x) => x.name === 'Browser test');
+      const elements = () => JSON.parse(serverCall('whiteboard', 'get', { id: board.id }).json).elements.length;
+      const box = await pg.locator('.excalidraw__canvas.interactive').boundingBox();
+      await pg.mouse.move(box.x + 300, box.y + 250); await pg.mouse.down(); await pg.mouse.move(box.x + 450, box.y + 350, { steps: 5 }); await pg.mouse.up();
+      await pg.waitForFunction(() => document.getElementById('wb-status').textContent === 'Saved', null, { timeout: 10000 });
+      assert.strictEqual(elements(), 1, 'the rectangle was autosaved');
+      await pg.click('[data-act="whiteboard.discard"]');
+      await pg.waitForSelector('.dialog #dlg-submit.danger');
+      await pg.click('#dlg-submit');
+      await pg.waitForSelector('#wb-shell', { state: 'detached', timeout: 10000 });
+      assert.strictEqual(elements(), 0, 'Close without saving put back the empty board');
+      await sleep(SAVE_WAIT_MS);
+      assert.strictEqual(elements(), 0, 'and no autosave wrote the thrown-away drawing afterwards');
+      log('Whiteboard: favourite tool is selected on open, and Close without saving puts back the opening version');
+    }
+    await pg.evaluate(() => localStorage.removeItem('ft.whiteboard.tool'));
+    env.latency = LATENCY;
+  }
 
   await ctx.close();
   await env.close();

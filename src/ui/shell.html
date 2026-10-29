@@ -663,6 +663,22 @@ var FT = (function () {
   };
 
   /**
+   * Ctrl+Alt+1, 2 or 3 (Cmd+Alt on a Mac) makes the current line a heading 1 to 3, Ctrl+Alt+0 normal text. Reads e.code, so it
+   * works on keyboards where Alt changes the character a digit key types. The input event afterwards lets the editor save.
+   */
+  FT.headingKeys = function (editor) {
+    editor.addEventListener('keydown', function (e) {
+      var m = /^(?:Digit|Numpad)([0-3])$/.exec(e.code || '');
+      if (!m || !e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      document.execCommand('formatBlock', false, m[1] === '0' ? 'p' : 'h' + m[1]);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  /** How the heading shortcut reads on this computer, for button titles: "Ctrl+Alt+1", or "Cmd+Alt+1" on a Mac. */
+  FT.headingKeyName = function (n) { return (/Mac|iPhone|iPad/.test(navigator.platform || '') ? 'Cmd' : 'Ctrl') + '+Alt+' + n; };
+
+  /**
    * Markdown to safe HTML for the rich editor. Everything is escaped first. Handles headings, lists, quotes, bold, italic,
    * strikethrough, code, links and backslash escapes. A blank line becomes an empty paragraph, so spacing survives a round trip.
    */
@@ -799,9 +815,11 @@ var FT = (function () {
         '<span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="dlg-wrapper">Copy address and open wrapper</button>' +
         '<a class="btn" id="dlg-wrapperlink" href="' + FT.esc(FT.config.wrapperUrl || '#') + '" target="_blank" rel="noopener noreferrer">Wrapper site</a></span></div>' +
         '<div id="dlg-copied" class="hint" style="background:none;padding:4px 0 0" hidden></div>' +
+        (FT.whiteboardSettings ? FT.whiteboardSettings.html() : '') + // whiteboard module's section; move to FT.settings.add when it exists
         '<div style="margin-top:12px;color:var(--muted);font-size:12px">Build 2026-10-28</div>',
       onOpen: function () {
         $('dlg-wrapper').addEventListener('click', copyAndOpenWrapper);
+        if (FT.whiteboardSettings) FT.whiteboardSettings.onOpen(); // see the whiteboard section above
         // The theme changes as soon as it is picked, so you can see it before closing.
         Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-theme"]'), function (radio) {
           radio.addEventListener('change', function () { FT.setTheme(radio.value); });
