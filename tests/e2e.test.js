@@ -88,8 +88,16 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual($$('.cats .panel').length, 3);
   });
 
+  // The status filter: open its list, then tick or untick a status.
+  const pickStatus = (status, on) => {
+    if (!$('#pj-status-pop')) click($('#pj-status'));
+    const box = $(`#pj-status-pop input[value="${status}"]`);
+    if (box.checked !== on) { box.checked = on; box.dispatchEvent(new w.Event('change', { bubbles: true })); }
+  };
+  const projectNames = () => $$('tr.row').map((r) => r.querySelector('b').textContent);
+
   await step('projects table sorts by column and filters by category, status and text', async () => {
-    const names = () => $$('tr.row').map((r) => r.querySelector('b').textContent);
+    const names = projectNames;
     const sortBy = (key) => click($(`[data-act="projects.sort"][data-key="${key}"]`));
     sortBy('name');
     assert.deepStrictEqual(names(), names().slice().sort((a, b) => a.localeCompare(b)));
@@ -101,9 +109,9 @@ async function waitFor(fn, label, ms = 3000) {
 
     setVal($('#pj-category'), 'house', 'change');
     assert.deepStrictEqual(names().sort(), ['Bathroom extractor fan', 'Garden fence repair']);
-    setVal($('#pj-status'), 'paused', 'change');
+    pickStatus('paused', true);
     assert.deepStrictEqual(names(), ['Garden fence repair']);
-    setVal($('#pj-status'), '', 'change');
+    pickStatus('paused', false);
     $('#pj-text').focus();
     setVal($('#pj-text'), 'duct');
     assert.deepStrictEqual(names(), ['Bathroom extractor fan'], 'text matches the next action too');
@@ -112,6 +120,34 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('.panel .empty').textContent.includes('No projects match'));
     click($('[data-act="projects.clear"]'));
     assert.strictEqual($$('tr.row').length, 7);
+  });
+
+  await step('the status filter takes several statuses, stays open while ticking, and is remembered', async () => {
+    const all = projectNames().length, statusOf = () => $$('tr.row').map((r) => r.children[2].textContent);
+    assert.strictEqual($('#pj-status').textContent.replace('▾', ''), 'All statuses');
+    assert.strictEqual($('#pj-status-pop'), null, 'closed at first');
+    click($('#pj-status'));
+    assert.strictEqual($('#pj-status').getAttribute('aria-expanded'), 'true');
+    assert.strictEqual(d.activeElement, $('#pj-status-pop input'), 'focus goes to the first box');
+    pickStatus('paused', true);
+    assert.ok($('#pj-status-pop'), 'still open after a tick');
+    assert.strictEqual(d.activeElement, $('#pj-status-pop input[value="paused"]'), 'and focus stays on that box');
+    assert.deepStrictEqual([...new Set(statusOf())], ['paused']);
+    pickStatus('active', true);
+    assert.deepStrictEqual([...new Set(statusOf())].sort(), ['active', 'paused']);
+    assert.ok(projectNames().length > 1 && projectNames().length <= all);
+    assert.strictEqual($('#pj-status').textContent.replace('▾', ''), 'active, paused');
+    assert.strictEqual(w.localStorage.getItem('ft.projects.status.personal'), '["active","paused"]', 'remembered for this mode');
+    d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.strictEqual($('#pj-status-pop'), null, 'Escape closes it');
+    assert.strictEqual(d.activeElement, $('#pj-status'), 'and puts focus back on the button');
+    click($('#pj-status'));
+    click($('.tophead .label'));
+    assert.strictEqual($('#pj-status-pop'), null, 'a click elsewhere closes it');
+    assert.ok(!$('[data-act="projects.clear"]').disabled);
+    click($('[data-act="projects.clear"]'));
+    assert.strictEqual(projectNames().length, all);
+    assert.strictEqual(w.localStorage.getItem('ft.projects.status.personal'), null, 'Clear forgets it');
   });
 
   await step('opening a project shows header, kanban, notes and resources', async () => {
@@ -741,6 +777,27 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name') && $('.focus-name').textContent !== 'Wiz tickets', 'personal back');
     click(tab('Projects'));
     await waitFor(() => $$('tr.row').length === 7, 'personal projects unchanged');
+
+    // the status filter is kept per mode
+    pickStatus('paused', true);
+    const paused = projectNames();
+    assert.ok(paused.length < 7);
+    w.localStorage.setItem('ft.projects.status.work', '["done","nonsense"]');
+    setVal($('#modeSelect'), 'work', 'change');
+    await waitFor(() => d.body.dataset.mode === 'work' && $('.focus-name'), 'work again');
+    click(tab('Projects'));
+    await waitFor(() => $('#pj-status'), 'work projects tab');
+    assert.strictEqual($('#pj-status').textContent.replace('▾', ''), 'done', 'work has its own saved choice, unknown statuses dropped');
+    assert.ok($('.panel .empty').textContent.includes('No projects match'), 'Wiz tickets is active, so hidden');
+    click($('[data-act="projects.clear"]'));
+    assert.strictEqual(w.localStorage.getItem('ft.projects.status.work'), null);
+    setVal($('#modeSelect'), 'personal', 'change');
+    await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name'), 'personal again');
+    click(tab('Projects'));
+    await waitFor(() => $$('tr.row').length === paused.length, 'personal choice read back');
+    assert.deepStrictEqual(projectNames(), paused);
+    click($('[data-act="projects.clear"]'));
+    await waitFor(() => $$('tr.row').length === 7, 'all again');
   });
 
   await step('a new mode can be made from the mode menu and opens with its own data and accent', async () => {
