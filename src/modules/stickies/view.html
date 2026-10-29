@@ -323,7 +323,8 @@
     if (menuFor === note.id) menuFor = null;
     FT.store.stickies = FT.store.stickies.filter(function (s) { return s.id !== note.id; });
     draw();
-    FT.rpc('stickies', 'remove', { id: note.id }, { render: false }).then(function () { FT.deleted('Sticky note'); }).catch(FT.saveFailed);
+    FT.rpc('stickies', 'remove', { id: note.id }, { render: false }).catch(FT.saveFailed);
+    FT.deleted('Sticky note');
   });
 
   FT.module({ id: 'stickies' });

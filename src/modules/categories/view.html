@@ -63,7 +63,15 @@
       body: '<p>Delete "' + FT.esc(c.label) + '"? Days in the weekly rotation that lead with it become "Any category".</p>',
       submit: 'Delete category',
       danger: true,
-      onSubmit: function () { return FT.rpc('categories', 'remove', { id: c.id }, { quiet: true }); }
+      // The dialog closes and the category goes at once; a refusal (still in use) puts it back with the reason.
+      onSubmit: function () {
+        var before = FT.store.categories;
+        FT.optimistic(function () {
+          FT.store.categories = before.filter(function (x) { return x.id !== c.id; });
+          return function () { FT.store.categories = before; };
+        }, function () { return FT.rpc('categories', 'remove', { id: c.id }); }).catch(function () {});
+        FT.deleted('Category');
+      }
     });
   });
 })();

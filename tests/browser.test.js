@@ -122,18 +122,34 @@ async function run(browser, size) {
   await quick('Resources: add a link dialog', pg.locator('[data-act="resources.add"]').first()); await closeDialog();
   await quick('Sticky: + Note', pg.locator('[data-act="stickies.add"]'));
   await settle();
-  log('Project: dialogs and panels open at once');
+  await quickly(async () => {
+    await pg.locator('[data-act="resources.add"]').first().click();
+    await pg.fill('#dlg-title', 'Spec sheet'); await pg.fill('#dlg-url', 'https://example.com/spec'); await pg.click('#dlg-submit');
+    await pg.waitForSelector('.reslist a:text("Spec sheet")');
+  });
+  const links = () => env.server.run('bootstrap()').data.resources.filter((r) => r.title === 'Spec sheet').length;
+  await quick('Resources: remove a link', pg.locator('.reslist li:has-text("Spec sheet") [data-act="resources.remove"]'));
+  assert.ok(!(await pg.isVisible('.reslist a:text("Spec sheet")')), 'the link goes at once');
+  assert.ok(/Link deleted/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'and the Undo message shows at once');
+  await settle();
+  assert.strictEqual(links(), 0, 'the remove reached the server');
+  log('Project: dialogs and panels open at once, and a removed link goes at once with an Undo message');
 
-  // ---------- header ----------
+  // ---------- header: Settings (⚙), which holds Undo, Redo and Back ----------
   await settle();
-  await openMenuIfPhone();
   await quick('Header: Settings', pg.locator('#settingsBtn')); await closeDialog();
-  await quick('Header: Undo says it is working', pg.locator('#undoBtn'));
-  assert.ok((await pg.evaluate(() => document.getElementById('toast').innerText)).length > 0, 'Undo shows a message at once');
+  const inSettings = async (label, id) => { await quickly(async () => { await pg.click('#settingsBtn'); await pg.waitForSelector('.dialog #' + id); }); await quick(label, pg.locator('#' + id)); };
+  await inSettings('Settings: Undo says it is working', 'undoBtn');
+  assert.ok(/Undoing/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'Undo shows a message at once');
+  assert.ok(!(await pg.isVisible('.dialog')), 'and Settings closes');
   await settle();
-  await quick('Header: Redo says it is working', pg.locator('#redoBtn'));
+  assert.strictEqual(links(), 1, 'Undo brought the link back on the server');
+  await inSettings('Settings: Redo says it is working', 'redoBtn');
+  assert.ok(/Redoing/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'Redo shows a message at once');
   await settle();
-  log('Header: Settings, Undo and Redo answer at once');
+  await inSettings('Settings: Back', 'backBtn');
+  await settle();
+  log('Header: Settings, and Undo, Redo and Back in it, answer at once');
 
   // ---------- 3: a save the server refuses ----------
   await openFirstProject();

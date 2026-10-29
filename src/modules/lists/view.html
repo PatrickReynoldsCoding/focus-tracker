@@ -283,7 +283,14 @@
       title: 'Delete list',
       body: '<p>Delete "' + FT.esc(l.name) + '" and everything in it? You can undo this.</p>',
       submit: 'Delete list', danger: true,
-      onSubmit: function () { return FT.rpc('lists', 'remove', { id: l.id }, { quiet: true }).then(function () { FT.deleted('List'); }); }
+      onSubmit: function () {
+        var before = FT.store.lists;
+        FT.optimistic(function () {
+          FT.store.lists = before.filter(function (x) { return x.id !== l.id; });
+          return function () { FT.store.lists = before; };
+        }, function () { return FT.rpc('lists', 'remove', { id: l.id }); }).catch(function () {});
+        FT.deleted('List');
+      }
     });
   });
 })();

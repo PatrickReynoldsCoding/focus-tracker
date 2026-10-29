@@ -221,8 +221,18 @@
       title: 'Delete ' + word,
       body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count ? count + (count === 1 ? ' card moves' : ' cards move') + ' to "' + FT.esc(target.name) + '".' : 'It has no cards.') + ' You can undo this.</p>',
       submit: 'Delete ' + word, danger: true,
+      // Like the server: the cards go to the end of the column on the left (or the next one), then the column goes.
       onSubmit: function () {
-        return FT.rpc('kanban', 'deleteColumn', { id: col.id }, { quiet: true }).then(function () { FT.deleted(word.charAt(0).toUpperCase() + word.slice(1)); });
+        var k = FT.store.kanban, columns = k.columns, moved = [];
+        FT.optimistic(function () {
+          var order = b.tasks.filter(function (t) { return t.column_id === target.id; }).reduce(function (m, t) { return Math.max(m, t.order); }, 0) + 1;
+          b.tasks.filter(function (t) { return t.column_id === col.id; }).forEach(function (t) {
+            moved.push([t, t.order]); t.column_id = target.id; t.order = order++;
+          });
+          k.columns = columns.filter(function (c) { return c.id !== col.id; });
+          return function () { k.columns = columns; moved.forEach(function (m) { m[0].column_id = col.id; m[0].order = m[1]; }); };
+        }, function () { return FT.rpc('kanban', 'deleteColumn', { id: col.id }); }).catch(function () {});
+        FT.deleted(word.charAt(0).toUpperCase() + word.slice(1));
       }
     });
   });
@@ -233,9 +243,8 @@
     if (!t) return;
     FT.store.kanban.tasks = FT.store.kanban.tasks.filter(function (x) { return x.id !== t.id; });
     FT.render();
-    FT.rpc('kanban', 'deleteTask', { id: t.id }, { render: false })
-      .then(function () { FT.deleted('Card'); })
-      .catch(FT.saveFailed);
+    FT.rpc('kanban', 'deleteTask', { id: t.id }, { render: false }).catch(FT.saveFailed);
+    FT.deleted('Card');
   });
 
   // ---------- card dialog: title, column, colour and a rich-text note ----------

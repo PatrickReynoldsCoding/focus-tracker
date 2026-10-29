@@ -105,7 +105,8 @@
     if (!c) return;
     FT.store.criteria = FT.store.criteria.filter(function (x) { return x.id !== c.id; });
     FT.render();
-    FT.rpc('criteria', 'remove', { id: c.id }, { render: false }).then(function () { FT.deleted('Criterion'); }).catch(FT.saveFailed);
+    FT.rpc('criteria', 'remove', { id: c.id }, { render: false }).catch(FT.saveFailed);
+    FT.deleted('Criterion');
   });
 
   FT.action('criteria.toggleDone', function (el) {
