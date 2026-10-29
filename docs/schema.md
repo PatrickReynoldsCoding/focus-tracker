@@ -1,4 +1,4 @@
-# Spreadsheet layout, version 2 (proposal, for approval)
+# Spreadsheet layout, version 2 (approved 2026-10-29)
 
 Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). Nothing here is built yet. One layout that covers every feature in the spec, so the sheet changes once. The habit columns depend on the habits design (`docs/habits-ideas.md`) and may still change when it is approved.
 
@@ -27,7 +27,7 @@ Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). Nothing here 
 | **Tasks** | title, column, project, list, note, color, problem · id, project_id, list_id, column_id, order, note_html, created, updated_at | Kanban cards and list items. Exactly one of `project_id` / `list_id` is set (today `project_id` also holds list ids, which is confusing). `note` is the plain text; `note_html` the formatted copy the app shows. An assistant writes `note` only and the app makes the HTML. |
 | **Lists** | name, project, show_today, display, seconds, color, problem · id, project_id, order, created | `project` is new: a list linked to a project shows on its page. |
 | **Resources** | title, type, value, group, project, category, note, problem · id, project_id, added | `type`: link, drive, phone, email or text. `value`: the address, number or text. `group`: free text, for example "Code", "Suppliers". Empty `project` means shared by the category. Today's `url` becomes `value` with type link (or drive for Google Drive addresses). |
-| **Habits** | name, intention, sessions, per, size, small_version, goal, step_up_every, prompts, category, description, status, problem · id, next_prompt, started, order, updated_at | As in `docs/habits-ideas.md` §3 (provisional until the mockups are approved). `intention`: committed or trying. `per`: day or week. The daily minimum becomes one row here. |
+| **Habits** | name, intention, sessions, per, size, small_version, goal, step_up_every, prompts, category, description, status, problem · id, next_prompt, started, order, updated_at | As in `docs/habits-ideas.md` §3. `intention`: free text (Paddy's choice), for example "5 cardio sessions a week" or "just trying it out". `per`: day or week. The daily minimum becomes one row here. |
 | **To-dos** | title, day, done, project, note, problem · id, project_id, order, created, updated_at | One-off small tasks. Empty `day` means anytime. `done` is the date it was done. |
 | **Whiteboards** | name, project, show_today, file, updated, problem · id, project_id, file_id, created | `project` is now optional. |
 | **Links** | from, type, to, note, problem · id, from_id, to_id, created | Linked projects. `type`: blocks (from must be done before to starts) or relates. Read as "<from> blocks <to>". |

@@ -227,6 +227,8 @@ A mode with no daily minimum (Work) gets no habit.
 
 ## 7. Open questions for Paddy
 
+Answered 2026-10-29: Today variant A; intention is a free-text box (not committed/trying; anything that used it, such as dashed dots for "trying", goes); the prompt title is "Want to go further?"; the rest as drawn. Unanswered questions below use the proposal's default.
+
 1. **Naming**: Focus / Habit / To-do, with "Small tasks" as the panel title for habits and to-dos together. Happy with those words? Is "To-do" right for one-offs, or "Errand", or "One-off"?
 2. **Today layout**: one "Small tasks" panel with habits and to-dos together (variant A), or two panels, Habits and To-dos (variant B)?
 3. **Dots style**: round dots (A) or a segmented bar with numbers (B)?
