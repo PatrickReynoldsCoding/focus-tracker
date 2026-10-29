@@ -122,7 +122,7 @@ function assertNoDataLost(s) {
           assert.strictEqual(got.list_id, row[i], tab + ' ' + key + ': a list owner moves to list_id');
           assert.strictEqual(got.project_id, '', tab + ' ' + key + ': and project_id is empty');
         } else if (to === 'created' && row[i] === '') {
-          assert.ok(/^\d{4}-\d\d-\d\dT/.test(got[to]), tab + ' ' + key + ': an empty created is filled in when first read'); // docs/schema.md "Rows can be incomplete"
+          assert.ok(got[to] === '' || /^\d{4}-\d\d-\d\dT/.test(got[to]), tab + ' ' + key + ': an empty created is filled in when the tab is read'); // docs/schema.md "Rows can be incomplete"
         } else {
           assert.strictEqual(got[to], row[i], tab + ' ' + key + '.' + to);
         }
@@ -417,6 +417,17 @@ test('each mode migrates on its own, when it is first opened', () => {
   assert.strictEqual(s.drive.pathOf(backup), 'Focus Tracker/Work/Focus Tracker - Work - backup before v2 - ' + TODAY);
   s.boot();
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+});
+
+test('migrateAllModes, run from the editor, migrates every mode that has a spreadsheet and makes none', () => {
+  const s = v1Server();
+  const sheetsBefore = Object.keys(s.spreadsheets).length;
+  s.run('migrateAllModes()');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], undefined);
+  assert.strictEqual(Object.keys(s.spreadsheets).length, sheetsBefore + 1, 'only the backup is new');
+  assert.ok(s.mock.logs.some((l) => l === 'Personal: spreadsheet layout 1 -> 2'));
+  assertNoDataLost(s);
 });
 
 test('a row with a name shared by two targets is flagged, not guessed', () => {

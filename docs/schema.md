@@ -1,6 +1,6 @@
 # Spreadsheet layout, version 2 (approved 2026-10-29)
 
-Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). Nothing here is built yet. One layout that covers every feature in the spec, so the sheet changes once. The habit columns depend on the habits design (`docs/habits-ideas.md`) and may still change when it is approved.
+Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). The migration and the core are built (see "As built" at the end); the features that use the new tabs come later. One layout that covers every feature in the spec, so the sheet changes once. The habit columns depend on the habits design (`docs/habits-ideas.md`) and may still change when it is approved.
 
 ## Goals
 
@@ -70,6 +70,37 @@ Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). Nothing here 
 
 ## Open questions
 
-- Settings tab: move rotation and layouts now (needed for the standalone app), or later?
-- Hide the grey tabs entirely (an assistant can still read hidden tabs), or only colour them?
+- Settings tab: move rotation and layouts now (needed for the standalone app), or later? Done now, with the migration.
+- Hide the grey tabs entirely (an assistant can still read hidden tabs), or only colour them? Only coloured for now.
 - Thumbnails in the sheet (simple, about 20 KB a board) or as PNG files next to the `.excalidraw` files (cleaner, but the page cannot show a private Drive image without an extra call)?
+
+## As built (2026-10-29)
+
+The migration, the tab styles, the Settings tab and the completing of typed rows are in the core (`src/core/migrate.js`, `schema.js`, `complete.js`, `settings.js`); tests in `tests/migrate.test.js`. Not run on Google yet, not deployed. What differs from the design above, and why:
+
+- **Tasks `note`.** The plain-text copy (`note_text` before) is now `note`, as designed. The formatted copy is made from `note` only when `note_html` is empty, because old plain copies were made by an older converter and do not always match the HTML; comparing them would throw away formatting. So to rewrite a card's note in the sheet, write `note` and empty `note_html` (Start here says so).
+- **Who is checked.** A row with an id and no problem is the app's own and is never judged, only completed (an empty `order` or `created` is filled). Checks (required columns, names to ids, categories, types) run on rows with no id, rows with a problem, and rows with a name but no id. This keeps old rows that predate a column (a whiteboard with no name) working, and keeps the check free when nothing is missing.
+- **Defaults.** An empty `id`, `order` or `created` is filled on any row. Other defaults (status `active`, a next action, `last_touched`, a resource's type from its address, a resource's category from its project) only on new rows. A category may be typed as its label ("Coding"); it is stored as the id.
+- **A card for a board with no columns.** If an assistant adds a card to a project or list that has no columns yet, the app makes one (the column named, or "To do"), so the card is not stuck. An unknown column on a board that has columns is a problem that lists the columns.
+- **Missing targets.** On a row being checked, an id that points at nothing ("No project with id ...") is a problem. A flagged row is never deleted by the app, also not when its project is deleted.
+- **Log and Categories** have no `problem` column (as designed), so a row there can be completed but not flagged.
+- **Settings rows.** `rotation.monday` ... `rotation.sunday` hold a category id, `away` or `any`; `rotation.daily_minimum` a category id or `none`; `week.of` the Monday of the week the `week.<day>` rows apply to (an empty value means the usual day); `layout.<page>` the page's layout as JSON. An empty value means not set, so a day can be reset by clearing its cell. Settings are not undoable (they were not before). The old user properties are left in place, not deleted.
+- **Backup.** Named with the mode's label: `Focus Tracker - Personal - backup before v2 - 2026-10-29`. Its file id is kept in `SCHEMA_BACKUP.v2.<mode>`, so a retry after a failure does not copy the half-migrated sheet again.
+- **Tab rewrite.** The new tab is written as `<tab> (updating)`. A leftover one from a stopped run is deleted, or renamed into place if the old tab was already gone. Blank rows are dropped. Columns and tabs the app does not know are kept: own columns after the v2 columns, own tabs between the people tabs and the app tabs.
+- **Grey tabs** are coloured, not hidden. The "Used by the app" text is a cell note on A1.
+- **Tabs not made by the migration.** Habits, To-dos, Links, Habit log and Thumbs are made by their modules when they exist; `TAB_STYLE` gives them their colour, filter and place when `Table.ensure` creates them. Thumbs has no `id` column, so its module cannot use `Table.all()` as it stands.
+- **Names next to ids.** Kept in step by `Table`: an insert or update that sets an id fills its name, and renaming a project, list or column rewrites the name in every tab that shows it (one write per tab). These name writes are not recorded for undo; undoing a rename rewrites them again.
+- **The browser.** Kanban columns and cards carry `owner` (their project or list id) so pages filter on one field; calls still send the owner id as `projectId` and the server works out `project_id` or `list_id`. Resources keep taking `url` in `add`. Rows that are not links (phone, email, text, typed in the sheet) show as text. The saved copy is dropped (`SCHEMA` 2); the offline queue is kept (`QUEUE_SCHEMA` 1).
+- **Lists `project`, Whiteboards `show_today`, Resources `group`** are stored and kept in step but no page uses them yet; the features that do come later.
+- `migrateAllModes()` can be run from the Apps Script editor to migrate every mode that has a spreadsheet before the app is opened.
+
+### Risks on Google's runtime (what the fakes cannot prove)
+
+- **Time and the lock.** The first load of each mode copies the spreadsheet and rewrites about 14 tabs, then styles and orders them: likely tens of seconds. Other requests wait 15 s for the script lock and then fail with a lock error (another device, a second tab). Run `migrateAllModes()` from the editor right after `clasp push`, before opening the app.
+- **API behaviour.** `makeCopy` of the spreadsheet (if the Personal sheet is bound to the script, the copy also gets a copy of the script project), `insertSheet` position, `setActiveSheet` and `moveActiveSheet` in a web app execution, `setTabColor`, `createFilter`, `setNote`, `setWrap`, `setColumnWidth`: only stubbed in the fakes.
+- **Cell types.** Cells typed by hand outside the app's text format come back as numbers, booleans or dates. Dates become ISO text (a date alone at midnight in the script's time zone); the rest becomes plain text. Formulas become their values in rewritten tabs (the backup keeps them).
+- **What a tab rewrite loses.** Formatting, data validation, conditional formats, column widths, filter views, protected ranges and notes on the old tabs; formulas, charts or named ranges elsewhere that point at a rewritten tab break (`#REF!`). All of it is in the backup.
+- **Writes over a person's typing.** Completing typed rows writes the span from the first to the last changed row in one call, and a rename writes the name column over a span. A person editing a row inside that span at the same second could lose that edit.
+- **Cost after the update.** Each load reads the Settings tab; saving a layout or the rotation writes the sheet instead of a user property; adding a card reads Projects (for the readable name); a project rename reads up to seven tabs. A flagged row is checked again on every load (one lock and a few reads) until it is fixed.
+- **Rolling back.** Older code reads a v2 sheet wrongly (list boards empty, resources without addresses). To go back, restore the backup copy, not only the code.
+- **Before this update and unchanged:** writing below the tab's last row (about row 1000 in a tab made by the app) is not checked; Google may refuse it.

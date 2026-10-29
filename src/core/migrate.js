@@ -71,6 +71,21 @@ function ensureSchema_() {
   tableCache_ = {}; // tabs were replaced: read them again
 }
 
+/**
+ * Run from the Apps Script editor after pushing an update, so every mode is brought up to date (and backed up) before
+ * the app opens it; otherwise the first load does it and is slow. A mode whose spreadsheet does not exist yet is skipped.
+ */
+function migrateAllModes() {
+  var props = PropertiesService.getScriptProperties();
+  allModes_().forEach(function (mode) {
+    setMode_(mode.id);
+    if (mode.id !== MODES[0].id && !props.getProperty(modeKey_('SHEET_ID'))) return;
+    var before = schemaVersion_();
+    startRequest_(mode.id);
+    Logger.log(mode.label + ': spreadsheet layout ' + before + ' -> ' + schemaVersion_());
+  });
+}
+
 /** Copy the spreadsheet into the mode folder once per target version. Throws, changing nothing, if Drive refuses. */
 function backupBeforeMigration_(ss, label) {
   var props = PropertiesService.getScriptProperties();
