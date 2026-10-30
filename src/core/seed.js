@@ -53,5 +53,8 @@ function seedStarterData() {
     if (p.notes) ctx.call('notes', 'save', { projectId: project.id, text: p.notes });
     if (p.log) ctx.call('log', 'add', { projectId: project.id, where: p.log, next: p.next });
   });
+  // What the daily minimum became (docs/habits-ideas.md §5), and a to-do for today.
+  ctx.optional('habits', 'create', { name: 'Job search', intention: 'Daily minimum', sessions: 1, per: 'day', size: '10 min', category: 'job' });
+  ctx.optional('todos', 'add', { title: 'Grocery shopping', day: todayIso_() });
   Logger.log('Seeded ' + starter.length + ' projects.');
 }

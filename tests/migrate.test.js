@@ -136,7 +136,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   const s = v1Server();
   const before = copyRows(s.ss);
   const b = s.boot();
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
 
   // the backup: a full copy of the v1 sheet, in the mode folder, made before anything changed
   const backups = Object.values(s.drive.files).filter((f) => /backup/.test(f.name));
@@ -181,7 +181,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   const settings = Object.fromEntries(sh.Settings.rows.slice(1));
   assert.deepStrictEqual(settings, {
     'rotation.monday': 'coding', 'rotation.tuesday': 'coding', 'rotation.wednesday': 'job', 'rotation.thursday': 'any',
-    'rotation.friday': 'house', 'rotation.saturday': 'away', 'rotation.sunday': 'any', 'rotation.daily_minimum': 'job',
+    'rotation.friday': 'house', 'rotation.saturday': 'away', 'rotation.sunday': 'any', 'rotation.daily_minimum': '',
     'week.of': MONDAY, ['week.' + ['', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][weekday]]: 'house',
     'layout.today': JSON.stringify(LAYOUT.today), 'layout.project': JSON.stringify(LAYOUT.project)
   });
@@ -191,7 +191,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   // and the app reads it all as before
   assert.strictEqual(b.data.today.lead, 'house', 'this week\'s change applies today');
   assert.strictEqual(b.data.today.usual[6], 'away');
-  assert.strictEqual(b.data.today.dailyMinimum, 'job');
+  assert.deepStrictEqual(b.data.habits.habits.map((h) => [h.name, h.sessions, h.per, h.size, h.category]), [['Job search', 1, 'day', '10 min', 'job']], 'v3: the daily minimum is a habit');
   assert.deepStrictEqual(b.data.layout, LAYOUT);
   assert.deepStrictEqual(b.data.kanban.tasks.filter((t) => t.owner === 'l0000001').map((t) => t.title), ['A film', 'A book']);
   assert.deepStrictEqual(b.data.kanban.columns.filter((c) => c.owner === 'l0000001').map((c) => c.name), ['Watch', 'Read']);
@@ -206,8 +206,8 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
 test('tabs are coloured, ordered people first, with a Start here guide; app columns have a grey header', () => {
   const s = v1Server();
   s.boot();
-  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Whiteboards', 'Criteria', 'Log', 'Categories', 'My sums',
-    'Columns', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Settings', 'Undo']);
+  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Criteria', 'Log', 'Categories', 'My sums',
+    'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Settings', 'Undo']);
   const spec = Object.fromEntries(json(s.run('TAB_STYLE')).map((t) => [t.name, t]));
   ['Projects', 'Tasks', 'Lists', 'Resources', 'Whiteboards', 'Criteria', 'Log', 'Categories'].forEach((n) => {
     const st = s.ss.sheets[n].style;
@@ -273,7 +273,7 @@ test('a failure part way leaves the old tab, and the next load finishes the job'
   s.boot();
   assert.ok(!s.ss.order().some((n) => /updating/.test(n)));
   assertNoDataLost(s);
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 1, 'one backup, taken before the first try');
   // a run stopped after the old tab was deleted but before the new one was renamed is finished
   const s2 = v1Server();
@@ -408,7 +408,7 @@ test('each mode migrates on its own, when it is first opened', () => {
   ['Projects', 'Categories'].forEach((n) => { work.insertSheet(n).rows = V1[n].map((r) => r.slice()); });
   s.user._m['layout.work'] = JSON.stringify({ today: { focus: { x: 0, y: 0, w: 6 } } });
   s.boot('work');
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], '3');
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], undefined, 'the personal sheet waits until it is opened');
   assert.deepStrictEqual(s.ss.sheets.Projects.rows, V1.Projects);
   assert.deepStrictEqual(work.sheets.Projects.rows[0].slice(0, 3), ['name', 'category', 'status']);
@@ -416,17 +416,17 @@ test('each mode migrates on its own, when it is first opened', () => {
   const backup = Object.values(s.drive.files).find((f) => /backup/.test(f.name));
   assert.strictEqual(s.drive.pathOf(backup), 'Focus Tracker/Work/Focus Tracker - Work - backup before v2 - ' + TODAY);
   s.boot();
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
 });
 
 test('migrateAllModes, run from the editor, migrates every mode that has a spreadsheet and makes none', () => {
   const s = v1Server();
   const sheetsBefore = Object.keys(s.spreadsheets).length;
   s.run('migrateAllModes()');
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
   assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], undefined);
   assert.strictEqual(Object.keys(s.spreadsheets).length, sheetsBefore + 1, 'only the backup is new');
-  assert.ok(s.mock.logs.some((l) => l === 'Personal: spreadsheet layout 1 -> 2'));
+  assert.ok(s.mock.logs.some((l) => l === 'Personal: spreadsheet layout 1 -> 3'));
   assertNoDataLost(s);
 });
 
@@ -440,26 +440,103 @@ test('a row with a name shared by two targets is flagged, not guessed', () => {
   assert.ok(/2 projects are called "Android MIDI"\. Put the right id in project_id/.test(rowsOf(sh).find((t) => t.title === 'Which one').problem));
 });
 
-test('a new spreadsheet starts at v2; tabs made later by a module get their colour and place from TAB_STYLE', () => {
+test('a new spreadsheet starts at the latest layout; tabs made later by a module get their colour and place from TAB_STYLE', () => {
   const s = loadServer();
   s.run('setup()');
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 0, 'nothing to back up');
-  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Whiteboards', 'Criteria', 'Log', 'Categories',
-    'Columns', 'Notes', 'Stickies', 'Skips', 'Reminders']);
-  s.run("new Table('Habits', ['name', 'intention', 'problem', 'id', 'order']).ensure()");
+  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Criteria', 'Log', 'Categories',
+    'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders']);
+  assert.ok(!s.ss.sheets.Habits.rows[1], 'a new spreadsheet has no daily minimum to turn into a habit');
   s.run("new Table('Thumbs', ['whiteboard_id', 'image', 'updated']).ensure()");
-  s.run("new Table('To-dos', ['title', 'day', 'problem', 'id']).ensure()");
   s.ss.insertSheet('Mine');
   s.run("new Table('Links', ['from', 'type', 'to', 'problem', 'id']).ensure()");
   json(s.run('bootstrap()')); // makes Settings and Undo when first used
   json(s.run('rpc')('projects', 'create', { name: 'A', category: 'coding' }));
   assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
-    'Columns', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Thumbs', 'Mine', 'Settings', 'Undo'], 'a person\'s own tab stays where it was put; app tabs go after it');
+    'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Thumbs', 'Mine', 'Settings', 'Undo'], 'a person\'s own tab stays where it was put; app tabs go after it');
   assert.strictEqual(s.ss.sheets.Habits.style.tabColor, '#e53935');
   assert.ok(s.ss.sheets.Habits.style.filter);
   assert.strictEqual(s.ss.sheets.Thumbs.style.tabColor, '#9e9e9e');
-  assert.deepStrictEqual(s.ss.sheets.Habits.style.backgrounds.map((b) => [b.c, b.nc]), [[4, 2]], 'the grey header starts at id');
+  assert.deepStrictEqual(s.ss.sheets.Habits.style.backgrounds.map((b) => [b.c, b.nc]), [[14, 5]], 'the grey header starts at id');
+});
+
+/** A server whose personal sheet is at v2 (the layout before habits), with Settings as given. */
+function v2Server(settings) {
+  const s = loadServer();
+  s.run('setup()');
+  s.script._m['SCHEMA_VERSION.personal'] = '2';
+  delete s.script._m['SCHEMA_V3_HABIT.personal'];
+  ['Habits', 'Habit log'].forEach((n) => s.ss.deleteSheet(s.ss.sheets[n])); // v2 sheets had no habit tabs
+  const sh = s.ss.sheets.Settings || s.ss.insertSheet('Settings');
+  sh.rows = [['key', 'value']].concat(Object.entries(settings || {}));
+  s.boot = (mode) => json(s.run('bootstrap')(mode));
+  s.call = (m, fn, args) => json(s.run('rpc')(m, fn, json(args || {})));
+  return s;
+}
+
+test('v2 to v3: the daily minimum becomes one habit, today\'s done flag becomes a session, and running it again adds nothing', () => {
+  const s = v2Server({ 'rotation.monday': 'coding', 'rotation.daily_minimum': 'job' });
+  s.user._m['today.state'] = JSON.stringify({ day: TODAY, skipped: [], jobDone: true, session: null });
+  const b = s.boot();
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  const habits = rowsOf(s.ss.sheets.Habits);
+  assert.strictEqual(habits.length, 1);
+  const h = habits[0];
+  assert.deepStrictEqual([h.name, h.intention, h.sessions, h.per, h.size, h.category, h.prompts, h.step_up_every, h.status, h.started, h.order],
+    ['Job search', 'Daily minimum', '1', 'day', '10 min', 'job', 'off', '', 'active', TODAY, '1']);
+  const log = rowsOf(s.ss.sheets['Habit log']);
+  assert.deepStrictEqual(log.map((r) => [r.habit_id, r.habit, r.day, r.kind, r.count, r.value]),
+    [[h.id, 'Job search', TODAY, 'level', '0', '1 a day, 10 min'], [h.id, 'Job search', TODAY, 'done', '1', '']], 'a level row, and today\'s ten minutes as one session');
+  assert.strictEqual(Object.fromEntries(s.ss.sheets.Settings.rows.slice(1))['rotation.daily_minimum'], '', 'the old setting is cleared');
+  assert.strictEqual(Object.fromEntries(s.ss.sheets.Settings.rows.slice(1))['rotation.monday'], 'coding', 'other settings stay');
+  assert.strictEqual(b.data.today.dailyMinimum, undefined);
+  assert.strictEqual(b.data.today.jobDone, undefined);
+  const habit = b.data.habits.habits[0];
+  assert.deepStrictEqual([habit.name, habit.level], ['Job search', { sessions: 1, size: '10 min' }]);
+  assert.strictEqual(b.data.habits.log.find((r) => r.kind === 'done').count, 1, 'Today shows the dot filled, as the button was');
+  assert.strictEqual(s.ss.order().indexOf('Habits'), s.ss.order().indexOf('Resources') + 1, 'the new tab goes in its place');
+
+  // again, as if the version had not been saved: nothing changes
+  const before = copyRows(s.ss);
+  delete s.script._m['SCHEMA_VERSION.personal'];
+  s.script._m['SCHEMA_VERSION.personal'] = '2';
+  s.boot();
+  assert.deepStrictEqual(copyRows(s.ss), before);
+  // and with the marker lost too: a habit already linked to the category is not doubled
+  s.script._m['SCHEMA_VERSION.personal'] = '2';
+  delete s.script._m['SCHEMA_V3_HABIT.personal'];
+  s.ss.sheets.Settings.rows.find((r) => r[0] === 'rotation.daily_minimum')[1] = 'job';
+  s.boot();
+  assert.strictEqual(rowsOf(s.ss.sheets.Habits).length, 1);
+  assert.strictEqual(rowsOf(s.ss.sheets['Habit log']).length, 2);
+});
+
+test('v2 to v3: no daily minimum means no habit; an unset one is the mode\'s old default; yesterday\'s flag is not carried', () => {
+  const none = v2Server({ 'rotation.daily_minimum': 'none' });
+  none.boot();
+  assert.strictEqual(rowsOf(none.ss.sheets.Habits).length, 0);
+  assert.strictEqual(none.script._m['SCHEMA_V3_HABIT.personal'], 'none');
+
+  const unset = v2Server({});
+  unset.user._m['today.state'] = JSON.stringify({ day: '2020-01-01', skipped: [], jobDone: true, session: null });
+  unset.boot();
+  assert.deepStrictEqual(rowsOf(unset.ss.sheets.Habits).map((h) => h.category), ['job'], 'Personal used Job search by default');
+  assert.deepStrictEqual(rowsOf(unset.ss.sheets['Habit log']).map((r) => r.kind), ['level'], 'an old day\'s flag is not today\'s session');
+
+  const gone = v2Server({ 'rotation.daily_minimum': 'job' });
+  gone.ss.sheets.Categories.rows = [['label', 'color', 'id', 'order'], ['Coding', '1', 'coding', '1'], ['House', '3', 'house', '2']]; // Job search was deleted
+  gone.boot();
+  assert.strictEqual(rowsOf(gone.ss.sheets.Habits).length, 0, 'a deleted category makes no habit');
+
+  // Work had no daily minimum: its sheet gets no habit
+  const s = v2Server({});
+  s.boot('work');
+  s.script._m['SCHEMA_VERSION.work'] = '2';
+  s.boot('work');
+  const work = s.spreadsheets[s.script._m['SHEET_ID.work']];
+  assert.strictEqual(rowsOf(work.sheets.Habits).length, 0);
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], '3');
 });
 
 console.log(passed + ' migration tests passed');

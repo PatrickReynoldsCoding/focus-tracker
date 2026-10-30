@@ -84,15 +84,80 @@ async function run(browser, size) {
   await quickly(async () => { await pg.locator('[data-act="today.finish"]').click(); await pg.fill('#dlg-where', 'testing'); await pg.click('#dlg-submit'); await sleep(500); });
   await settle();
   await quick('Today: Swap focus dialog', pg.locator('[data-act="today.swap"]')); await closeDialog();
-  const minutes = pg.locator('[data-act="today.job"]');
-  if (await minutes.count()) {
-    const before = (await minutes.first().innerText()).trim();
-    await quick('Today: Mark minutes done', minutes.first());
-    assert.notStrictEqual((await pg.locator('[data-act="today.job"]').first().innerText()).trim(), before, 'the button changes at once');
+  // ---------- 1 and 2: Small tasks (habits and to-dos) ----------
+  const srv = (code) => { const v = env.server.run('(function () { tableCache_ = {}; return ' + code + '; })()'); return v === undefined ? null : JSON.parse(JSON.stringify(v)); };
+  const habitsNow = () => env.server.run('bootstrap()').data.habits;
+  const todosNow = () => env.server.run('bootstrap()').data.todos.items;
+  const today = srv('todayIso_()');
+  const doneToday = (id) => { const r = habitsNow().log.find((x) => x.habit_id === id && x.kind === 'done' && x.day === today); return r ? r.count : 0; };
+  const jobId = habitsNow().habits.find((h) => h.name === 'Job search').id;
+  const dot = () => pg.locator(`.small-tasks .habit[data-id="${jobId}"] [data-act="habits.tap"]`).first();
+  await quick('Small tasks: tap a dot', dot());
+  assert.ok(await pg.isVisible(`.small-tasks .habit[data-id="${jobId}"] .dot.on`), 'the dot fills at once');
+  assert.strictEqual(doneToday(jobId), 0, 'before the slow server has it');
+  await settle();
+  assert.strictEqual(doneToday(jobId), 1, 'the tap reached the server');
+  await quick('Small tasks: − takes a session off', pg.locator(`.small-tasks .habit[data-id="${jobId}"] [data-act="habits.untap"]`));
+  await settle();
+  assert.strictEqual(doneToday(jobId), 0, 'the − reached the server');
+  const unfailTap = env.failWhere((name, args) => name === 'rpc' && args[0] === 'habits' && args[1] === 'tap');
+  await quick('Small tasks: tap a dot (server will refuse)', dot());
+  assert.ok(await pg.isVisible(`.small-tasks .habit[data-id="${jobId}"] .dot.on`), 'filled while the save is on its way');
+  await pg.waitForFunction((id) => !document.querySelector(`.small-tasks .habit[data-id="${id}"] .dot.on`), jobId, { timeout: 8000 });
+  assert.ok(/refused/i.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'the dot goes back and the reason is shown');
+  unfailTap();
+  assert.strictEqual(doneToday(jobId), 0, 'the server never changed');
+  log('Small tasks: a dot tap and − answer at once and reach the server; a refused tap is put back');
+
+  const grocery = () => todosNow().find((t) => t.title === 'Grocery shopping');
+  await quick('To-dos: tick', pg.locator('.todos li:has-text("Grocery shopping") input[type="checkbox"]'));
+  assert.ok(await pg.isVisible('.todos li.done:has-text("Grocery shopping")'), 'struck through at once');
+  await settle();
+  assert.strictEqual(grocery().done, today, 'the tick reached the server');
+  await quickly(async () => { await pg.fill('#td-new', 'Post parcel'); });
+  await quick('To-dos: add', pg.locator('[data-act="todos.addBtn"]'));
+  assert.ok(await pg.isVisible('.todos li:has-text("Post parcel")'), 'shows at once');
+  await settle();
+  assert.ok(todosNow().some((t) => t.title === 'Post parcel'), 'the new to-do reached the server');
+  await quick('To-dos: delete', pg.locator('.todos li:has-text("Post parcel") [data-act="todos.remove"]'));
+  assert.ok(/To-do deleted/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'with the Undo message at once');
+  await settle();
+  assert.ok(!todosNow().some((t) => t.title === 'Post parcel'), 'the delete reached the server');
+  log('To-dos: tick, add and delete answer at once and reach the server');
+
+  // "Want to go further?": a weekly habit whose level was met in the two full weeks before this one
+  const habit = JSON.parse(JSON.stringify(env.server.run('rpc')('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week', size: '15 min', goal: '5 a week, 30 min', step_up_every: '2 weeks' }))).result;
+  const makeDue = () => {
+    srv(`new Table('Habit log', ['id']).removeWhere(function (r) { return r.habit_id === '${habit.id}' && (r.kind === 'level' || r.kind === 'done' || r.kind === 'prompt' && r.day === todayIso_()); })`);
+    const h = habitsNow().habits.find((x) => x.id === habit.id);
+    srv(`new Table('Habits', ['id']).update('${habit.id}', { next_prompt: isoAddDays_(todayIso_(), -1), prompts: 'on' })`);
+    srv(`new Table('Habit log', ['id']).insertMany([{ habit_id: '${habit.id}', day: isoAddDays_(isoMonday_(todayIso_()), -14), kind: 'level', value: '${h.sessions} a week, ${h.size}' },
+      { habit_id: '${habit.id}', day: isoAddDays_(isoMonday_(todayIso_()), -13), kind: 'done', count: 5 }, { habit_id: '${habit.id}', day: isoAddDays_(isoMonday_(todayIso_()), -6), kind: 'done', count: 5 }])`);
+  };
+  const lastAnswer = () => srv(`new Table('Habit log', ['id']).all().filter(function (r) { return r.kind === 'prompt'; }).map(function (r) { return r.value; }).pop()`);
+  for (const [label, answer] of [['Not now', 'not now'], ['Yes, adjust', 'yes'], ['I\'m at my goal', 'at goal']]) {
+    makeDue();
+    await quickly(async () => { await pg.evaluate(() => FT.reload()); await pg.waitForSelector('.stepcard'); });
+    await quick('Want to go further?: ' + label, pg.locator(`.stepcard [data-act="habits.answer"][data-answer="${answer}"]`));
+    assert.ok(!(await pg.isVisible('.stepcard')), 'the card goes at once');
+    assert.ok(/Undo/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'and the message offers Undo');
     await settle();
-    assert.strictEqual(todayState().jobDone, true, 'the daily minimum reached the server');
-    log('Today: daily minimum answers at once');
+    assert.strictEqual(lastAnswer(), answer, label + ' reached the server');
   }
+  assert.strictEqual(habitsNow().habits.find((x) => x.id === habit.id).prompts, 'at goal');
+  log('Want to go further?: Not now, Yes, adjust and I\'m at my goal answer at once and reach the server');
+
+  await quick('Small tasks: Plan my week', pg.locator('.small-tasks [data-act="habits.planWeek"]'));
+  const tomorrowCell = pg.locator(`.plan [data-act="habits.planAdd"][data-id="${jobId}"]`).last();
+  const planDay = await tomorrowCell.getAttribute('data-day');
+  await quick('Plan my week: place a session', tomorrowCell);
+  assert.ok(await pg.isVisible(`.plan [data-act="habits.planRemove"][data-day="${planDay}"]`), 'a ring at once');
+  await settle();
+  assert.ok(habitsNow().log.some((r) => r.kind === 'plan' && r.day === planDay && r.habit_id === jobId), 'the plan reached the server');
+  await closeDialog();
+  await quick('Small tasks: + Habit dialog', pg.locator('[data-act="habits.new"]')); await closeDialog();
+  log('Plan my week and + Habit answer at once');
+
   await quick('Today: Rotation Edit dialog', pg.locator('[data-act="today.rotationEdit"], [data-act="today.editRotation"], [data-act="today.rotation"]').first()); await closeDialog();
 
   // ---------- 1 and 2: a project page ----------

@@ -26,6 +26,8 @@ var WRAP_WIDTH_ = 280;
 
 var PROJECT_STATUSES_ = ['active', 'paused', 'done', 'archived'];
 var RESOURCE_TYPES_ = ['link', 'drive', 'phone', 'email', 'text'];
+var HABIT_PERS_ = ['day', 'week'];
+var HABIT_STATUSES_ = ['active', 'paused', 'ended'];
 
 /** A Google Drive or Docs address is a Drive file; any other address is a link. */
 function resourceTypeFor_(value) {
@@ -78,7 +80,16 @@ var TAB_STYLE = [
         return checkCategory_(row, look, true);
       } } },
   { name: 'Habits', people: true, color: '#e53935', wrap: ['name', 'intention', 'description', 'problem'],
-    complete: { required: ['name'], fill: { order: 'next', started: 'now' } } },
+    complete: { required: ['name'], fill: { order: 'next', started: 'now', status: 'active', per: 'week', sessions: '1', prompts: 'off' },
+      check: function (row, look) {
+        if (row.per && HABIT_PERS_.indexOf(row.per) === -1) return 'Per must be day or week.';
+        var n = Number(row.sessions);
+        if (row.sessions !== '' && row.sessions !== undefined && !(Math.floor(n) === n && n >= 1)) return 'Sessions must be a whole number, 1 or more.';
+        if (row.status && HABIT_STATUSES_.indexOf(row.status) === -1) return 'Status must be one of: ' + HABIT_STATUSES_.join(', ') + '.';
+        if (row.prompts && ['on', 'off', 'at goal'].indexOf(row.prompts) === -1) return 'Prompts must be on, off or at goal.';
+        if (row.prompts === 'on' && !row.next_prompt && row.step_up_every) row.next_prompt = String(row.started || nowIso_()).slice(0, 10);
+        return checkCategory_(row, look, false);
+      } } },
   { name: 'To-dos', people: true, color: '#00897b', wrap: ['title', 'note', 'problem'],
     complete: { required: ['title'], fill: { order: 'next', created: 'now' }, refs: [PROJECT_REF_] } },
   { name: 'Whiteboards', people: true, color: '#5e35b1', wrap: ['name', 'problem'],
@@ -95,7 +106,8 @@ var TAB_STYLE = [
   { name: 'Categories', people: true, color: '#00acc1',
     complete: { required: ['label'], fill: { order: 'next', color: '1' } } },
   { name: 'Columns' },
-  { name: 'Habit log' },
+  // An app tab, so never completed; the ref keeps the habit's name next to its id when a habit is renamed.
+  { name: 'Habit log', complete: { refs: [{ id: 'habit_id', name: 'habit', table: 'Habits', noun: 'habit' }] } },
   { name: 'Notes' },
   { name: 'Stickies' },
   { name: 'Skips' },
@@ -184,7 +196,7 @@ function startHereLines_() {
     'Tasks': 'cards on project boards and items on lists. Fill title, column and project (or list).',
     'Lists': 'lists that are not projects, such as "Read and watch".',
     'Resources': 'links and other things kept with a project or a whole category: title, type (link, drive, phone, email, text) and value.',
-    'Habits': 'habits and how often you mean to do them.',
+    'Habits': 'things you repeat: name, sessions and per (day or week), for example 3 a week. Size, goal and step_up_every (for example 2 weeks) are optional.',
     'To-dos': 'one-off small tasks, for a day or anytime.',
     'Whiteboards': 'drawings. Made in the app, which makes the drawing file.',
     'Links': 'projects that block or relate to other projects.',
@@ -207,6 +219,7 @@ function startHereLines_() {
   lines.push(['- A project: a row in Projects with name, category and next_action.']);
   lines.push(['- A card: a row in Tasks with title, project and column (an empty column means the first one on the board).']);
   lines.push(['- A resource: a row in Resources with title, value and project (or only a category, to share it with the whole category).']);
+  lines.push(['- A habit: a row in Habits with name, sessions and per, for example 3 and week. A to-do: a row in To-dos with title and, if it is for a day, day.']);
   lines.push(['- To change a card\'s note, write the new note and empty its note_html cell: the app makes the formatted copy again.']);
   lines.push(['- If the app cannot use a row it leaves it alone and writes the reason in its problem column. Fix the row and the problem clears.']);
   lines.push(['- Cells are plain text. Dates look like 2026-10-29. Yes/no columns hold yes or are empty.']);

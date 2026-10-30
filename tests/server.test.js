@@ -252,15 +252,15 @@ test('the rotation can be edited; this-week changes and away days apply only thi
   const usual = { 1: 'house', 2: 'coding', 3: 'coding', 4: '', 5: 'house', 6: 'away', 7: 'away' };
   assert.throws(() => s.call('today', 'saveRotation', { usual: Object.assign({}, usual, { 1: 'nope' }) }), /Unknown category/);
   assert.throws(() => s.call('today', 'saveRotation', { usual, week: { 9: 'away' } }), /Unknown weekday/);
-  t = s.call('today', 'saveRotation', { usual, week: { 3: 'away', 4: 'job' }, dailyMinimum: '' }).slices.today;
+  t = s.call('today', 'saveRotation', { usual, week: { 3: 'away', 4: 'job' } }).slices.today;
   assert.strictEqual(t.away, true);
   assert.strictEqual(t.lead, null);
   assert.deepStrictEqual([t.labels[1], t.labels[3], t.labels[4], t.labels[6]], ['House', 'Away', 'Job search', 'Away']);
   assert.strictEqual(t.usual[4], null);
-  assert.strictEqual(t.dailyMinimum, null, 'daily minimum switched off');
+  assert.strictEqual(t.dailyMinimum, undefined, 'the daily minimum is a habit now');
   // Saved in the mode's Settings tab as readable rows, not in user properties
   const settings = Object.fromEntries(s.ss.sheets.Settings.rows.slice(1));
-  assert.deepStrictEqual([settings['rotation.monday'], settings['rotation.thursday'], settings['rotation.saturday'], settings['rotation.daily_minimum']], ['house', 'any', 'away', 'none']);
+  assert.deepStrictEqual([settings['rotation.monday'], settings['rotation.thursday'], settings['rotation.saturday'], settings['rotation.daily_minimum']], ['house', 'any', 'away', undefined]);
   assert.deepStrictEqual([settings['week.wednesday'], settings['week.thursday'], settings['week.friday']], ['away', 'job', undefined], 'only the changed days have a value');
   assert.ok(!s.user._m['today.rotation'] && !s.user._m['today.week']);
   // A new week: the saved week no longer matches, so only the usual rotation applies
@@ -418,7 +418,7 @@ test('work mode gets its own spreadsheet, folder, categories and Today state', (
   assert.deepStrictEqual(wb.data.projects.map((p) => p.name), ['Ticket']);
   assert.deepStrictEqual(wb.data.categories.map((c) => c.id), ['delivery', 'ops', 'learning', 'career', 'admin']);
   assert.strictEqual(wb.data.today.session, null, 'the personal session does not show in work');
-  assert.strictEqual(wb.data.today.dailyMinimum, null);
+  assert.deepStrictEqual(wb.data.habits.habits, [], 'work has no habits');
   assert.strictEqual(wb.data.today.focusId, ticket.id);
   assert.notStrictEqual(wb.config.folderUrl, json(s.run('bootstrap()')).config.folderUrl);
   assert.deepStrictEqual(wb.config.modes.map((m) => m.id), ['personal', 'work']);
@@ -441,7 +441,7 @@ test('new modes can be made in the app, with a safe unique id, their own folder,
   const b = json(s.run("bootstrap('side-projects')"));
   assert.deepStrictEqual(b.config.modes.map((m) => m.id), ['personal', 'work', 'side-projects', 'side-projects-2', 'mode']);
   assert.deepStrictEqual(b.data.categories.map((c) => c.label), ['General']);
-  assert.strictEqual(b.data.today.dailyMinimum, null);
+  assert.deepStrictEqual(b.data.habits.habits, []);
   const p = json(s.run('rpc')('projects', 'create', { name: 'Shed', category: 'general' }, 'side-projects')).result;
   assert.ok(p.id);
   const sheetId = s.script._m['SHEET_ID.side-projects'];
@@ -472,7 +472,7 @@ test('categories can be added, renamed, recoloured and deleted only when unused'
   assert.deepStrictEqual(after.map((c) => c.label), ['Coding', 'Job search', 'House']);
 });
 
-test('a deleted lead category makes that day "Any category" and drops the daily minimum', () => {
+test('a deleted lead category makes that day "Any category"', () => {
   const s = fresh();
   s.mock.weekday = 3;
   assert.strictEqual(s.call('today', 'state').result.lead, 'job');
@@ -480,7 +480,6 @@ test('a deleted lead category makes that day "Any category" and drops the daily 
   const t = s.call('today', 'state').result;
   assert.strictEqual(t.lead, null);
   assert.strictEqual(t.labels[3], 'Any category');
-  assert.strictEqual(t.dailyMinimum, null);
   assert.strictEqual(t.labels[1], 'Coding');
 });
 
@@ -766,8 +765,8 @@ test('rpc rejects unknown modules and functions, and bootstrap returns every sli
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'whiteboard']);
-  assert.strictEqual(b.modules.length, 12);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'habits', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'todos', 'whiteboard']);
+  assert.strictEqual(b.modules.length, 14);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {
@@ -882,6 +881,268 @@ test('project notes saved after waiting offline: the older text is kept as a con
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'mine, later');
   assert.ok(mdFiles().some((f) => /conflict/.test(f.name) && f.content === 'two'));
   assert.ok(s.run('bootstrap()').data.log.some((l) => /Notes folder/.test(l.where_stopped)));
+});
+
+// ---------- habits and to-dos ----------
+
+/** A server whose "today" is a fixed date (a Wednesday), so weeks and prompts can be tested. */
+function onDay(day) {
+  const s = fresh();
+  s.setDay = (d) => s.run(`todayIso_ = function () { return '${d}'; }`);
+  s.setDay(day);
+  s.rows = (tab) => rowsOf(s.ss.sheets[tab]);
+  return s;
+}
+const WED = '2026-11-04', MON = '2026-11-02';
+
+test('habits: create with a level row, edit, reorder, pause, resume, end and delete', () => {
+  const s = onDay(WED);
+  assert.throws(() => s.call('habits', 'create', { name: ' ' }), /needs a name/);
+  assert.throws(() => s.call('habits', 'create', { name: 'X', per: 'month' }), /per day or per week/);
+  assert.throws(() => s.call('habits', 'create', { name: 'X', per: 'day', sessions: 11 }), /1 to 10 a day/);
+  assert.throws(() => s.call('habits', 'create', { name: 'X', category: 'nope' }), /Unknown category/);
+  assert.throws(() => s.call('habits', 'create', { name: 'X', step_up_every: 'sometimes' }), /Ask every/);
+  const cardio = s.call('habits', 'create', { name: 'Cardio', intention: 'Just trying it out', sessions: 2, per: 'week', size: '15 min', goal: '5 a week, 30 min', step_up_every: '2 weeks' }).result;
+  assert.deepStrictEqual([cardio.status, cardio.prompts, cardio.next_prompt, cardio.started, cardio.order], ['active', 'on', '2026-11-18', WED, 1]);
+  const fit = s.call('habits', 'create', { name: 'Fitness', sessions: 1, per: 'day', size: '10 min', category: 'house' }).result;
+  assert.strictEqual(fit.prompts, 'off', 'no pace, no prompts');
+  assert.deepStrictEqual(s.rows('Habit log').map((r) => [r.habit, r.day, r.kind, r.value]), [['Cardio', WED, 'level', '2 a week, 15 min'], ['Fitness', WED, 'level', '1 a day, 10 min']]);
+  assert.deepStrictEqual(s.ss.sheets.Habits.rows[0], ['name', 'intention', 'sessions', 'per', 'size', 'small_version', 'goal', 'step_up_every', 'prompts', 'category', 'description', 'status', 'problem', 'id', 'next_prompt', 'started', 'order', 'updated_at']);
+
+  s.call('habits', 'update', { id: cardio.id, name: 'Cycling', sessions: 3 });
+  assert.ok(s.rows('Habit log').filter((r) => r.habit_id === cardio.id).every((r) => r.habit === 'Cycling'), 'the name next to the id follows a rename');
+  assert.deepStrictEqual(s.rows('Habit log').filter((r) => r.habit_id === cardio.id && r.kind === 'level').map((r) => [r.day, r.value]), [[WED, '3 a week, 15 min']], 'an edit applies from today, replacing today\'s level');
+  s.call('habits', 'move', { id: fit.id, d: -1 });
+  assert.deepStrictEqual(s.call('habits', 'history', {}).result.habits.map((h) => h.name), ['Fitness', 'Cycling']);
+  s.call('habits', 'setStatus', { id: fit.id, status: 'paused' });
+  s.call('habits', 'setStatus', { id: fit.id, status: 'active' });
+  assert.deepStrictEqual(s.rows('Habit log').filter((r) => r.habit_id === fit.id).map((r) => r.kind), ['level', 'pause', 'resume']);
+  let b = json(s.run('bootstrap()')).data.habits;
+  s.call('habits', 'setStatus', { id: fit.id, status: 'ended' });
+  b = json(s.run('bootstrap()')).data.habits;
+  assert.deepStrictEqual(b.habits.map((h) => h.name), ['Cycling'], 'an ended habit leaves the app');
+  assert.strictEqual(s.rows('Habits').length, 2, 'and stays in the sheet');
+  s.call('habits', 'remove', { id: cardio.id });
+  assert.ok(!s.rows('Habit log').some((r) => r.habit_id === cardio.id), 'delete takes its history too');
+  s.run('undo()');
+  assert.ok(s.rows('Habit log').some((r) => r.habit_id === cardio.id), 'and Undo brings both back');
+});
+
+test('habits: a tap adds a session, taps past the target are extra, −1 takes one off; one log row per habit per day', () => {
+  const s = onDay(WED);
+  const h = s.call('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week' }).result;
+  s.call('habits', 'tap', { id: h.id });
+  s.call('habits', 'tap', { id: h.id, day: MON, delta: 1 });
+  s.call('habits', 'tap', { id: h.id, delta: 1 });
+  let r = s.call('habits', 'tap', { id: h.id, delta: 1 });
+  assert.strictEqual(r.result, 3);
+  const done = s.rows('Habit log').filter((x) => x.kind === 'done');
+  assert.deepStrictEqual(done.map((x) => [x.day, x.count]), [[WED, '3'], [MON, '1']], 'counts, not one row per tap');
+  const slice = r.slices.habits;
+  assert.strictEqual(slice.log.filter((x) => x.kind === 'done').reduce((n, x) => n + x.count, 0), 4, '4 of 2 this week: two extra');
+  assert.strictEqual(s.call('habits', 'tap', { id: h.id, delta: -1 }).result, 2);
+  s.call('habits', 'tap', { id: h.id, day: MON, delta: -1 });
+  assert.ok(!s.rows('Habit log').some((x) => x.kind === 'done' && x.day === MON), 'a count back to 0 removes the row');
+  assert.strictEqual(s.call('habits', 'tap', { id: h.id, day: MON, delta: -1 }).result, 0, 'never below 0');
+  assert.throws(() => s.call('habits', 'tap', { id: h.id, delta: 2 }), /one session/);
+  assert.throws(() => s.call('habits', 'tap', { id: h.id, day: '2026-11-05' }), /today or the last 7 days/);
+  assert.throws(() => s.call('habits', 'tap', { id: h.id, day: '2026-10-27' }), /today or the last 7 days/);
+  s.run('undo()');
+  assert.strictEqual(s.rows('Habit log').find((x) => x.kind === 'done' && x.day === WED).count, '2', 'a tap can be undone');
+});
+
+test('habits offline: taps from two devices that waited offline add up, also for an earlier day', () => {
+  const s = onDay(WED);
+  const h = s.call('habits', 'create', { name: 'Fitness', sessions: 1, per: 'day' }).result;
+  // phone and laptop both tapped Tuesday while offline, then Wednesday the queues are sent (each +1, never a total)
+  s.call('habits', 'tap', { id: h.id, day: '2026-11-03', delta: 1 });
+  s.call('habits', 'tap', { id: h.id, day: '2026-11-03', delta: 1 });
+  assert.strictEqual(s.rows('Habit log').find((x) => x.kind === 'done').count, '2', 'added, not overwritten');
+  // the queue keeps taps as their own calls: they are queueable and never merged into one
+  const offline = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'offline.html'), 'utf8');
+  assert.ok(/'habits\.tap': 1/.test(offline), 'habits.tap waits in the offline queue');
+  assert.ok(!/MERGEABLE = [^\n]*tap/.test(offline), 'and two waiting taps are not merged into one');
+});
+
+test('plan my week: habit sessions and to-dos only from today to the end of next week; copy last week', () => {
+  const s = onDay(WED);
+  const h = s.call('habits', 'create', { name: 'Job hunting', sessions: 5, per: 'week' }).result;
+  s.call('habits', 'plan', { id: h.id, day: WED, count: 2 });
+  s.call('habits', 'plan', { id: h.id, day: '2026-11-15', count: 1 });
+  assert.throws(() => s.call('habits', 'plan', { id: h.id, day: '2026-11-16', count: 1 }), /end of next week/, 'never the week after next');
+  assert.throws(() => s.call('habits', 'plan', { id: h.id, day: '2026-11-03', count: 1 }), /from today/, 'not a day gone by');
+  assert.throws(() => s.call('habits', 'plan', { id: h.id, day: WED, count: 11 }), /0 to 10/);
+  s.call('habits', 'plan', { id: h.id, day: WED, count: 0 });
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'plan').map((x) => [x.day, x.count]), [['2026-11-15', '1']]);
+  // last week: done Monday and Thursday; this week from today on is planned the same
+  s.setDay('2026-10-29');
+  s.call('habits', 'tap', { id: h.id, day: '2026-10-29' });
+  s.setDay(WED);
+  s.call('habits', 'copyWeek', { week: MON });
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'plan' && x.day < '2026-11-09').map((x) => [x.day, x.count]), [['2026-11-05', '1']]);
+  assert.throws(() => s.call('habits', 'copyWeek', { week: '2026-11-16' }), /this week or next/);
+
+  assert.throws(() => s.call('todos', 'add', { title: 'Far away', day: '2026-11-16' }), /end of next week/);
+  assert.throws(() => s.call('todos', 'add', { title: 'Past', day: '2026-11-03' }), /from today/);
+  const t = s.call('todos', 'add', { title: 'Paint samples', day: '' }).result;
+  s.call('todos', 'setDay', { id: t.id, day: '2026-11-14' });
+  assert.throws(() => s.call('todos', 'setDay', { id: t.id, day: '2026-11-20' }), /end of next week/);
+
+  // the focus lead: this week and next week, never further; next week's plan applies when it starts
+  assert.throws(() => s.call('today', 'planDay', { week: '2026-11-16', day: 1, plan: 'house' }), /this week or next/);
+  let today = s.call('today', 'state').result;
+  s.call('today', 'planDay', { week: today.nextWeekKey, day: 1, plan: 'away' });
+  today = s.call('today', 'state').result;
+  assert.deepStrictEqual([today.next[1], today.week[1]], ['away', undefined]);
+  const settings = Object.fromEntries(s.ss.sheets.Settings.rows.slice(1));
+  assert.deepStrictEqual([settings['next.of'], settings['next.monday']], [today.nextWeekKey, 'away']);
+  s.call('today', 'planDay', { week: today.weekKey, day: 2, plan: 'house' });
+  assert.strictEqual(s.call('today', 'state').result.week[2], 'house');
+  s.call('today', 'planDay', { week: today.weekKey, day: 2, plan: 'usual' });
+  assert.strictEqual(s.call('today', 'state').result.week[2], undefined);
+});
+
+test('to-dos: add, tick, untick, delete with undo; done ones fall away after two weeks; history', () => {
+  const s = onDay(WED);
+  assert.throws(() => s.call('todos', 'add', { title: '  ' }), /needs a title/);
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  const a = s.call('todos', 'add', { title: 'Grocery shopping', day: WED }).result;
+  const b = s.call('todos', 'add', { title: 'Order fan', projectId: p.id }).result;
+  assert.strictEqual(s.rows('To-dos').find((t) => t.id === b.id).project, 'Fan', 'the project name next to its id');
+  s.call('todos', 'toggle', { id: a.id, done: true });
+  assert.strictEqual(s.rows('To-dos').find((t) => t.id === a.id).done, WED);
+  s.call('todos', 'toggle', { id: a.id, done: false });
+  s.call('todos', 'toggle', { id: a.id, done: true });
+  assert.deepStrictEqual(s.call('todos', 'history', { from: MON, to: '2026-11-08' }).result.map((t) => [t.title, t.day, t.done]), [['Grocery shopping', WED, WED]]);
+  s.call('todos', 'remove', { id: b.id });
+  assert.strictEqual(s.rows('To-dos').length, 1);
+  s.run('undo()');
+  assert.strictEqual(s.rows('To-dos').length, 2, 'Undo brings it back');
+  s.setDay('2026-11-30');
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.todos.items.map((t) => t.title), ['Order fan'], 'ticked long ago: off the page, kept in the sheet');
+  s.call('projects', 'remove', { id: p.id });
+  assert.strictEqual(s.rows('To-dos').find((t) => t.id === b.id).project_id, '', 'a deleted project\'s to-dos stay, unlinked');
+});
+
+/** A habit at 2 a week, 15 min since `levelDay`, prompts every `pace`, and done counts by day. */
+function rampHabit(s, pace, levelDay, done) {
+  const h = s.call('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week', size: '15 min', goal: '5 a week, 30 min', step_up_every: pace }).result;
+  s.run(`tableCache_ = {}; new Table('Habit log', ['id']).removeWhere(function (r) { return r.kind === 'level'; }); new Table('Habit log', ['id']).insert({ habit_id: '${h.id}', day: '${levelDay}', kind: 'level', value: '2 a week, 15 min' }); new Table('Habits', ['id']).update('${h.id}', { next_prompt: '${WED}', started: '${levelDay}' })`);
+  Object.entries(done).forEach(([day, n]) => s.run(`tableCache_ = {}; new Table('Habit log', ['id']).insert({ habit_id: '${h.id}', day: '${day}', kind: 'done', count: ${n} })`));
+  return h;
+}
+const promptNow = (s) => json(s.run('bootstrap()')).data.habits.prompt;
+
+test('step-up prompt: only when due and earned (80 % of the sessions in the full weeks since the level), one step, never past the goal', () => {
+  let s = onDay(WED);
+  rampHabit(s, '2 weeks', '2026-10-19', { '2026-10-20': 2, '2026-10-28': 1 });
+  assert.strictEqual(promptNow(s), null, '3 of 4 is under 80 %: it waits, and says nothing');
+  s = onDay(WED);
+  const h = rampHabit(s, '2 weeks', '2026-10-19', { '2026-10-20': 2, '2026-10-27': 1, '2026-10-30': 1 });
+  let p = promptNow(s);
+  assert.deepStrictEqual([p.kind, p.habitId, p.weeks, p.level, p.selected, p.from], ['step', h.id, 2, '2 a week, 15 min', 0, 'Monday']);
+  assert.deepStrictEqual(p.options.map((o) => [o.sessions, o.size, o.change]), [[3, '15 min', '+1 session'], [2, '20 min', '+5 min']]);
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${h.id}', { next_prompt: '2026-11-05' })`);
+  assert.strictEqual(promptNow(s), null, 'not due yet');
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${h.id}', { next_prompt: '${WED}', status: 'paused' })`);
+  assert.strictEqual(promptNow(s), null, 'a paused habit is never asked');
+  // a paused week is left out: the week before still counts
+  s = onDay(WED);
+  const k = rampHabit(s, '2 weeks', '2026-10-19', { '2026-10-20': 2 });
+  s.run(`tableCache_ = {}; new Table('Habit log', ['id']).insertMany([{ habit_id: '${k.id}', day: '2026-10-27', kind: 'pause' }, { habit_id: '${k.id}', day: '2026-11-02', kind: 'resume' }])`);
+  assert.strictEqual(promptNow(s).weeks, 1, 'the paused week is skipped');
+  // no full week since the level changed: nothing to judge yet
+  s = onDay(WED);
+  rampHabit(s, '1 week', '2026-10-28', { '2026-10-28': 5 });
+  assert.strictEqual(promptNow(s), null);
+  // at the goal there is nothing to offer
+  s = onDay(WED);
+  const g = rampHabit(s, '1 week', '2026-10-19', { '2026-10-27': 5 });
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${g.id}', { goal: '2 a week, 15 min' })`);
+  assert.strictEqual(promptNow(s), null);
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${g.id}', { goal: '2 a week, 18 min' })`);
+  assert.deepStrictEqual(promptNow(s).options.map((o) => o.size), ['18 min'], 'a longer session, capped at the goal');
+});
+
+test('step-up answers: Yes adjusts from next Monday (daily: tomorrow); Not now waits a pace, three ask once to stop; I\'m at my goal', () => {
+  let s = onDay(WED);
+  const h = rampHabit(s, '2 weeks', '2026-10-19', { '2026-10-20': 2, '2026-10-27': 2 });
+  let r = s.call('habits', 'answer', { id: h.id, answer: 'yes', option: 1 });
+  assert.strictEqual(r.result.text, 'Cardio is 2 a week, 20 min from Monday. Next check in 2 weeks.');
+  const row = s.rows('Habits')[0];
+  assert.deepStrictEqual([row.sessions, row.size, row.next_prompt], ['2', '20 min', '2026-11-18']);
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'level').map((x) => [x.day, x.value]), [['2026-10-19', '2 a week, 15 min'], ['2026-11-09', '2 a week, 20 min']]);
+  const slice = r.slices.habits;
+  assert.deepStrictEqual(slice.habits[0].level, { sessions: 2, size: '15 min' }, 'this week keeps its target');
+  assert.deepStrictEqual(slice.habits[0].nextLevel, { value: '2 a week, 20 min', from: '2026-11-09' });
+  assert.strictEqual(slice.prompt, null, 'at most one a day');
+  s.setDay('2026-11-09');
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.habits.habits[0].level, { sessions: 2, size: '20 min' }, 'Monday: the new level');
+  s.run('undo()');
+  s.setDay(WED);
+  assert.strictEqual(s.rows('Habits')[0].size, '15 min', 'Yes can be undone');
+
+  const daily = s.call('habits', 'create', { name: 'Fitness', sessions: 1, per: 'day', size: '10 min', step_up_every: '1 week' }).result;
+  s.call('habits', 'answer', { id: daily.id, answer: 'yes' });
+  assert.ok(s.rows('Habit log').some((x) => x.habit_id === daily.id && x.kind === 'level' && x.day === '2026-11-05'), 'a daily habit changes tomorrow');
+
+  s = onDay(WED);
+  const n = rampHabit(s, '1 week', '2026-10-19', { '2026-10-27': 2 });
+  assert.strictEqual(s.call('habits', 'answer', { id: n.id, answer: 'not now' }).result.text, 'No change. We\'ll ask again in a week.');
+  assert.strictEqual(s.rows('Habits')[0].next_prompt, '2026-11-11');
+  assert.strictEqual(s.rows('Habits')[0].sessions, '2');
+  s.setDay('2026-11-11'); s.call('habits', 'tap', { id: n.id, day: '2026-11-05' }); s.call('habits', 'tap', { id: n.id, day: '2026-11-06' });
+  assert.strictEqual(promptNow(s).kind, 'step');
+  s.call('habits', 'answer', { id: n.id, answer: 'not now' });
+  assert.strictEqual(promptNow(s), null, 'two in a row: nothing more today');
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${n.id}', { next_prompt: '2026-11-11' })`);
+  s.setDay('2026-11-12');
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${n.id}', { next_prompt: '2026-11-12' })`);
+  s.call('habits', 'answer', { id: n.id, answer: 'not now' });
+  let p = promptNow(s);
+  assert.deepStrictEqual([p.kind, p.level], ['stop', '2 a week, 15 min'], 'after three Not now in a row it asks once whether to stop');
+  s.call('habits', 'answer', { id: n.id, answer: 'keep asking' });
+  assert.strictEqual(promptNow(s), null, 'Keep asking: the count starts again');
+  for (let i = 0; i < 3; i++) s.call('habits', 'answer', { id: n.id, answer: 'not now' });
+  assert.strictEqual(promptNow(s).kind, 'stop');
+  assert.strictEqual(s.call('habits', 'answer', { id: n.id, answer: 'stop asking' }).result.text, 'No more prompts for Cardio. Turn them back on in its settings.');
+  assert.strictEqual(s.rows('Habits')[0].prompts, 'off');
+  assert.strictEqual(promptNow(s), null);
+  s.call('habits', 'update', { id: n.id, step_up_every: '1 week' });
+  assert.strictEqual(s.rows('Habits')[0].prompts, 'on', 'a pace in the settings turns prompts back on');
+
+  s = onDay(WED);
+  const g = rampHabit(s, '1 week', '2026-10-19', { '2026-10-27': 2 });
+  assert.strictEqual(s.call('habits', 'answer', { id: g.id, answer: 'at goal' }).result.text, 'Cardio is at your goal: 2 a week, 15 min. No more prompts.');
+  assert.deepStrictEqual([s.rows('Habits')[0].prompts, s.rows('Habits')[0].goal], ['at goal', '2 a week, 15 min']);
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'prompt').map((x) => [x.day, x.value]), [[WED, 'at goal']]);
+  assert.throws(() => s.call('habits', 'answer', { id: g.id, answer: 'maybe' }), /Unknown answer/);
+});
+
+test('habits.history gives Insights the habits, done and plan rows in the range, and every level, prompt and pause row up to its end', () => {
+  const s = onDay(WED);
+  const h = rampHabit(s, '1 week', '2026-10-19', { '2026-10-20': 2, '2026-11-03': 1 });
+  s.call('habits', 'plan', { id: h.id, day: '2026-11-06', count: 1 });
+  s.call('habits', 'answer', { id: h.id, answer: 'not now' });
+  const r = s.call('habits', 'history', { from: '2026-10-26', to: '2026-11-08' }).result;
+  assert.deepStrictEqual(Object.keys(r.habits[0]).sort(), ['category', 'goal', 'id', 'intention', 'name', 'order', 'per', 'prompts', 'sessions', 'size', 'started', 'status']);
+  assert.deepStrictEqual(r.log.map((x) => [x.day, x.kind, x.count, x.value]),
+    [['2026-10-19', 'level', 0, '2 a week, 15 min'], ['2026-11-03', 'done', 1, ''], [WED, 'prompt', 0, 'not now'], ['2026-11-06', 'plan', 1, '']]);
+});
+
+test('a habit typed into the sheet is completed, and one the app cannot use is flagged', () => {
+  const s = onDay(WED);
+  s.call('habits', 'create', { name: 'Seed' });
+  const sh = s.ss.sheets.Habits;
+  sh.rows.push(rowFrom(sh, { name: 'Water plants', sessions: '1', per: 'week' }));
+  sh.rows.push(rowFrom(sh, { name: 'Bad one', per: 'month' }));
+  sh.rows.push(rowFrom(sh, { name: 'Linked', category: 'Job search' }));
+  const b = json(s.run('bootstrap()')).data.habits.habits;
+  assert.deepStrictEqual(b.map((h) => h.name), ['Seed', 'Water plants', 'Linked']);
+  const rows = s.rows('Habits');
+  assert.strictEqual(rows.find((h) => h.name === 'Bad one').problem, 'Per must be day or week.');
+  const linked = rows.find((h) => h.name === 'Linked');
+  assert.deepStrictEqual([linked.category, linked.status, linked.per, linked.sessions, linked.prompts], ['job', 'active', 'week', '1', 'off']);
 });
 
 console.log('\n' + passed + ' server tests passed');
