@@ -283,6 +283,9 @@ function todayModule() {
         return true;
       },
 
+      /** Every skip: { project_id, to_project_id, date }. Insights counts them per project. */
+      skips: function () { return SKIPS.all(); },
+
       removeProject: function (a) {
         SKIPS.removeWhere(function (r) { return r.project_id === a.projectId || r.to_project_id === a.projectId; });
         REMINDERS.removeWhere(function (r) { return r.project_id === a.projectId; });

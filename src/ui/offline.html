@@ -296,7 +296,7 @@
       // Everything waiting has been sent: load the server's true state, then say what happened.
       var parts = [];
       if (sent) parts.push('Back online: ' + plural(sent, 'change', 'changes') + ' saved.');
-      if (conflicts.length) parts.push(plural(conflicts.length, 'change', 'changes') + ' clashed with newer edits on another device. The older versions are kept in the Log.');
+      if (conflicts.length) parts.push(plural(conflicts.length, 'change', 'changes') + ' clashed with newer edits on another device. The older versions are kept in the Log (Insights, Logs).');
       if (rejected.length) parts.push(plural(rejected.length, 'change', 'changes') + ' could not be applied: ' + rejected[0]);
       return FT.reload().then(function () { FT.toast(parts.join(' '), conflicts.length || rejected.length ? 'error' : undefined); });
     });

@@ -767,7 +767,7 @@ test('rpc rejects unknown modules and functions, and bootstrap returns every sli
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
   assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'whiteboard']);
-  assert.strictEqual(b.modules.length, 12);
+  assert.strictEqual(b.modules.length, 13); // insights has no slice: it loads when its tab opens
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {
@@ -882,6 +882,161 @@ test('project notes saved after waiting offline: the older text is kept as a con
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'mine, later');
   assert.ok(mdFiles().some((f) => /conflict/.test(f.name) && f.content === 'two'));
   assert.ok(s.run('bootstrap()').data.log.some((l) => /Notes folder/.test(l.where_stopped)));
+});
+
+// ---------- Insights ----------
+// Thursday 29 Oct 2026; its week runs Monday 26 Oct to Sunday 1 Nov.
+function insightsServer() {
+  const s = fresh();
+  s.run('insightsToday_ = function () { return "2026-10-29"; }');
+  return s;
+}
+/** Make a tab in the fake sheet and write rows into it directly, as a person or another module would. */
+function writeTab(s, name, headers, rows) {
+  const sh = s.ss.sheets[name] || s.ss.insertSheet(name);
+  if (!sh.rows.length) sh.rows.push(headers.slice());
+  rows.forEach((r) => sh.rows.push(rowFrom(sh, r)));
+  return sh;
+}
+const HABIT_HEADERS = ['name', 'intention', 'sessions', 'per', 'size', 'small_version', 'goal', 'step_up_every', 'prompts', 'category', 'description', 'status', 'problem', 'id', 'next_prompt', 'started', 'order', 'updated_at'];
+const HABIT_LOG_HEADERS = ['id', 'habit_id', 'habit', 'day', 'kind', 'count', 'value', 'updated_at'];
+let hlogN = 0;
+const hlog = (habit, day, kind, count, value) => ({ id: 'hl' + String(++hlogN).padStart(6, '0'), habit_id: habit, day, kind, count: count === undefined ? '' : String(count), value: value || '' });
+
+test('insights: weeks run Monday to Sunday, and levels are read as people write them', () => {
+  const s = insightsServer();
+  assert.strictEqual(s.run('insightsMonday_("2026-11-01")'), '2026-10-26', 'Sunday belongs to the week before it');
+  assert.strictEqual(s.run('insightsMonday_("2026-10-26")'), '2026-10-26');
+  assert.strictEqual(s.run('insightsMonday_("2026-10-25")'), '2026-10-19');
+  assert.strictEqual(s.run('insightsMonday_("2027-01-01")'), '2026-12-28', 'across a new year');
+  assert.strictEqual(s.run('insightsMonday_("2026-03-30")'), '2026-03-30', 'the clocks changing does not move a day');
+  assert.deepStrictEqual(json(s.run('insightsParseLevel_("4 a week, 30 min", "week")')), { sessions: 4, per: 'week', size: '30 min' });
+  assert.deepStrictEqual(json(s.run('insightsParseLevel_("1 per day", "week")')), { sessions: 1, per: 'day', size: '' });
+  assert.deepStrictEqual(json(s.run('insightsParseLevel_("3", "day")')), { sessions: 3, per: 'day', size: '' });
+  assert.strictEqual(s.run('insightsParseLevel_("lots", "day")'), null);
+});
+
+test('insights: focus sessions and minutes per week and per project, split on Monday', () => {
+  const s = insightsServer();
+  const a = s.call('projects', 'create', { name: 'Focus Tracker', category: 'coding' }).result;
+  const b = s.call('projects', 'create', { name: 'Garden app', category: 'coding' }).result;
+  const log = s.ss.sheets.Log;
+  [
+    { id: 'l0000001', project_id: a.id, date: '2026-10-25T23:30:00.000Z', where_stopped: 'Sunday night', minutes: '40' },
+    { id: 'l0000002', project_id: a.id, date: '2026-10-26T00:10:00.000Z', where_stopped: 'Monday, just after midnight', minutes: '55' },
+    { id: 'l0000003', project_id: a.id, date: '2026-10-28T10:00:00.000Z', where_stopped: 'Wednesday', minutes: '40' },
+    { id: 'l0000004', project_id: b.id, date: '2026-09-01T10:00:00.000Z', where_stopped: 'Long ago', minutes: '30' },
+    { id: 'l0000005', project_id: '', date: '2026-10-27T10:00:00.000Z', where_stopped: 'Sync conflict', minutes: '0' }
+  ].forEach((r) => log.rows.push(rowFrom(log, r)));
+  writeTab(s, 'Skips', ['id', 'project_id', 'to_project_id', 'date'], [
+    { id: 'k0000001', project_id: b.id, to_project_id: a.id, date: '2026-10-20T09:00:00.000Z' },
+    { id: 'k0000002', project_id: b.id, to_project_id: '', date: '2026-08-01T09:00:00.000Z' }
+  ]);
+  const r = s.call('insights', 'summary').result;
+  assert.strictEqual(r.today, '2026-10-29');
+  assert.deepStrictEqual([r.weeks.this.start, r.weeks.this.end, r.weeks.last.start], ['2026-10-26', '2026-11-01', '2026-10-19']);
+  assert.deepStrictEqual([r.weeks.this.focus.sessions, r.weeks.this.focus.minutes], [2, 95], 'Monday 00:10 is this week; the conflict line is not a session');
+  assert.deepStrictEqual(r.weeks.this.focus.days.map((d) => d.day), ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29'], 'days so far');
+  assert.deepStrictEqual(r.weeks.this.focus.days[2], { day: '2026-10-28', weekday: 3, lead: 'Job search', away: false, focus: ['Focus Tracker'], sessions: 1, minutes: 40 });
+  assert.strictEqual(r.weeks.last.focus.days.length, 7, 'last week shows every day');
+  assert.deepStrictEqual([r.weeks.last.focus.sessions, r.weeks.last.focus.days[6].minutes], [1, 40], 'Sunday 23:30 is last week');
+  const four = r.projects[4], twelve = r.projects[12];
+  assert.strictEqual(four.from, '2026-10-05');
+  assert.deepStrictEqual(four.rows.map((x) => [x.name, x.sessions, x.minutes, x.skips]), [['Focus Tracker', 3, 135, 0], ['Garden app', 0, 0, 1]], 'most time first; old skips left out');
+  assert.deepStrictEqual(twelve.rows.find((x) => x.name === 'Garden app').minutes, 30, 'a session 8 weeks ago counts in 12 weeks');
+  assert.strictEqual(r.weeks.this.todos, null, 'no To-dos tab: nothing to say about to-dos');
+  assert.deepStrictEqual(r.habits, [], 'no habits module and no Habits tab');
+  assert.ok(!s.ss.sheets.Habits && !s.ss.sheets['Habit log'] && !s.ss.sheets['To-dos'], 'reading made no tabs');
+  assert.strictEqual(r.weeks.this.habits.length, 0);
+});
+
+test('insights: each habit week is compared with the target that applied then, from the Habit log', () => {
+  const s = insightsServer();
+  const usual = { 1: 'coding', 2: 'coding', 3: 'job', 4: 'coding', 5: 'house', 6: 'house', 7: 'away' };
+  s.call('today', 'saveRotation', { usual, week: {}, dailyMinimum: '' });
+  writeTab(s, 'Habits', HABIT_HEADERS, [
+    { id: 'h0000001', name: 'Job hunting', sessions: '5', per: 'week', size: '30 min', status: 'active', started: '2026-08-31', order: '1', prompts: 'on' },
+    { id: 'h0000002', name: 'Fitness', sessions: '1', per: 'day', size: '10 min', status: 'active', started: '2026-10-12', order: '2', prompts: 'at goal' },
+    { id: 'h0000003', name: 'Old one', sessions: '2', per: 'week', status: 'ended', started: '2026-01-05', order: '3' }
+  ]);
+  writeTab(s, 'Habit log', HABIT_LOG_HEADERS, [
+    hlog('h0000001', '2026-08-31', 'level', '', '3 a week, 30 min'),
+    hlog('h0000001', '2026-09-21', 'level', '', '4 a week, 30 min'),
+    hlog('h0000001', '2026-10-19', 'level', '', '5 a week, 30 min'),
+    hlog('h0000001', '2026-09-15', 'done', 2), hlog('h0000001', '2026-09-17', 'done', 1),   // week of 14 Sep: 3 of 3
+    hlog('h0000001', '2026-09-22', 'done', 3),                                               // week of 21 Sep: 3 of 4
+    hlog('h0000001', '2026-10-13', 'done', 5),                                               // week of 12 Oct: 5 of 4, one extra
+    hlog('h0000001', '2026-10-20', 'done', 3), hlog('h0000001', '2026-10-25', 'done', 1),    // week of 19 Oct, Sunday included: 4 of 5
+    hlog('h0000001', '2026-10-26', 'done', 2), hlog('h0000001', '2026-10-31', 'plan', 2),    // this week: 2 so far, 2 planned for Saturday
+    hlog('h0000001', '2026-10-24', 'prompt', '', 'not now'),
+    hlog('h0000002', '2026-10-14', 'pause'), hlog('h0000002', '2026-10-16', 'resume'),
+    ...['2026-10-12', '2026-10-13', '2026-10-16', '2026-10-17', '2026-10-18', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-26', '2026-10-29'].map((d) => hlog('h0000002', d, 'done', 1))
+  ]);
+  const r = s.call('insights', 'summary').result;
+  assert.deepStrictEqual(r.habits.map((h) => h.name), ['Job hunting', 'Fitness'], 'an ended habit with nothing done is left out');
+  const job = r.habits[0], fit = r.habits[1];
+  assert.strictEqual(job.weeks.length, 12);
+  const week = (h, start) => h.weeks.find((w) => w.start === start);
+  assert.ok(week(job, '2026-08-24').before, 'weeks before it started are marked');
+  assert.deepStrictEqual([week(job, '2026-09-14').done, week(job, '2026-09-14').target, week(job, '2026-09-14').onTarget], [3, 3, true]);
+  assert.deepStrictEqual([week(job, '2026-09-21').done, week(job, '2026-09-21').target, week(job, '2026-09-21').onTarget], [3, 4, false], 'the step-up applies from its Monday');
+  assert.deepStrictEqual([week(job, '2026-10-12').target, week(job, '2026-10-12').extra], [4, 1], 'over target');
+  assert.deepStrictEqual([week(job, '2026-10-19').done, week(job, '2026-10-19').target], [4, 5], 'Sunday counts in the week it ends');
+  const now = week(job, '2026-10-26');
+  assert.deepStrictEqual([now.done, now.target, now.current, now.full, now.planLater], [2, 5, true, false, 2]);
+  assert.deepStrictEqual(job.ranges[8], { n: 2, of: 7, unit: 'weeks' }, 'on target 2 of 7 full weeks; this week is not over');
+  assert.deepStrictEqual(job.ranges[12], { n: 2, of: 8, unit: 'weeks' }, 'weeks before it started are not counted');
+  assert.deepStrictEqual(job.changes, [
+    { day: '2026-09-21', from: '3 a week, 30 min', to: '4 a week, 30 min' },
+    { day: '2026-10-19', from: '4 a week, 30 min', to: '5 a week, 30 min' }
+  ]);
+  assert.deepStrictEqual(job.lastPrompt, { day: '2026-10-24', value: 'not now' });
+  assert.ok(['Starting', 'Building', 'Steady', 'Strong'].includes(job.strength));
+  assert.ok(job.trend === null || ['up', 'level', 'down'].includes(job.trend));
+
+  const fitWeek = week(fit, '2026-10-12');
+  assert.deepStrictEqual([fitWeek.target, fitWeek.done, fitWeek.extra, fitWeek.pausedDays, fitWeek.awayDays], [4, 5, 1, 2, [7]], 'paused days and Away Sunday are left out of a daily target');
+  assert.strictEqual(fitWeek.full, true);
+  assert.deepStrictEqual([week(fit, '2026-10-19').target, week(fit, '2026-10-19').done], [6, 3]);
+  assert.deepStrictEqual([week(fit, '2026-10-26').target, week(fit, '2026-10-26').targetSoFar, week(fit, '2026-10-26').done], [6, 4, 2]);
+  assert.deepStrictEqual(fit.ranges[8], { n: 9, of: 14, unit: 'days' }, 'a daily habit counts days on target, today only once it is met');
+  assert.ok(fit.atGoal);
+
+  const tw = r.weeks.this;
+  assert.deepStrictEqual(tw.away, [7]);
+  assert.strictEqual(tw.daysLeft, 3);
+  assert.deepStrictEqual(tw.habits.map((h) => [h.name, h.done, h.target, h.planLater]), [['Job hunting', 2, 5, 2], ['Fitness', 2, 6, 0]]);
+  assert.deepStrictEqual(r.weeks.last.habits.map((h) => [h.name, h.done, h.target]), [['Job hunting', 4, 5], ['Fitness', 3, 6]]);
+  assert.strictEqual(s.ss.sheets['Habit log'].rows.length, 1 + 24, 'reading writes nothing');
+});
+
+test('insights: to-dos done this week, still to come and anytime, from the To-dos tab', () => {
+  const s = insightsServer();
+  writeTab(s, 'To-dos', ['title', 'day', 'done', 'project', 'note', 'problem', 'id', 'project_id', 'order', 'created', 'updated_at'], [
+    { id: 't0000001', title: 'Post parcel', day: '2026-10-27', done: '2026-10-27', order: '1' },
+    { id: 't0000002', title: 'Call plumber', day: '2026-10-26', done: '2026-10-28', order: '2' },
+    { id: 't0000003', title: 'Interview', day: '2026-10-30', done: '', order: '3' },
+    { id: 't0000004', title: 'Groceries', day: '', done: '', order: '4' },
+    { id: 't0000005', title: 'Last week', day: '2026-10-20', done: '2026-10-21', order: '5' },
+    { id: 't0000006', title: 'Next week', day: '2026-11-03', done: '', order: '6' }
+  ]);
+  const r = s.call('insights', 'summary').result;
+  assert.deepStrictEqual(r.weeks.this.todos, { done: 2, onDay: 1, toCome: 1, anytime: 1, open: 0 });
+  assert.deepStrictEqual(r.weeks.last.todos, { done: 1, onDay: 0, toCome: 0, anytime: 0, open: 0 });
+});
+
+test('insights: uses the habits module\'s history api when it is installed', () => {
+  const s = insightsServer();
+  s.run(`habitsModule = function () { return { title: 'Habits', tables: [], api: { history: function (a) {
+    __historyArgs = a;
+    return { habits: [{ id: 'h1', name: 'Cardio', sessions: 3, per: 'week', size: '20 min', status: 'active', started: '2026-10-01', order: 1 }],
+      log: [{ habit_id: 'h1', day: '2026-10-27', kind: 'done', count: 4, value: '' }] };
+  } } }; }; MODULES.push('habits');`);
+  const r = s.call('insights', 'summary').result;
+  assert.deepStrictEqual(json(s.run('__historyArgs')), { from: '2026-08-10', to: '2026-11-01' }, 'asks for 12 weeks, Monday to Sunday');
+  assert.deepStrictEqual(r.weeks.this.habits.map((h) => [h.name, h.done, h.target, h.extra]), [['Cardio', 4, 3, 1]]);
+  s.run(`habitsModule = function () { return { title: 'Habits', tables: [], api: {} }; };`);
+  assert.deepStrictEqual(s.call('insights', 'summary').result.habits, [], 'a habits module without history falls back to the (missing) tabs');
 });
 
 console.log('\n' + passed + ' server tests passed');

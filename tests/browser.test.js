@@ -163,6 +163,18 @@ async function run(browser, size) {
   assert.strictEqual(links(), 0, 'the remove reached the server');
   log('Project: dialogs and panels open at once, and a removed link goes at once with an Undo message');
 
+  // ---------- Insights: sub-tabs switch on the page, without waiting for the server ----------
+  await gotoTab('Insights');
+  await quickly(async () => { await pg.waitForSelector('.insights h2, .insights .stat, .ltable', { timeout: 8000 }); });
+  for (const name of ['Habits', 'Projects', 'Logs', 'Week']) await quick('Insights: ' + name + ' sub-tab', pg.locator('.subtab:text-is("' + name + '")'));
+  assert.ok(await pg.isVisible('.insights h2'), 'the week shows');
+  if (size.mobile) {
+    const pager = await pg.evaluate(() => document.getElementById('pager').innerText);
+    assert.ok(/Insights/.test(pager) && /Lists/.test(pager), 'the phone pager (and swipe) includes Insights: ' + pager);
+  }
+  log('Insights: sub-tabs answer at once');
+  await openFirstProject();
+
   // ---------- header: Settings (⚙), which holds Undo, Redo and Back ----------
   await settle();
   await quick('Header: Settings', pg.locator('#settingsBtn')); await closeDialog();
