@@ -188,7 +188,7 @@ var FT = (function () {
     'categories.add': 'Category added', 'categories.update': 'Category edit', 'categories.remove': 'Category deleted',
     'stickies.add': 'Sticky note added', 'stickies.update': 'Sticky note change', 'stickies.remove': 'Sticky note deleted',
     'whiteboard.create': 'Whiteboard added', 'whiteboard.rename': 'Whiteboard rename', 'whiteboard.remove': 'Whiteboard removed',
-    'resources.add': 'Link added', 'resources.remove': 'Link removed',
+    'resources.add': 'Resource added', 'resources.update': 'Resource edit', 'resources.remove': 'Resource removed',
     'links.add': 'Project link added', 'links.remove': 'Project link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
@@ -311,9 +311,10 @@ var FT = (function () {
     if (back && document.body.contains(back) && back.focus) { try { back.focus(); } catch (e) {} }
   };
   /**
-   * opts: { title, subtitle, body (html), fields: [{id,label,type,value,placeholder,options}], after (html), hint (text), submit, danger,
+   * opts: { title, subtitle, body (html), fields: [{id,label,type,value,placeholder,options,maxlength,suggestions}], after (html), hint (text), submit, danger,
    *         wide (true for a wider dialog), cancel (false: no Cancel button, for dialogs that apply changes at once),
    *         onOpen(), onSubmit(values) }
+   * suggestions: words offered under a text field as it is typed in (a datalist); any other text is allowed too.
    * onSubmit may return a promise; a thrown error or rejection is shown inside the dialog.
    */
   FT.dialog = function (opts) {
@@ -323,7 +324,9 @@ var FT = (function () {
       else if (f.type === 'select') ctl = '<select id="' + id + '">' + f.options.map(function (o) {
         return '<option value="' + FT.esc(o.value) + '"' + (o.value === f.value ? ' selected' : '') + '>' + FT.esc(o.label) + '</option>';
       }).join('') + '</select>';
-      else ctl = '<input type="text" id="' + id + '" value="' + FT.esc(f.value || '') + '" placeholder="' + FT.esc(f.placeholder || '') + '"' + (f.maxlength ? ' maxlength="' + f.maxlength + '"' : '') + '>';
+      else ctl = '<input type="text" id="' + id + '" value="' + FT.esc(f.value || '') + '" placeholder="' + FT.esc(f.placeholder || '') + '"' + (f.maxlength ? ' maxlength="' + f.maxlength + '"' : '') +
+        (f.suggestions ? ' list="' + id + '-list" autocomplete="off"' : '') + '>' +
+        (f.suggestions ? '<datalist id="' + id + '-list">' + f.suggestions.map(function (o) { return '<option value="' + FT.esc(o) + '">'; }).join('') + '</datalist>' : '');
       return '<label for="' + id + '">' + FT.esc(f.label) + '</label>' + ctl;
     }).join('');
     $('dialogRoot').innerHTML = '<div class="scrim" id="dlg-scrim"><div class="dialog' + (opts.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-labelledby="dlg-heading">' +

@@ -82,10 +82,31 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(w.localStorage.getItem('ft.wide'), '0');
   });
 
-  await step('projects tab lists every project and category resources', async () => {
+  await step('projects tab lists every project, and no empty shared resource panels', async () => {
     click(tab('Projects'));
     await waitFor(() => $$('tr.row').length === 7, '7 rows');
-    assert.strictEqual($$('.cats .panel').length, 3);
+    assert.strictEqual($$('.cats .panel').length, 0, 'no category has shared resources yet');
+    assert.strictEqual($$('[data-act="resources.add"][data-shared]').length, 1, 'one add control instead');
+  });
+
+  await step('a shared resource added from the Projects tab shows its category panel', async () => {
+    click($('[data-act="resources.add"][data-shared]'));
+    await waitFor(() => $('.dialog #dlg-category'), 'dialog with a category choice');
+    const cat = w.FT.categories()[1];
+    setVal($('#dlg-category'), cat.id, 'change');
+    setVal($('#dlg-title'), 'Council'); setVal($('#dlg-type'), 'phone', 'change');
+    assert.strictEqual($('#dlg-value').type, 'tel', 'a phone number gets the phone keyboard');
+    setVal($('#dlg-value'), '0161 496 0000');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closes at once', 200);
+    assert.deepStrictEqual($$('.cats .panel .label').map((l) => l.textContent), ['Resources: ' + cat.label], 'only that category has a panel');
+    assert.strictEqual($('.cats .reslist a[href^="tel:"]').getAttribute('href'), 'tel:01614960000');
+    const onServer = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.resources)).find((r) => r.title === 'Council');
+    await waitFor(() => onServer(), 'saved');
+    assert.strictEqual(onServer().category, cat.id);
+    assert.strictEqual(onServer().project_id, '');
+    click($('.cats [data-act="resources.remove"]'));
+    await waitFor(() => !onServer() && $$('.cats .panel').length === 0, 'removed, and the panel goes with it');
   });
 
   // The status filter: open its list, then tick or untick a status.
@@ -271,10 +292,10 @@ async function waitFor(fn, label, ms = 3000) {
   await step('adding a resource rejects http and accepts https', async () => {
     click($$('[data-act="resources.add"]')[0]);
     await waitFor(() => $('.dialog'), 'resource dialog');
-    setVal($('#dlg-title'), 'Fan spec'); setVal($('#dlg-url'), 'http://example.com');
+    setVal($('#dlg-title'), 'Fan spec'); setVal($('#dlg-value'), 'http://example.com');
     click($('#dlg-submit'));
     await waitFor(() => $('#dlg-err').textContent.includes('https'), 'https error');
-    setVal($('#dlg-url'), 'https://example.com/fan');
+    setVal($('#dlg-value'), 'https://example.com/fan');
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && $$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'link listed');
   });
@@ -283,7 +304,7 @@ async function waitFor(fn, label, ms = 3000) {
     const onServer = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.resources)).some((r) => r.title === 'Fan spec');
     click($$('.reslist li').find((li) => li.textContent.includes('Fan spec')).querySelector('[data-act="resources.remove"]'));
     assert.ok(!$$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'gone at once');
-    assert.ok(!$('#toast').hidden && $('#toast').textContent.includes('Link deleted.') && $('#toast .toastbtn'), 'the Undo message shows at once');
+    assert.ok(!$('#toast').hidden && $('#toast').textContent.includes('Resource deleted.') && $('#toast .toastbtn'), 'the Undo message shows at once');
     await waitFor(() => !onServer(), 'removed on the server');
     click($('#toast .toastbtn'));
     await waitFor(() => $$('.reslist a').some((a) => a.textContent === 'Fan spec'), 'back after undo');
@@ -335,6 +356,103 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => lines().length === 1 && serverLinks().length === 1, 'back after undo');
     click($('.lklist [data-act="links.remove"]'));
     await waitFor(() => !serverLinks().length && w.FT.pendingSaves() === 0, 'removed again');
+  });
+
+  // The project's own resources panel, and the resources in it as the server has them
+  const projectPanel = () => $$('section.panel').find((p) => (p.querySelector('.label') || {}).textContent === 'Resources: this project');
+  const serverResource = (title) => JSON.parse(JSON.stringify(server.run('bootstrap()').data.resources)).find((r) => r.title === title);
+  const addResource = async (f) => {
+    click(projectPanel().querySelector('[data-act="resources.add"]'));
+    await waitFor(() => $('.dialog #dlg-type'), 'add dialog');
+    setVal($('#dlg-title'), f.title); setVal($('#dlg-type'), f.type, 'change'); setVal($('#dlg-value'), f.value);
+    if (f.group) setVal($('#dlg-group'), f.group);
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closed', 200);
+  };
+
+  await step('a phone number, an email address and a text are added, each checked for its type', async () => {
+    click(projectPanel().querySelector('[data-act="resources.add"]'));
+    await waitFor(() => $('.dialog #dlg-type'), 'add dialog');
+    assert.ok($('.dialog .hint').textContent.includes('bank or card details'), 'the sensitive-file warning shows');
+    setVal($('#dlg-title'), 'Builder'); setVal($('#dlg-type'), 'email', 'change');
+    assert.strictEqual($('label[for="dlg-value"]').textContent, 'Email address');
+    setVal($('#dlg-value'), 'not an address');
+    click($('#dlg-submit'));
+    await waitFor(() => $('#dlg-err').textContent.includes('email address'), 'refused in the dialog');
+    setVal($('#dlg-value'), 'builder@example.com');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closes at once', 200);
+    assert.strictEqual(projectPanel().querySelector('a[href="mailto:builder@example.com"]').textContent, 'builder@example.com');
+    await addResource({ title: 'Plumber', type: 'phone', value: '+44 161 496 0000', group: 'Suppliers' });
+    await addResource({ title: 'Gate code', type: 'text', value: 'Code 4512, see https://example.com/gate', group: 'Access' });
+    await addResource({ title: 'Electrician', type: 'email', value: 'spark@example.com', group: 'suppliers' });
+    await waitFor(() => serverResource('Builder') && serverResource('Plumber') && serverResource('Gate code') && serverResource('Electrician'), 'all saved');
+    assert.deepStrictEqual(['Builder', 'Plumber', 'Gate code'].map((t) => serverResource(t).type), ['email', 'phone', 'text']);
+    const gate = $$('.reslist li').find((li) => li.textContent.includes('Gate code'));
+    assert.ok(gate.querySelector('.rtext a.textlink'), 'a web address in a text is a link');
+    assert.ok(gate.querySelector('[data-act="resources.copy"]'), 'a text can be copied');
+    assert.ok(!$$('.reslist li').find((li) => li.textContent.includes('Plumber')).querySelector('[data-act="resources.copy"]'), 'a phone number has no copy button');
+  });
+
+  await step('resources show under their group headings, ungrouped first, with groups suggested', async () => {
+    const panel = projectPanel();
+    assert.deepStrictEqual($$('.rgroup').filter((h) => panel.contains(h)).map((h) => h.textContent), ['Access', 'Suppliers', 'suppliers']);
+    const first = panel.querySelector('.reslist');
+    assert.ok(first.previousElementSibling.classList.contains('label'), 'the ungrouped list comes first, under no heading');
+    assert.ok(first.textContent.includes('Builder') && first.textContent.includes('Fan spec'));
+    click(panel.querySelector('[data-act="resources.add"]'));
+    await waitFor(() => $('.dialog #dlg-group'), 'add dialog');
+    assert.deepStrictEqual($$('#dlg-group-list option').map((o) => o.value), ['Access', 'Suppliers', 'suppliers']);
+    click($('#dlg-cancel'));
+  });
+
+  await step('editing a resource shows at once, reaches the server and can be undone', async () => {
+    click($$('.reslist li').find((li) => li.textContent.includes('Electrician')).querySelector('[data-act="resources.edit"]'));
+    await waitFor(() => $('.dialog #dlg-type'), 'edit dialog');
+    assert.strictEqual($('#dlg-title').value, 'Electrician');
+    assert.strictEqual($('#dlg-type').value, 'email');
+    assert.strictEqual($('#dlg-value').value, 'spark@example.com');
+    setVal($('#dlg-type'), 'phone', 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => $('#dlg-err').textContent.includes('phone number'), 'the old value is not a phone number');
+    setVal($('#dlg-title'), 'Electrician (Sam)'); setVal($('#dlg-value'), '07700 900123'); setVal($('#dlg-group'), 'Suppliers');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closes at once', 200);
+    const li = $$('.reslist li').find((x) => x.textContent.includes('Electrician (Sam)'));
+    assert.ok(li && li.querySelector('a[href="tel:07700900123"]'), 'shown at once as a phone number');
+    assert.deepStrictEqual($$('.rgroup').filter((h) => projectPanel().contains(h)).map((h) => h.textContent), ['Access', 'Suppliers'], 'moved into Suppliers');
+    await waitFor(() => serverResource('Electrician (Sam)'), 'saved');
+    assert.deepStrictEqual(['type', 'value', 'group'].map((k) => serverResource('Electrician (Sam)')[k]), ['phone', '07700 900123', 'Suppliers']);
+    assert.ok(!server.run('bootstrap()').data.resources.some((r) => r.title === 'Electrician'));
+    await w.FT.undo();
+    await waitFor(() => serverResource('Electrician') && $$('.reslist li').some((x) => x.textContent.includes('spark@example.com')), 'undo puts it back');
+  });
+
+  await step('Choose from Drive searches names only, and picking a file fills the title and link', async () => {
+    server.drive.addDriveFile('Zephyr installation guide', { mime: 'application/pdf', content: 'never shown' });
+    server.drive.addDriveFile('Zephyr receipt', { mime: 'application/vnd.google-apps.document' });
+    click(projectPanel().querySelector('[data-act="resources.add"]'));
+    await waitFor(() => $('#res-drive-open'), 'add dialog');
+    click($('#res-drive-open'));
+    assert.ok(!$('#res-drive').hidden);
+    setVal($('#res-drive-q'), 'zephyr');
+    $('#res-drive-q').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert.ok($('.dialog'), 'Enter in the search does not submit the dialog');
+    await waitFor(() => $$('#res-drive-list button').length === 2, 'two files found');
+    assert.ok($('#res-drive-list').textContent.includes('PDF') && $('#res-drive-list').textContent.includes('Google Doc'));
+    assert.ok(!$('.dialog').textContent.includes('never shown'), 'no contents shown');
+    assert.ok($('.dialog .hint').textContent.includes('bank or card details'), 'the warning stays');
+    click($$('#res-drive-list button').find((b) => b.textContent.includes('receipt')));
+    assert.strictEqual($('#dlg-type').value, 'drive');
+    assert.strictEqual($('#dlg-title').value, 'Zephyr receipt');
+    const url = $('#dlg-value').value;
+    assert.ok(/^https:\/\/docs\.google\.com\//.test(url));
+    click($('#dlg-submit'));
+    await waitFor(() => serverResource('Zephyr receipt'), 'saved');
+    assert.deepStrictEqual([serverResource('Zephyr receipt').type, serverResource('Zephyr receipt').value], ['drive', url]);
+    const a = $$('.reslist a').find((x) => x.textContent === 'Zephyr receipt');
+    assert.strictEqual(a.getAttribute('target'), '_blank', 'a Drive file opens in a new tab');
+    assert.strictEqual(server.drive.contentReads, 0, 'no file was read');
   });
 
   await step('notes autosave to a Drive file', async () => {

@@ -210,7 +210,7 @@ function startHereLines_() {
   lines.push(['- Point at another row by its name: for example the project column in Tasks. The app finds the id when the name is unique.']);
   lines.push(['- A project: a row in Projects with name, category and next_action.']);
   lines.push(['- A card: a row in Tasks with title, project and column (an empty column means the first one on the board).']);
-  lines.push(['- A resource: a row in Resources with title, value and project (or only a category, to share it with the whole category).']);
+  lines.push(['- A resource: a row in Resources with title, type, value and project (or only a category, to share it with the whole category). A group (free text, such as Suppliers) is optional.']);
   lines.push(['- To change a card\'s note, write the new note and empty its note_html cell: the app makes the formatted copy again.']);
   lines.push(['- If the app cannot use a row it leaves it alone and writes the reason in its problem column. Fix the row and the problem clears.']);
   lines.push(['- Cells are plain text. Dates look like 2026-10-29. Yes/no columns hold yes or are empty.']);

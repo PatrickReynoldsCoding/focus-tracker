@@ -368,6 +368,75 @@ test('resources only accept https links and attach to a category or a project', 
   const r = s.call('resources', 'add', { category: 'house', projectId: p.id, title: 'Fan', url: 'https://example.com/fan' }).slices.resources;
   assert.strictEqual(r.length, 2);
   assert.strictEqual(r.filter((x) => !x.project_id).length, 1);
+  assert.deepStrictEqual(r.map((x) => x.type).sort(), ['drive', 'link'], 'with no type, the address decides');
+});
+
+test('each resource type checks its value', () => {
+  const s = fresh();
+  const add = (type, value, extra) => s.call('resources', 'add', Object.assign({ category: 'house', title: type, type, value }, extra)).result;
+  const refused = (type, value, why) => assert.throws(() => add(type, value), why, type + ' ' + value);
+  assert.strictEqual(add('link', 'https://example.com/a').type, 'link');
+  refused('link', 'http://example.com', /https/);
+  refused('link', 'javascript:alert(1)', /https/);
+  assert.strictEqual(add('drive', 'https://drive.google.com/file/d/x').type, 'drive');
+  refused('drive', 'https://example.com/file', /Drive file/);
+  assert.strictEqual(add('phone', '+44 (20) 7946-0000').value, '+44 (20) 7946-0000', 'a phone number keeps its spacing');
+  refused('phone', 'call me', /phone number/);
+  refused('phone', '12', /phone number/);
+  assert.strictEqual(add('email', 'builder@example.co.uk').type, 'email');
+  refused('email', 'builder@example', /email address/);
+  refused('email', 'a b@example.com', /email address/);
+  assert.strictEqual(add('text', 'Bin day: Tuesday').value, 'Bin day: Tuesday');
+  assert.strictEqual(add('text', 'x'.repeat(600)).value.length, 500, 'text is cut at 500 characters');
+  refused('text', '  ', /text/);
+  refused('fax', '0123', /Unknown type/);
+  const g = add('phone', '0161 496 0000', { group: '  Suppliers  ', note: 'plumber' });
+  assert.strictEqual(g.group, 'Suppliers');
+  const id = 'abcd1234';
+  assert.strictEqual(add('text', 'from the browser', { id }).id, id, 'a browser id is kept');
+  assert.throws(() => add('text', 'again', { id }), /already exists/);
+});
+
+test('editing a resource checks the new value and can be undone', () => {
+  const s = fresh();
+  const r = s.call('resources', 'add', { category: 'house', title: 'Plumber', type: 'phone', value: '0161 496 0000' }).result;
+  const row = () => json(s.run('bootstrap()')).data.resources.find((x) => x.id === r.id);
+  assert.throws(() => s.call('resources', 'update', { id: r.id, type: 'email' }), /email address/, 'a type change checks the kept value');
+  assert.throws(() => s.call('resources', 'update', { id: r.id, title: ' ' }), /title/);
+  assert.throws(() => s.call('resources', 'update', { id: 'ffffffff', title: 'x' }), /gone/);
+  const res = s.call('resources', 'update', { id: r.id, title: 'Plumber (Dave)', type: 'email', value: 'dave@example.com', group: 'Suppliers', note: 'weekdays' });
+  assert.ok(res.undo, 'recorded for undo');
+  assert.deepStrictEqual([row().title, row().type, row().value, row().group, row().note], ['Plumber (Dave)', 'email', 'dave@example.com', 'Suppliers', 'weekdays']);
+  s.call('resources', 'update', { id: r.id, group: '' });
+  assert.strictEqual(row().group, '', 'only the fields sent change');
+  assert.strictEqual(row().value, 'dave@example.com');
+  assert.strictEqual(json(s.run('undo')()).undone, 'resources.update');
+  assert.strictEqual(json(s.run('undo')()).undone, 'resources.update');
+  assert.deepStrictEqual([row().title, row().type, row().value], ['Plumber', 'phone', '0161 496 0000']);
+});
+
+test('searching Drive gives names and addresses only, never contents, and stores nothing', () => {
+  const s = fresh();
+  s.drive.addDriveFile('Boiler manual', { mime: 'application/pdf', updated: new Date('2026-09-02T10:00:00Z'), content: 'secret' });
+  s.drive.addDriveFile('boiler service 2025', { mime: 'application/vnd.google-apps.document' });
+  s.drive.addDriveFile('Old boiler quote', { trashed: true });
+  for (let i = 0; i < 25; i++) s.drive.addDriveFile('Notes ' + i);
+  const before = json(s.run('bootstrap()')).data.resources.length;
+  const res = s.call('resources', 'searchDrive', { q: 'Boiler' });
+  const found = res.result;
+  assert.deepStrictEqual(found.map((f) => f.name).sort(), ['Boiler manual', 'boiler service 2025'], 'a trashed file is left out');
+  found.forEach((f) => assert.deepStrictEqual(Object.keys(f).sort(), ['mimeType', 'modified', 'name', 'url']));
+  const manual = found.find((f) => f.name === 'Boiler manual');
+  assert.strictEqual(manual.mimeType, 'application/pdf');
+  assert.strictEqual(manual.modified, '2026-09-02T10:00:00.000Z');
+  assert.ok(/^https:\/\//.test(manual.url));
+  assert.strictEqual(s.drive.contentReads, 0, 'no file was opened');
+  assert.ok(!res.undo, 'a search is not a change');
+  assert.strictEqual(json(s.run('bootstrap()')).data.resources.length, before, 'nothing stored');
+  assert.strictEqual(s.call('resources', 'searchDrive', { q: 'Notes' }).result.length, 20, 'at most 20');
+  assert.deepStrictEqual(s.call('resources', 'searchDrive', { q: "Dave's \\ quote" }).result, []);
+  assert.strictEqual(s.drive.queries[s.drive.queries.length - 1], "title contains 'Dave\\'s \\\\ quote' and trashed = false", 'quotes and backslashes are escaped');
+  assert.throws(() => s.call('resources', 'searchDrive', { q: '  ' }), /file name/);
 });
 
 test('deleting a project removes its board, links and log lines', () => {
