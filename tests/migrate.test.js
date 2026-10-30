@@ -156,7 +156,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.deepStrictEqual(sh.Criteria.rows[0], ['text', 'done', 'project', 'problem', 'id', 'project_id', 'order', 'created', 'updated_at']);
   assert.deepStrictEqual(sh.Log.rows[0], ['date', 'project', 'where_stopped', 'next_action', 'minutes', 'id', 'project_id']);
   assert.deepStrictEqual(sh.Categories.rows[0], ['label', 'color', 'id', 'order']);
-  assert.deepStrictEqual(sh.Notes.rows[0], ['id', 'project_id', 'file_id', 'file_url', 'updated', 'doc_id']);
+  assert.deepStrictEqual(sh.Notes.rows[0], ['id', 'project_id', 'file_id', 'file_url', 'updated', 'doc_id', 'doc_synced', 'doc_seen']);
   assert.deepStrictEqual(sh.Undo.rows, [['id', 'created', 'action', 'changes', 'kind']], 'old undo steps use old columns, so they are cleared');
   assert.deepStrictEqual(sh['My sums'].rows, V1['My sums'], 'a person\'s own tab is not touched');
 
@@ -198,7 +198,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.deepStrictEqual(b.data.kanban.tasks.find((t) => t.id === 't0000002').note, 'Use USB');
   assert.deepStrictEqual(b.data.resources.map((r) => r.value), V1.Resources.slice(1).map((r) => r[4]));
   assert.deepStrictEqual(b.data.whiteboard.map((w) => [w.name, w.url]), [['Pad layout', 'https://docs.google.com/file/file-wb-1'], ['Whiteboard', 'https://docs.google.com/file/file-wb-2']]);
-  assert.deepStrictEqual(b.data.notes, [{ project_id: 'p0000001', url: 'https://docs.google.com/file/file-notes-1', updated: T1 }]);
+  assert.deepStrictEqual(b.data.notes, [{ project_id: 'p0000001', url: 'https://docs.google.com/file/file-notes-1', updated: T1, doc: '' }]);
   assert.strictEqual(b.data.projects.length, 2);
   assert.strictEqual(b.data.categories.length, 3);
 });

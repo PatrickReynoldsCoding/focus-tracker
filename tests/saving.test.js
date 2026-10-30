@@ -42,7 +42,8 @@ async function waitFor(fn, label, ms = 4000) {
   const rpc = (m, fn, args, mode) => json(server.run('rpc')(m, fn, json(args || {}), mode || null));
   const errors = [];
   // hold: { 'notes.get': promise } delays that call; fail: { 'notes.save': n } fails it n times with a server error.
-  const net = { hold: {}, fail: {} };
+  // calls lists every call sent, by key, in order.
+  const net = { hold: {}, fail: {}, calls: [] };
 
   function page(storage = {}) {
     const dom = new JSDOM(html, {
@@ -55,6 +56,7 @@ async function waitFor(fn, label, ms = 4000) {
         const call = (name, args, ok, fail) => setTimeout(async () => {
           if (!w.document) return;
           const key = name === 'rpc' ? args[0] + '.' + args[1] : name;
+          net.calls.push(key);
           if (net.hold[key]) await net.hold[key];
           if (!w.document) return;
           if (net.fail[key]) { net.fail[key]--; fail({ message: 'We\'re sorry, a server error occurred. Please wait a bit and try again.' }); return; }
@@ -243,6 +245,55 @@ async function waitFor(fn, label, ms = 4000) {
     assert.ok(p.$('.dialog') && /unsaved changes/.test(p.$('#dlg-err').textContent), 'it warns instead of closing');
     p.d.dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.ok(!p.$('.dialog'), 'a second try discards');
+    p.close();
+  });
+
+  const docOf = (id) => json(server.run('bootstrap()').data).notes.find((n) => n.project_id === id).doc;
+  const docsId = rpc('projects', 'create', { name: 'Saving docs', category: 'coding' }).result.id;
+
+  await step('Done writes the notes into their Google Doc after the save, and a Doc write that hangs never holds up a save', async () => {
+    const p = page();
+    await openProject(p, docsId);
+    assert.ok(p.$('#nt-link').hidden, 'no "Open in Docs" before there is a Doc');
+    let release; net.hold['notes.syncDoc'] = new Promise((r) => { release = r; });
+    const sent = net.calls.length;
+    type(p, '<p>First draft</p>');
+    assert.ok(!net.calls.slice(sent).includes('notes.syncDoc'), 'typing does not write the Doc');
+    p.click(p.$('[data-act="notes.done"]'));
+    await waitFor(() => serverNotes(docsId) === 'First draft', 'Done saves');
+    await waitFor(() => net.calls.slice(sent).includes('notes.syncDoc'), 'and then asks for the Doc to be written');
+    const order = net.calls.slice(sent);
+    assert.ok(order.indexOf('notes.save') < order.indexOf('notes.syncDoc'), 'after the save, so the Doc gets the saved text');
+    // the Doc write is held (Google slow): the editor's next save is sent and answered meanwhile
+    type(p, '<p>First draft</p><p>more, typed while the Doc write hangs</p>');
+    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => serverNotes(docsId) === 'First draft\nmore, typed while the Doc write hangs' && p.$('#nt-status').textContent === 'Saved', 'a save is sent and answered while syncDoc is held');
+    assert.ok(!docOf(docsId) && !server.docs.docs().some((f) => f.name === 'Saving docs notes'), 'the Doc write is still held');
+    assert.strictEqual(net.calls.slice(sent).filter((k) => k === 'notes.syncDoc').length, 1, 'one Doc write at a time');
+    delete net.hold['notes.syncDoc']; release();
+    await waitFor(() => !p.$('#nt-link').hidden && /^https:\/\/docs\.google\.com\/document\/d\//.test(p.$('#nt-link').href), '"Open in Docs" once the Doc exists');
+    assert.strictEqual(p.$('#nt-link').textContent, 'Open in Docs');
+    assert.strictEqual(p.$('#nt-link').href, docOf(docsId));
+    assert.ok(/First draft/.test(server.docs.docs().find((f) => f.name === 'Saving docs notes').content), 'the Doc holds the notes');
+    // Done again within 30 s does not write the Doc again straight away
+    const before = net.calls.length;
+    type(p, '<p>Third edit</p>');
+    p.click(p.$('[data-act="notes.done"]'));
+    await waitFor(() => serverNotes(docsId) === 'Third edit', 'saved');
+    await sleep(100);
+    assert.ok(!net.calls.slice(before).includes('notes.syncDoc'), 'at most one Doc write per 30 s');
+    p.close();
+  });
+
+  await step('an edit made in the Google Doc is in the editor when the project is opened again', async () => {
+    const docId = /\/d\/([^/]+)\//.exec(docOf(docsId))[1];
+    rpc('notes', 'syncDoc', { projectId: docsId }); // the Doc has the latest notes ("Third edit")
+    server.docs.edit(docId, 'Third edit\n\nAdded by an assistant in the Doc\n');
+    const p = page();
+    await openProject(p, docsId);
+    await waitFor(() => p.$('#nt-text').textContent.includes('Added by an assistant in the Doc'), 'the Doc edit is shown');
+    assert.strictEqual(serverNotes(docsId), 'Third edit\nAdded by an assistant in the Doc', 'and saved into the markdown');
+    assert.strictEqual(p.$('#nt-status').textContent, 'Updated from the Google Doc');
     p.close();
   });
 

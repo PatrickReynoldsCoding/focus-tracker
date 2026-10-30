@@ -359,6 +359,106 @@ test('notes are stored as a markdown file and read back', () => {
   assert.strictEqual(s.drive.pathOf(file), 'Focus Tracker/Personal/Notes/' + file.name);
 });
 
+// Saves are versioned by the millisecond: wait for the next one so two saves in a test get different versions.
+const tick = () => { const t = Date.now(); while (Date.now() === t) { /* spin */ } };
+
+test('notes Doc: the first sync makes "<project> notes" in the Notes folder, links it, and is skipped while nothing changed', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Garden', category: 'house' }).result;
+  assert.deepStrictEqual(s.call('notes', 'syncDoc', { projectId: p.id }).result.skipped, 'no notes', 'no notes, no Doc');
+  s.call('notes', 'save', { projectId: p.id, text: '# Plan\nDig the beds\n- spade\n- gloves\n> measure twice\n**bold** and *italic* [a link](https://example.com)' });
+  const reply = s.call('notes', 'syncDoc', { projectId: p.id }), r = reply.result;
+  assert.ok(!reply.undo, 'bookkeeping, not offered for undo');
+  assert.ok(r.created && typeof r.ms === 'number' && r.timings && typeof r.timings.write === 'number', 'reports how long it took');
+  assert.ok(s.mock.logs.some((l) => /^notes\.syncDoc \d+ ms .*\(new Doc\)$/.test(l)), 'and writes it to the execution log');
+  const docs = s.docs.docs();
+  assert.strictEqual(docs.length, 1);
+  assert.strictEqual(docs[0].name, 'Garden notes');
+  assert.strictEqual(s.drive.pathOf(docs[0]), 'Focus Tracker/Personal/Notes/Garden notes');
+  assert.strictEqual(r.url, 'https://docs.google.com/document/d/' + docs[0].id + '/edit');
+  // standard markdown for Drive's import: a blank line between blocks, list items and quote lines kept together
+  assert.strictEqual(docs[0].content, '# Plan\n\nDig the beds\n\n- spade\n- gloves\n\n> measure twice\n\n**bold** and *italic* [a link](https://example.com)');
+  const b = json(s.run('bootstrap()')).data;
+  assert.strictEqual(b.notes.find((n) => n.project_id === p.id).doc, r.url, 'the notes row carries the Doc');
+  assert.strictEqual(b.projects.find((x) => x.id === p.id).notes, r.url, 'Projects.notes links the Doc');
+  // debounce on the server: nothing changed since the last mirror, so no Drive call at all
+  const before = Object.assign({}, s.docs.calls);
+  assert.strictEqual(s.call('notes', 'syncDoc', { projectId: p.id }).result.skipped, 'unchanged');
+  assert.deepStrictEqual(s.docs.calls, before);
+  tick();
+  s.call('notes', 'save', { projectId: p.id, text: '# Plan\nDig the beds today' });
+  const again = s.call('notes', 'syncDoc', { projectId: p.id }).result;
+  assert.ok(!again.created && again.url === r.url, 'the same Doc is updated');
+  assert.strictEqual(s.docs.docs().length, 1);
+  assert.strictEqual(s.docs.docs()[0].content, '# Plan\n\nDig the beds today');
+  assert.strictEqual(s.call('notes', 'checkDoc', { projectId: p.id }).result.changed, false, 'the app\'s own write is not an edit');
+  assert.strictEqual(s.docs.calls.export, 0, 'and finding that out needs no export');
+});
+
+test('notes Doc: an edit made in the Doc comes back into the markdown when the project opens', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
+  s.call('notes', 'save', { projectId: p.id, text: 'Roof\n- felt' });
+  const doc = s.call('notes', 'syncDoc', { projectId: p.id }).result;
+  const id = s.docs.docs()[0].id;
+  // What Drive's export of an edited Doc looks like: blank lines between blocks, * bullets, escapes
+  s.docs.edit(id, 'Roof\n\n* felt\n* nails\n\n> added by an assistant\n>\n> second quote line\n\nStep 1\\. done\n');
+  const before = json(s.run('bootstrap()')).data.notes[0].updated;
+  const r = s.call('notes', 'checkDoc', { projectId: p.id }).result;
+  assert.ok(r.changed && r.imported && typeof r.ms === 'number');
+  assert.strictEqual(r.text, 'Roof\n* felt\n* nails\n> added by an assistant\n> second quote line\nStep 1. done');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, r.text, 'saved into the markdown file');
+  assert.ok(r.updated && r.updated !== before, 'as a new version');
+  assert.strictEqual(s.call('notes', 'checkDoc', { projectId: p.id }).result.changed, false, 'brought in once');
+  assert.strictEqual(s.call('notes', 'syncDoc', { projectId: p.id }).result.skipped, 'unchanged', 'the Doc already has it');
+  assert.strictEqual(doc.url, json(s.run('bootstrap()')).data.notes[0].doc);
+  // a Doc edit that only changes what a trip through Docs changes is no edit
+  s.docs.edit(id, s.docs.docs()[0].content + '\n\n');
+  const same = s.call('notes', 'checkDoc', { projectId: p.id }).result;
+  assert.strictEqual(same.changed, false);
+  // an empty export never wipes the notes (Drive may have answered with nothing)
+  s.docs.edit(id, '');
+  assert.strictEqual(s.call('notes', 'checkDoc', { projectId: p.id }).result.changed, false);
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, r.text);
+});
+
+test('notes Doc: both the Doc and the markdown changed: the markdown stays and the Doc text is a conflict copy', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Boat', category: 'house' }).result;
+  s.call('notes', 'save', { projectId: p.id, text: 'Hull' });
+  s.call('notes', 'syncDoc', { projectId: p.id });
+  const id = s.docs.docs()[0].id;
+  const copies = () => Object.values(s.drive.files).filter((f) => /-conflict-.*-doc\.md$/.test(f.name));
+  // on opening: Doc edited, and the markdown changed since the mirror
+  s.docs.edit(id, 'Hull\n\nfrom the Doc');
+  tick();
+  s.call('notes', 'save', { projectId: p.id, text: 'Hull\nfrom the app' });
+  const r = s.call('notes', 'checkDoc', { projectId: p.id });
+  assert.strictEqual(r.result.conflict.kept, 'app');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'Hull\nfrom the app', 'the markdown stays');
+  assert.strictEqual(copies().length, 1);
+  assert.strictEqual(copies()[0].content, 'Hull\nfrom the Doc', 'the Doc text is kept');
+  assert.strictEqual(s.drive.pathOf(copies()[0]), 'Focus Tracker/Personal/Notes/' + copies()[0].name);
+  assert.ok(r.conflicts && r.conflicts.length === 1);
+  assert.ok(json(s.run('bootstrap()')).data.log.some((l) => /notes Doc/.test(l.where_stopped)), 'and the Log says so');
+  s.call('notes', 'syncDoc', { projectId: p.id });
+  assert.strictEqual(s.docs.docs()[0].content, 'Hull\n\nfrom the app', 'the next sync puts the kept notes in the Doc');
+  // while editing was not finished yet: the Doc edited, then a sync with newer markdown keeps the Doc text first
+  s.docs.edit(id, 'Hull\n\nDoc edit nobody imported');
+  tick();
+  s.call('notes', 'save', { projectId: p.id, text: 'Hull\nnewer app text' });
+  const sync = s.call('notes', 'syncDoc', { projectId: p.id }).result;
+  assert.strictEqual(sync.conflict.kept, 'app');
+  assert.ok(copies().some((f) => f.content === 'Hull\nDoc edit nobody imported'), 'nothing written in the Doc is lost');
+  assert.strictEqual(s.docs.docs()[0].content, 'Hull\n\nnewer app text');
+  // a Doc deleted in Drive is made again on the next sync
+  delete s.drive.files[id];
+  tick();
+  s.call('notes', 'save', { projectId: p.id, text: 'Hull\nafter the Doc was deleted' });
+  const remade = s.call('notes', 'syncDoc', { projectId: p.id }).result;
+  assert.ok(remade.created && s.docs.docs().length === 1 && remade.url !== 'https://docs.google.com/document/d/' + id + '/edit');
+});
+
 test('resources only accept https links and attach to a category or a project', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'R', category: 'house' }).result;

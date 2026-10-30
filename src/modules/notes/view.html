@@ -30,6 +30,15 @@
   var fullEntry = false; // ...and it added a browser history entry, so the phone's back button closes it
   var narrow = window.matchMedia('(max-width: 760px)');
   var RETRY_MS = [2000, 5000, 15000, 30000, 60000];
+  // The notes' Google Doc is a mirror of the markdown, written when editing is finished (docs/notes-docs.md).
+  var DOC_GAP_MS = 30000; // at most one Doc write, and one look for edits made in the Doc, per project in this time
+  var docWanted = {};    // projectId -> this page saved notes the Doc does not have yet
+  var docAfterSave = {}; // projectId -> editing was finished while a save was still to go: write the Doc after it
+  var docBusy = {};      // projectId -> a Doc write is on its way
+  var docTimers = {};    // projectId -> a Doc write waiting for DOC_GAP_MS to pass
+  var docLast = {};      // projectId -> when the Doc was last written from here
+  var docChecked = {};   // projectId -> when the Doc was last checked for edits from here
+  var onScreen = null;   // the project whose notes are on screen, to notice leaving it
 
   // The toolbar edits what the markdown file can hold: bold, italic, headings, lists and quotes.
   var TOOLS = [
@@ -69,7 +78,72 @@
     return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel"><div class="label">Notes</div>' +
       '<div class="notes-top">' + toolbarHtml() + '<button class="btn primary notes-done" type="button" data-act="notes.done">Done</button></div>' +
       '<div class="rtedit notes-edit" id="nt-text" contenteditable="' + (ready ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes" data-placeholder="' + (ready ? 'Ideas, decisions, links. Saved as a markdown file in Drive.' : 'Loading…') + '">' + FT.mdToHtml(cache[p.id] || '') + '</div>' +
-      '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row ? row.url : '') + '" target="_blank" rel="noopener noreferrer"' + (row ? '' : ' hidden') + '>Open file in Drive</a></div></section>';
+      '<div class="notes-foot"><span id="nt-status"></span><a id="nt-link" href="' + FT.esc(row && row.doc ? row.doc : '') + '" target="_blank" rel="noopener noreferrer"' + (row && row.doc ? '' : ' hidden') + '>Open in Docs</a></div></section>';
+  }
+
+  /** The Doc exists: keep its address on the notes row and the project, and show "Open in Docs". */
+  function setDocLink(projectId, url) {
+    var row = noteRow(projectId);
+    if (row) row.doc = url;
+    var project = FT.project(projectId);
+    if (project) project.notes = url;
+    var link = document.getElementById('nt-link');
+    if (link && FT.state.projectId === projectId) { link.href = url; link.hidden = false; }
+  }
+
+  /**
+   * Editing is finished (Done, leaving the project, hiding the page): write the notes into their Google Doc. After the
+   * save still to go, at most once per DOC_GAP_MS, and in parallel, so no save ever waits for the Doc.
+   */
+  function finished(projectId) {
+    if (!projectId) return;
+    if (dirty[projectId] || saving[projectId]) { docAfterSave[projectId] = true; return; }
+    if (!docWanted[projectId]) return;
+    var wait = DOC_GAP_MS - (Date.now() - (docLast[projectId] || 0));
+    if (wait > 0) {
+      clearTimeout(docTimers[projectId]);
+      docTimers[projectId] = setTimeout(function () { finished(projectId); }, wait);
+      return;
+    }
+    docLast[projectId] = Date.now();
+    writeDoc(projectId);
+  }
+
+  function writeDoc(projectId) {
+    if (docBusy[projectId]) return; // the reply runs finished() again, so nothing is missed and no second Doc is made
+    docWanted[projectId] = false; docBusy[projectId] = true;
+    FT.rpc('notes', 'syncDoc', { projectId: projectId }, { render: false, quiet: true, parallel: true, noMerge: true, mode: modeOf[projectId] })
+      .then(function (r) {
+        docBusy[projectId] = false;
+        if (r && r.url) setDocLink(projectId, r.url);
+        if (r && r.conflict) FT.toast('These notes were also changed in their Google Doc. The notes here were kept and written to the Doc; the Doc\'s text is saved as ' + r.conflict.copyName + ' in the Notes folder.', 'error');
+        if (docWanted[projectId]) finished(projectId);
+      }, function () { docBusy[projectId] = false; docWanted[projectId] = true; }); // tried again when editing is next finished
+  }
+
+  /**
+   * On opening a project: bring in edits made in its Google Doc (by you or an assistant). Shown only when nothing is
+   * being typed and the page still holds the version they build on; otherwise the next save meets them as a conflict
+   * on the server and both texts are kept.
+   */
+  function checkDoc(projectId) {
+    var row = noteRow(projectId);
+    if (!row || !row.doc || Date.now() - (docChecked[projectId] || 0) < DOC_GAP_MS) return;
+    docChecked[projectId] = Date.now();
+    var base = loaded[projectId];
+    FT.rpc('notes', 'checkDoc', { projectId: projectId }, { render: false, quiet: true, parallel: true, noMerge: true, mode: modeOf[projectId] })
+      .then(function (r) {
+        if (!r || !r.changed) return;
+        if (r.conflict) {
+          FT.toast('These notes were changed here and in their Google Doc. The notes here were kept; the Doc\'s text is saved as ' + r.conflict.copyName + ' in the Notes folder.', 'error');
+          docWanted[projectId] = true; finished(projectId); // put the kept notes back in the Doc
+          return;
+        }
+        if (r.imported && !dirty[projectId] && !saving[projectId] && loaded[projectId] === base) {
+          cache[projectId] = r.text || ''; holdVersion(projectId, r); show(projectId);
+          status(projectId, 'Updated from the Google Doc');
+        }
+      }, function () { docChecked[projectId] = 0; });
   }
 
   function status(projectId, text) {
@@ -91,9 +165,7 @@
     var row = noteRow(projectId);
     if (row) row.updated = r.updated;
     else if (r.url) {
-      FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: r.updated }]);
-      var link = document.getElementById('nt-link');
-      if (link && FT.state.projectId === projectId) { link.href = r.url; link.hidden = false; }
+      FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: r.updated, doc: '' }]);
     }
   }
 
@@ -127,6 +199,8 @@
         if (dirty[projectId]) { save(projectId); return; }
         if (readDraft(projectId) && readDraft(projectId).text === text) dropDraft(projectId);
         status(projectId, 'Saved');
+        docWanted[projectId] = true;
+        if (docAfterSave[projectId]) { docAfterSave[projectId] = false; finished(projectId); }
       }, function (e) {
         saving[projectId] = false; dirty[projectId] = true;
         failures[projectId] = (failures[projectId] || 0) + 1;
@@ -138,8 +212,11 @@
       });
   }
 
-  /** Save every project's notes now, for example when the page is hidden or closing. */
-  function saveAll() { Object.keys(dirty).forEach(function (id) { if (dirty[id]) save(id); }); }
+  /** Save every project's notes now, for example when the page is hidden or closing, and then write their Docs. */
+  function saveAll() {
+    Object.keys(dirty).forEach(function (id) { if (dirty[id]) save(id); });
+    Object.keys(docWanted).concat(Object.keys(saving)).forEach(function (id) { if (docWanted[id] || saving[id]) finished(id); });
+  }
   FT.onLeave(saveAll);
 
   // A change that waited offline was sent later: the version it produced is the base for the next save.
@@ -149,6 +226,7 @@
     var id = d.args.projectId;
     loaded[id] = d.version;
     if (!dirty[id] && !saving[id] && cache[id] === d.args.text) { dropDraft(id); status(id, 'Saved'); }
+    docWanted[id] = true;
   });
 
   /**
@@ -168,6 +246,7 @@
       } else if (draft) dropDraft(projectId);
       show(projectId);
       if (dirty[projectId]) save(projectId);
+      else checkDoc(projectId);
     }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
   }
 
@@ -177,7 +256,11 @@
     onProject: function (projectId) {
       var row = noteRow(projectId);
       var stale = has(cache, projectId) && row && row.updated !== loaded[projectId];
+      modeOf[projectId] = modeOf[projectId] || FT.state.mode;
       if (!has(cache, projectId) || (stale && !dirty[projectId] && !saving[projectId])) load(projectId);
+      else checkDoc(projectId);
+      // Notes from before the Docs: their Doc is made now, in the background, so "Open in Docs" is there.
+      if (row && !row.doc) { docWanted[projectId] = true; writeDoc(projectId); }
     }
   });
 
@@ -186,6 +269,10 @@
   // The editor is rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
   FT.onRender(function () {
     var el = editor();
+    // Leaving a project's page finishes editing its notes.
+    var now = el ? FT.state.projectId : null;
+    if (onScreen && onScreen !== now) finished(onScreen);
+    onScreen = now;
     if (!el) { fullOpen = false; if (fullEntry) { fullEntry = false; FT.popHistory(); } }
     if (el && !el.dataset.md) { el.dataset.md = '1'; FT.richShortcuts(el); FT.headingKeys(el); }
     if (el && fullOpen && narrow.matches) fitToScreen();
@@ -240,6 +327,7 @@
     if (p) p.classList.remove('full');
     if (editor()) editor().blur();
     save(FT.state.projectId);
+    finished(FT.state.projectId);
   }
   FT.action('notes.done', function () {
     closeFull();

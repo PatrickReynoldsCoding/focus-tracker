@@ -30,7 +30,7 @@ var V2_HEADERS_ = {
   Log: ['date', 'project', 'where_stopped', 'next_action', 'minutes', 'id', 'project_id'],
   Categories: ['label', 'color', 'id', 'order'],
   Columns: ['id', 'project_id', 'list_id', 'name', 'order'],
-  Notes: ['id', 'project_id', 'file_id', 'file_url', 'updated', 'doc_id'],
+  Notes: ['id', 'project_id', 'file_id', 'file_url', 'updated', 'doc_id', 'doc_synced', 'doc_seen'],
   Stickies: ['id', 'project_id', 'text', 'color', 'opacity', 'x', 'y', 'w', 'h', 'created'],
   Skips: ['id', 'project_id', 'to_project_id', 'date'],
   Reminders: ['id', 'project_id', 'due', 'created', 'done'],

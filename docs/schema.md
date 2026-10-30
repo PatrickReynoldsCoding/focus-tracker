@@ -41,7 +41,7 @@ Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). The migration
 |---|---|---|
 | Columns | id, project_id, list_id, name, order | Board columns and list groups. Grey because Tasks shows the column name. |
 | Habit log | id, habit_id, habit, day, kind, count, value, updated_at | One row per habit per day (`done`, `plan`), plus rows for level changes and step-up answers, so past weeks compare with the target that applied then. Provisional. |
-| Notes | id, project_id, file_id, file_url, updated, doc_id | Which notes file (and Google Doc, if that ships) belongs to which project. |
+| Notes | id, project_id, file_id, file_url, updated, doc_id, doc_synced, doc_seen | Which notes file and Google Doc belong to which project. `doc_synced`: the notes version (`updated`) last written into the Doc; `doc_seen`: the Doc's Drive modified time when the app last wrote or read it (docs/notes-docs.md). The last two were added 2026-10-30; a sheet migrated before that gets them from the app on first use. |
 | Stickies | id, project_id, text, color, opacity, x, y, w, h, created | Placement data, mostly not for people. |
 | Skips | id, project_id, to_project_id, date | |
 | Reminders | id, project_id, due, created, done | |
