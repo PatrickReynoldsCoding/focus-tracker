@@ -209,6 +209,42 @@ async function run(browser, size) {
   await settle();
   log('Header: Settings, and Undo, Redo and Back in it, answer at once');
 
+  // ---------- lists linked to a project, the Whiteboards tab, a board on Today ----------
+  const call = (m, fn, args) => JSON.parse(JSON.stringify(env.server.run('rpc')(m, fn, args))).result;
+  const listId = call('lists', 'create', { name: 'Shopping' }).id;
+  const boardId = call('whiteboard', 'create', { name: 'Loose sketch' }).id;
+  await quickly(() => pg.evaluate(() => FT.reload()));
+  await gotoTab('Lists');
+  await quick('Lists: Settings dialog', pg.locator('.listpanel [data-act="lists.settings"]').first());
+  await pg.selectOption('#dlg-listproject', id);
+  await quick('Lists: save a linked project', pg.locator('#dlg-submit'));
+  assert.ok(await pg.isVisible('.listpanel [data-act="lists.openProject"]'), 'the link shows at once');
+  await settle();
+  assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).project_id, id, 'the link reached the server');
+  await quick('Lists: open the linked project', pg.locator('.listpanel [data-act="lists.openProject"]').first());
+  assert.ok(await pg.isVisible('#app .listpanel .label:text("Shopping")'), 'the list is on the project page');
+  log('Lists: Settings links a list to a project at once, and the list shows on that project\'s page');
+
+  await gotoTab('Whiteboards');
+  await quick('Whiteboards: + New whiteboard dialog', pg.locator('[data-act="whiteboard.new"][data-pick]')); await closeDialog();
+  const chip = pg.locator('.wblist li:has-text("Loose sketch") [data-act="whiteboard.today"]');
+  await quick('Whiteboards: + Today', chip);
+  assert.strictEqual(await chip.getAttribute('aria-pressed'), 'true', 'On Today shows at once');
+  await settle();
+  assert.strictEqual(env.server.run('bootstrap()').data.whiteboard.find((b) => b.id === boardId).show_today, 'yes', 'On Today reached the server');
+  await gotoTab('Today');
+  const todayThumb = pg.locator('#app .wbtodaypanel .wbthumb').first();
+  await todayThumb.scrollIntoViewIfNeeded();
+  const t0 = Date.now();
+  await todayThumb.click();
+  await pg.waitForSelector('#wb-shell', { timeout: FEEDBACK_MS + 100 });
+  assert.ok(Date.now() - t0 <= FEEDBACK_MS + 100, 'the board opens at once from Today');
+  await pg.click('[data-act="whiteboard.discard"]');
+  await pg.waitForSelector('#wb-shell', { state: 'detached', timeout: 10000 });
+  await settle();
+  log('Whiteboards: the tab\'s buttons and "+ Today" answer at once, and a board on Today opens from its thumbnail');
+
+
   // ---------- 3: a save the server refuses ----------
   await openFirstProject();
   const unfail = env.failWhere((name, args) => name === 'rpc' && args[0] === 'projects' && args[1] === 'update');
@@ -316,6 +352,9 @@ async function run(browser, size) {
       await pg.mouse.move(box.x + 300, box.y + 250); await pg.mouse.down(); await pg.mouse.move(box.x + 450, box.y + 350, { steps: 5 }); await pg.mouse.up();
       await pg.waitForFunction(() => document.getElementById('wb-status').textContent === 'Saved', null, { timeout: 10000 });
       assert.strictEqual(elements(), 1, 'the rectangle was autosaved');
+      const thumbOf = () => serverCall('whiteboard', 'thumbs', { ids: [board.id] })[0];
+      const thumb = thumbOf();
+      assert.ok(thumb && /^data:image\/(webp|jpeg);base64,/.test(thumb.image) && thumb.image.length <= 45000, 'with a small thumbnail: ' + (thumb ? thumb.image.slice(0, 30) + '… ' + thumb.image.length : 'none'));
       await pg.click('[data-act="whiteboard.discard"]');
       await pg.waitForSelector('.dialog #dlg-submit.danger');
       await pg.click('#dlg-submit');
@@ -323,7 +362,20 @@ async function run(browser, size) {
       assert.strictEqual(elements(), 0, 'Close without saving put back the empty board');
       await sleep(SAVE_WAIT_MS);
       assert.strictEqual(elements(), 0, 'and no autosave wrote the thrown-away drawing afterwards');
+      assert.strictEqual(thumbOf(), undefined, 'the empty board it went back to has no thumbnail');
       log('Whiteboard: favourite tool is selected on open, and Close without saving puts back the opening version');
+
+      await pg.click('.wblist .wbname:text("Browser test")');
+      await pg.waitForFunction(() => /New drawing/.test((document.getElementById('wb-status') || {}).textContent || ''), null, { timeout: 30000 });
+      await sleep(300);
+      const box2 = await pg.locator('.excalidraw__canvas.interactive').boundingBox();
+      await pg.mouse.move(box2.x + 250, box2.y + 200); await pg.mouse.down(); await pg.mouse.move(box2.x + 500, box2.y + 380, { steps: 5 }); await pg.mouse.up();
+      await pg.click('[data-act="whiteboard.close"]');
+      await pg.waitForSelector('#wb-shell', { state: 'detached', timeout: 10000 });
+      const img = pg.locator('.wblist li:has-text("Browser test") .wbthumb img');
+      await img.waitFor({ timeout: 2000 });
+      assert.strictEqual(await img.getAttribute('src'), thumbOf().image, 'the project panel shows the thumbnail it just saved');
+      log('Whiteboard: a drawn board gets a small thumbnail (' + thumbOf().image.length + ' characters), shown in the board list');
     }
     await pg.evaluate(() => localStorage.removeItem('ft.whiteboard.tool'));
     env.latency = LATENCY;

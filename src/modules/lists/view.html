@@ -144,6 +144,7 @@
     return panelOpen(l) + '<div class="listhead">' +
       '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="List name" data-change="lists.rename" data-id="' + id + '">' +
       (l.display === 'one' && l.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '') +
+      linkedBadge(l) +
       gearButton(l) +
       '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete list ' + FT.esc(l.name) + '">Delete</button></div>' +
       FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
@@ -159,25 +160,41 @@
     })));
   }
 
+  /** A list linked to a project says so on the Lists tab, as a way to that project's page. */
+  function linkedBadge(l) {
+    var p = l.project_id && FT.project(l.project_id);
+    return p ? '<button class="modebadge" data-act="lists.openProject" data-id="' + FT.esc(p.id) + '" title="Also shown on this project\'s page">' + FT.esc(p.name) + '</button>' : '';
+  }
+
+  /** The list as a panel on another page (Today, a project), without the name field and Delete. */
+  function compactPanel(l) {
+    return panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' + gearButton(l) + '</div>' +
+      FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
+  }
+
   /** On Today, each list shows as its own panel, without the list controls. */
   function todayPanels() {
     return lists().filter(function (l) { return l.show_today; }).map(function (l) {
       if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, w: 5, html: quotePanelHtml(l) };
-      return {
-        id: 'list-' + l.id, title: l.name, w: 6,
-        html: panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' + gearButton(l) + '</div>' +
-          FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>'
-      };
+      return { id: 'list-' + l.id, title: l.name, w: 6, html: compactPanel(l) };
+    });
+  }
+
+  /** On a project's page, the lists linked to it: one panel each, with a stable id so its place can be saved. */
+  function projectPanels(p) {
+    return lists().filter(function (l) { return l.project_id === p.id; }).map(function (l) {
+      return { id: 'list-' + l.id, title: l.name, w: 6, html: compactPanel(l) };
     });
   }
 
   FT.module({
     id: 'lists',
     tab: { title: 'Lists', order: 25, render: tabHtml },
-    slots: { 'today.panels': [{ order: 10, render: todayPanels }] }
+    slots: { 'today.panels': [{ order: 10, render: todayPanels }], 'project.page': [{ order: 30, render: projectPanels }] }
   });
 
   FT.action('lists.open', function () { FT.go('lists'); });
+  FT.action('lists.openProject', function (el) { FT.go('project', { id: el.dataset.id }); });
   FT.action('lists.rotate', function (el) {
     var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
     if (l) rotate(l, Number(el.dataset.d));
@@ -232,13 +249,21 @@
     if (color) preview.style.setProperty('--list-c', 'var(--cat-' + color + ')'); else preview.style.removeProperty('--list-c');
   }
 
+  /** "No project" and every project by name. Archived ones only when the list is already linked to one. */
+  function projectOptions(l) {
+    var projects = (FT.store.projects || []).filter(function (p) { return p.status !== 'archived' || p.id === l.project_id; })
+      .slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return [{ value: '', label: 'No project' }].concat(projects.map(function (p) { return { value: p.id, label: p.name }; }));
+  }
+
   FT.action('lists.settings', function (el) {
     var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
     if (!l) return;
     FT.dialog({
       title: 'List settings',
       wide: true,
-      fields: [{ id: 'listname', label: 'Name', value: l.name }],
+      fields: [{ id: 'listname', label: 'Name', value: l.name },
+        { id: 'listproject', label: 'Linked project (the list also shows on its page)', type: 'select', value: l.project_id || '', options: projectOptions(l) }],
       after: displayHtml(l) + swatchesHtml(l.color) + previewHtml(l) +
         '<label class="toggle"><input type="checkbox" id="dlg-showtoday"' + (l.show_today ? ' checked' : '') + '> Show this list on Today</label>',
       onOpen: function () {
@@ -267,8 +292,10 @@
         if (v.listname !== l.name) changes.push(['rename', { id: l.id, name: v.listname }]);
         if (color !== (l.color || '')) changes.push(['setColor', { id: l.id, color: color }]);
         if (showToday !== !!l.show_today) changes.push(['showToday', { id: l.id, on: showToday }]);
+        if (v.listproject !== (l.project_id || '')) changes.push(['setProject', { id: l.id, projectId: v.listproject }]);
         // Shown at once, saved in the background.
         l.name = v.listname.slice(0, 80); l.color = color; l.show_today = showToday ? 'yes' : '';
+        l.project_id = v.listproject; l.project = v.listproject ? (FT.project(v.listproject) || {}).name || '' : '';
         l.display = display; l.seconds = seconds;
         FT.render();
         changes.forEach(function (c) { FT.rpc('lists', c[0], c[1], { render: false }).catch(FT.saveFailed); });

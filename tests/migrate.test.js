@@ -446,9 +446,8 @@ test('a new spreadsheet starts at v2; tabs made later by a module get their colo
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '2');
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 0, 'nothing to back up');
   assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
-    'Columns', 'Notes', 'Stickies', 'Skips', 'Reminders']);
+    'Columns', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Thumbs'], 'Thumbs is made by the whiteboard module');
   s.run("new Table('Habits', ['name', 'intention', 'problem', 'id', 'order']).ensure()");
-  s.run("new Table('Thumbs', ['whiteboard_id', 'image', 'updated']).ensure()");
   s.run("new Table('To-dos', ['title', 'day', 'problem', 'id']).ensure()");
   s.ss.insertSheet('Mine');
   s.run("new Table('Links', ['from', 'type', 'to', 'problem', 'id']).ensure()");
