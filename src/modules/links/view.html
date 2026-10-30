@@ -56,7 +56,7 @@
       '<div class="lkfoot"><button class="btn sm" data-act="links.add" data-project="' + FT.esc(p.id) + '">+ Link</button></div></section>';
   }
 
-  FT.module({ id: 'links', slots: { 'project.page': [{ id: 'linked', title: 'Linked projects', order: 22, span: 'half', render: panel }] } });
+  FT.module({ id: 'links', slots: { 'project.page': [{ id: 'linked', title: 'Linked projects', description: 'Projects this one waits on, blocks or relates to.', order: 22, span: 'half', render: panel }] } });
 
   /** Does following blocking links from start reach goal? */
   function reaches(start, goal) {

@@ -155,8 +155,8 @@
     var head = '<section class="panel"><div class="tophead"><div class="label">Lists</div><button class="btn sm primary" data-act="lists.add">+ New list</button></div>' +
       (all.length ? '<p class="empty" style="padding:0">Lists are for things that are not projects: reading, ideas, things to keep in mind. Use ⚙ Settings to colour a list or show it on the Today tab.</p>'
                   : '<p class="empty">No lists yet. Make one for reading, ideas or things to keep in mind.</p>') + '</section>';
-    return FT.layout('lists', [{ id: 'head', title: 'Lists intro', html: head, w: 12 }].concat(all.map(function (l) {
-      return { id: 'list-' + l.id, title: l.name, html: listPanel(l), w: 6 };
+    return FT.layout('lists', [{ id: 'head', title: 'Lists intro', description: 'What lists are for, and + New list.', html: head, w: 12 }].concat(all.map(function (l) {
+      return { id: 'list-' + l.id, title: l.name, description: 'A list, with its groups and items.', html: listPanel(l), w: 6 };
     })));
   }
 
@@ -175,22 +175,53 @@
   /** On Today, each list shows as its own panel, without the list controls. */
   function todayPanels() {
     return lists().filter(function (l) { return l.show_today; }).map(function (l) {
-      if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, w: 5, html: quotePanelHtml(l) };
-      return { id: 'list-' + l.id, title: l.name, w: 6, html: compactPanel(l) };
+      if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, description: 'One item of this list at a time.', w: 5, html: quotePanelHtml(l) };
+      return { id: 'list-' + l.id, title: l.name, description: 'A list from the Lists tab.', w: 6, html: compactPanel(l) };
     });
   }
 
   /** On a project's page, the lists linked to it: one panel each, with a stable id so its place can be saved. */
   function projectPanels(p) {
     return lists().filter(function (l) { return l.project_id === p.id; }).map(function (l) {
-      return { id: 'list-' + l.id, title: l.name, w: 6, html: compactPanel(l) };
+      return { id: 'list-' + l.id, title: l.name, description: 'A list linked to this project.', w: 6, html: compactPanel(l) };
+    });
+  }
+
+  /** Change one field of a list on screen at once and save it behind (Edit layout's Add feature); put back if refused. */
+  function setList(l, fields, fn, args) {
+    var before = {};
+    Object.keys(fields).forEach(function (k) { before[k] = l[k]; });
+    FT.optimistic(function () {
+      Object.keys(fields).forEach(function (k) { l[k] = fields[k]; });
+      return function () { Object.keys(before).forEach(function (k) { l[k] = before[k]; }); };
+    }, function () { return FT.rpc('lists', fn, args, { render: false }); }).catch(function () {});
+  }
+
+  /** Add feature on Today: every list not shown there. */
+  function addableToday() {
+    return lists().filter(function (l) { return !l.show_today; }).map(function (l) {
+      var p = l.project_id && FT.project(l.project_id);
+      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: 'List' + (p ? ' on ' + p.name : '') + ', shown on Today as its own panel.',
+        add: function () { setList(l, { show_today: 'yes' }, 'showToday', { id: l.id, on: true }); } };
+    });
+  }
+
+  /** Add feature on a project page: lists not linked to any project. */
+  function addableProject(FT, project) {
+    if (!project) return [];
+    return lists().filter(function (l) { return !l.project_id || !FT.project(l.project_id); }).map(function (l) {
+      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: 'List not linked to a project yet. Adding links it to ' + project.name + '.',
+        add: function () { setList(l, { project_id: project.id, project: project.name }, 'setProject', { id: l.id, projectId: project.id }); } };
     });
   }
 
   FT.module({
     id: 'lists',
     tab: { title: 'Lists', order: 25, render: tabHtml },
-    slots: { 'today.panels': [{ order: 10, render: todayPanels }], 'project.page': [{ order: 30, render: projectPanels }] }
+    slots: {
+      'today.panels': [{ order: 10, render: todayPanels }], 'project.page': [{ order: 30, render: projectPanels }],
+      'addable.today': [{ order: 10, render: addableToday }], 'addable.project': [{ order: 10, render: addableProject }]
+    }
   });
 
   FT.action('lists.open', function () { FT.go('lists'); });

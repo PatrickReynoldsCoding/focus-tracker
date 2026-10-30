@@ -321,6 +321,50 @@ async function run(browser, size) {
   await settle();
   log('Whiteboards: the tab\'s buttons and "+ Today" answer at once, and a board on Today opens from its thumbnail');
 
+  // ---------- Edit layout: the header button (desktop) or menu item (phone), ▲ ▼ on a phone, Hide and Add feature ----------
+  await gotoTab('Today');
+  const layoutNow = () => JSON.parse(JSON.stringify(env.server.run('bootstrap()').data.layout));
+  const panelOnPage = (id) => `#app .grid-stack-item[gs-id="${id}"], #app .lcell[data-panel="${id}"]`;
+  if (size.mobile) {
+    await quickly(() => pg.click('#menuBtn'));
+    assert.strictEqual(await pg.innerText('#menuLayoutBtn'), 'Edit layout', 'the phone menu has Edit layout');
+    await quick('Menu: Edit layout', pg.locator('#menuLayoutBtn'));
+  } else {
+    assert.strictEqual(await pg.innerText('#layoutBtn'), 'Edit layout', 'the header has a text button');
+    await quick('Header: Edit layout', pg.locator('#layoutBtn'));
+  }
+  assert.ok(await pg.isVisible('.editbar [data-act="core.addFeature"]'), 'Edit layout shows Add feature');
+  if (size.mobile) {
+    const order = () => pg.evaluate(() => [...document.querySelectorAll('#app .lcell')].map((c) => c.dataset.panel));
+    const start = await order(), swapped = [start[1], start[0]].concat(start.slice(2));
+    await quick('Edit layout: ▼', pg.locator(`.lcell[data-panel="${start[0]}"] [data-act="core.movePanel"][data-d="1"]`));
+    assert.deepStrictEqual(await order(), swapped, 'moved down at once');
+    await settle();
+    assert.deepStrictEqual((layoutNow()['today.phone'] || []).slice(0, 2), swapped.slice(0, 2), 'the phone order reached the server');
+    await quick('Edit layout: ▲', pg.locator(`.lcell[data-panel="${start[0]}"] [data-act="core.movePanel"][data-d="-1"]`));
+    assert.deepStrictEqual(await order(), start, 'moved back up at once');
+    await settle();
+    assert.deepStrictEqual((layoutNow()['today.phone'] || []).slice(0, 2), start.slice(0, 2), 'and that reached the server');
+    log('Edit layout: ▲ ▼ move a panel at once and the phone order reaches the server');
+  }
+  await quick('Edit layout: Hide', pg.locator('#app [data-act="core.hidePanel"][data-id="rotation"]'));
+  assert.ok(!(await pg.isVisible(panelOnPage('rotation'))), 'the panel goes at once');
+  await settle();
+  assert.ok(layoutNow().today.rotation.hidden, 'the hide reached the server');
+  await quick('Edit layout: Add feature', pg.locator('.editbar [data-act="core.addFeature"]'));
+  assert.ok(await pg.isVisible('#dlg-features li:has-text("Weekly rotation")'), 'the hidden panel is offered');
+  await quick('Add feature: Add a hidden panel', pg.locator('#dlg-features [aria-label="Add Weekly rotation"]'));
+  assert.ok(await pg.isVisible(panelOnPage('rotation')), 'it is back at once');
+  await settle();
+  assert.ok(!layoutNow().today.rotation.hidden, 'the show reached the server');
+  await quick('Add feature: Add a list to Today', pg.locator('#dlg-features [aria-label="Add Shopping"]'));
+  assert.ok(await pg.isVisible(panelOnPage('list-' + listId)), 'the list is on Today at once');
+  await settle();
+  assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).show_today, 'yes', 'show_today reached the server');
+  await quickly(async () => { await pg.click('#dlg-submit'); await pg.click('.editbar [data-act="core.layout"]'); });
+  assert.ok(!(await pg.isVisible('.editbar')), 'Done leaves Edit layout');
+  log('Edit layout: the button, Hide, Add feature and its Add answer at once and reach the server');
+
 
   // ---------- 3: a save the server refuses ----------
   await openFirstProject();
@@ -388,6 +432,42 @@ async function run(browser, size) {
     const serverCall = (m, fn, args) => JSON.parse(JSON.stringify(env.server.run('rpc')(m, fn, args))).result;
     await pg.evaluate(() => document.querySelectorAll('.sticky').forEach((n) => n.remove())); // the new note from above may float over the editor
     const pid = await projectId();
+    // Typing makes the notes taller: the panels around them must move, never sit on top of them (GridStack heights follow content).
+    const gridLoaded = await pg.evaluate(() => !!window.GridStack && !!document.querySelector('#app .grid-stack-item[gs-id="notes"]'));
+    if (!gridLoaded) {
+      out.push('  skip [' + size.name + '] Panel overlap: GridStack did not load from the CDN');
+    } else {
+      const overlaps = () => pg.evaluate(() => {
+        const boxes = [...document.querySelectorAll('#app .grid-stack-item > .grid-stack-item-content > :first-child')]
+          .map((el) => ({ id: el.closest('.grid-stack-item').getAttribute('gs-id'), r: el.getBoundingClientRect() }));
+        const bad = [];
+        boxes.forEach((a, i) => boxes.slice(i + 1).forEach((b) => {
+          if (a.r.left < b.r.right - 1 && b.r.left < a.r.right - 1 && a.r.top < b.r.bottom - 1 && b.r.top < a.r.bottom - 1) bad.push(a.id + ' and ' + b.id);
+        }));
+        return bad;
+      });
+      const notesHeight = () => pg.evaluate(() => document.getElementById('nt-panel').getBoundingClientRect().height);
+      assert.deepStrictEqual(await overlaps(), [], 'panels overlap before typing');
+      const h0 = await notesHeight();
+      await pg.click('#nt-text');
+      await pg.keyboard.press('Control+End');
+      for (let i = 1; i <= 25; i++) { await pg.keyboard.press('Enter'); await pg.keyboard.type('Line ' + i); }
+      await sleep(300);
+      assert.ok((await notesHeight()) > h0 + 150, 'the notes grew while typing');
+      assert.deepStrictEqual(await overlaps(), [], 'panels overlap after typing in the notes');
+      for (let i = 1; i <= 25; i++) { await pg.keyboard.press('Shift+ArrowUp'); }
+      await pg.keyboard.press('Shift+Home');
+      await pg.keyboard.press('Backspace');
+      await sleep(300);
+      assert.deepStrictEqual(await overlaps(), [], 'panels overlap after deleting the lines');
+      const gaps = await pg.evaluate(() => {
+        const n = document.querySelector('#app .grid-stack-item[gs-id="notes"]');
+        return n.getBoundingClientRect().height - n.querySelector('.grid-stack-item-content > :first-child').getBoundingClientRect().height;
+      });
+      assert.ok(gaps < 40, 'and the notes cell shrank back with them (' + Math.round(gaps) + ' px spare)');
+      await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+      log('Notes: typing many lines and deleting them moves the panels around the notes; none overlap');
+    }
     await pg.waitForSelector('#nt-text[contenteditable="true"]');
     await pg.click('#nt-text');
     await pg.keyboard.press('Control+End');

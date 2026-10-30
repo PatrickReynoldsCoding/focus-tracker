@@ -2,7 +2,9 @@
  * Layout module: where each panel sits on a page, saved per mode in the mode's Settings tab (one row per page,
  * layout.<page>), so it follows you across devices.
  * Stored as { page: { panelId: { x, y, w, hidden } } } on a 12-column grid. Heights follow each panel's content.
- * A hidden panel is left off the page until it is shown again.
+ * A hidden panel is left off the page, on every screen size, until it is shown again.
+ * A phone shows panels one under the other in its own order, a row of its own: layout.<page>.phone = ["id", ...],
+ * which reaches the page as { '<page>.phone': [...] } next to the pages.
  */
 
 function layoutModule() {
@@ -25,6 +27,8 @@ function layoutModule() {
     Object.keys(all).forEach(function (page) { values[PREFIX + page] = JSON.stringify(all[page]); });
     setSettings_(values);
   }
+
+  var PHONE = '.phone';
 
   function pageKey_(page) {
     assert_(/^[a-z][a-z0-9-]{0,30}$/.test(String(page || '')), 'Unknown page: ' + page);
@@ -74,9 +78,27 @@ function layoutModule() {
         return true;
       },
 
+      /** The phone's order of a page's panels: a.order, panel ids from top to bottom. */
+      saveOrder: function (a) {
+        var page = pageKey_(a.page);
+        assert_(Array.isArray(a.order) && a.order.length <= MAX_PANELS, 'Too many panels to save.');
+        var seen = {}, order = a.order.map(String).filter(function (id) {
+          assert_(/^[a-zA-Z0-9_-]{1,60}$/.test(id), 'Bad panel id.');
+          if (seen[id]) return false;
+          seen[id] = true;
+          return true;
+        });
+        var all = load_();
+        all[page + PHONE] = order;
+        save_(all);
+        return true;
+      },
+
+      /** Back to the default layout: the grid, hidden panels and the phone's order. */
       reset: function (a, ctx) {
         var all = load_();
         delete all[pageKey_(a.page)];
+        delete all[a.page + PHONE];
         save_(all);
         ctx.refresh('layout');
         return true;

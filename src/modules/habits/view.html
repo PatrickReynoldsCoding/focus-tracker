@@ -230,7 +230,7 @@
   function todayPanels() {
     var html = panelHtml();
     popId = null;
-    return [{ id: 'smalltasks', title: 'Small tasks', html: html, w: 5, beside: true }];
+    return [{ id: 'smalltasks', title: 'Small tasks', description: 'Habits to tap off and the day\'s to-dos.', html: html, w: 5, beside: true }];
   }
 
   FT.module({ id: 'habits', slots: { 'today.panels': [{ order: 0, render: todayPanels }], 'today.planWeek': [{}] } });

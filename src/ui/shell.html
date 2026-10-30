@@ -5,9 +5,12 @@
  *   FT.module({
  *     id: 'insights',
  *     tab:   { title: 'Insights', order: 40, render: function (FT) { return '<html string>'; } },   // optional top-level tab
- *     slots: { 'project.page': [{ order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],   // or return [{ id, title, html, w }]
- *              'projects.tab': [{ order: 10, render: function (FT) { return html; } }],
-              'today.panels': [{ order: 10, render: function (FT) { return html; } }] },        // optional extension points
+ *     slots: { 'project.page': [{ id, title, description, order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],   // or return [{ id, title, description, html, w }]
+ *              'projects.tab': [{ id, title, description, order: 10, render: function (FT) { return html; } }],
+ *              'today.panels': [{ order: 10, render: function (FT) { return [{ id, title, description, html, w }]; } }],
+ *              'addable.today': [{ render: function (FT, project) { return [{ id, title, description, panel, add: fn }]; } }] },   // optional extension points
+ *     // title and description name a panel in Edit layout's "Add feature". addable.<page> (today, project, ...) offers
+ *     // things that can be put on that page; add() shows one at once and saves it (see FT.optimistic).
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
  *   });
  * Interactions use data attributes handled by delegation:
@@ -508,7 +511,7 @@ var FT = (function () {
     var panels = FT.slots('project.page').filter(function (s) { return !locked || s.id === 'header'; }).reduce(function (all, s) {
       var out = s.render(project, FT);
       if (Array.isArray(out)) return all.concat(out);
-      return all.concat([{ id: s.id || 'slot' + s.order, title: s.title, html: out, w: s.span === 'full' ? 12 : 6 }]);
+      return all.concat([{ id: s.id || 'slot' + s.order, title: s.title, description: s.description, html: out, w: s.span === 'full' ? 12 : 6 }]);
     }, []);
     return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div>' + FT.layout('project', panels);
   }
@@ -516,41 +519,88 @@ var FT = (function () {
   // ---------- page layout ----------
   // Desktop pages are a 12-column grid (GridStack, loaded from a CDN). In "Edit layout" mode panels can be dragged
   // and their left or right edge dragged to change the width; heights follow the content. Places are saved per page.
-  // On a phone, or if the grid library did not load, panels flow in order.
-  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null, layoutHidden = [];
+  // On a phone, or if the grid library did not load, panels flow in order. A phone has its own order (▲ ▼ in Edit
+  // layout), saved apart from the desktop grid as `<page>.phone`. Hidden panels are hidden on every screen size.
+  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null, layoutHidden = [], layoutShown = [], layoutIds = [];
   var narrow = window.matchMedia('(max-width: 760px)');
   if (narrow.addEventListener) narrow.addEventListener('change', function () { FT.state.editLayout = false; FT.render(); });
 
   function canArrange() { return !!window.GridStack && isLoaded('layout') && !narrow.matches; }
+  /** Edit layout works on every page drawn with FT.layout: the grid on a desktop; ▲ ▼ and Hide on a phone (Hide only without the grid library). */
+  function canEdit() { return isLoaded('layout') && !!layoutPage; }
+  function editing() { return !!FT.state.editLayout && canEdit(); }
+  function phoneKey(page) { return page + '.phone'; }
+
+  /** A panel's saved place. One hidden or shown before it was ever placed is saved at y 10000 only to hold "hidden": no place. */
+  function placeOf(saved, id) { var s = saved[id]; return s && s.y < 10000 ? s : null; }
 
   /** Saved panels first, in reading order (top to bottom, left to right), then new panels in their default order. */
   function readingOrder(panels, saved) {
-    return panels.map(function (p, i) { return { p: p, i: i, s: saved[p.id] }; }).sort(function (a, b) {
+    return panels.map(function (p, i) { return { p: p, i: i, s: placeOf(saved, p.id) }; }).sort(function (a, b) {
       if (a.s && b.s) return (a.s.y - b.s.y) || (a.s.x - b.s.x);
       if (a.s || b.s) return a.s ? -1 : 1;
       return a.i - b.i;
     }).map(function (x) { return x.p; });
   }
 
+  /** The phone's own order: panels in the saved phone order, then any it does not know yet in the desktop's reading order. */
+  function phoneOrder(panels, saved, order) {
+    var at = {};
+    (Array.isArray(order) ? order : []).forEach(function (id, i) { at[id] = i; });
+    return readingOrder(panels, saved).map(function (p, i) { return { p: p, i: i, o: at[p.id] }; }).sort(function (a, b) {
+      if (a.o !== undefined && b.o !== undefined) return a.o - b.o;
+      if (a.o !== undefined || b.o !== undefined) return a.o !== undefined ? -1 : 1;
+      return a.i - b.i;
+    }).map(function (x) { return x.p; });
+  }
+
+  function panelName(p) { return p.title || p.id; }
+
+  /** In Edit layout without the grid (a phone): the panel's name, ▲ ▼ on a phone, and Hide, each a 44 px target. */
+  function flowEditHtml(p, i, count) {
+    var id = FT.esc(p.id), name = FT.esc(panelName(p));
+    var arrows = narrow.matches
+      ? '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="-1" aria-label="Move ' + name + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
+        '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="1" aria-label="Move ' + name + ' down"' + (i === count - 1 ? ' disabled' : '') + '>▼</button>'
+      : '';
+    return '<div class="pedit"><span class="pedit-title">' + name + '</span><span class="pedit-btns">' + arrows +
+      '<button class="pedit-btn pedit-hide" data-act="core.hidePanel" data-id="' + id + '" aria-label="Hide ' + name + '">Hide</button></span></div>';
+  }
+
+  function allHiddenHtml() {
+    return '<section class="panel allhidden"><p class="empty">All panels are hidden. Edit layout → Add feature</p>' +
+      '<div class="actions"><button class="btn primary" data-act="core.addFeature">Add feature</button></div></section>';
+  }
+
   /**
-   * Lay out a page's panels. page: a short key such as 'today'. panels: [{ id, html, w }] where w is the default
-   * width in twelfths. Panels with no html are left out.
+   * Lay out a page's panels. page: a short key such as 'today'. panels: [{ id, title, description, html, w }] where w is
+   * the default width in twelfths, and title and description name the panel in Edit layout's Add feature. Panels with no
+   * html are left out.
    */
   FT.layout = function (page, panels) {
     layoutPage = page;
-    var saved = (FT.store.layout || {})[page] || {};
-    layoutHidden = panels.filter(function (p) { return p.html && saved[p.id] && saved[p.id].hidden; });
-    var shown = panels.filter(function (p) { return p.html && !(saved[p.id] && saved[p.id].hidden); });
+    var all = FT.store.layout || {}, saved = all[page] || {}, edit = FT.state.editLayout && isLoaded('layout');
+    var drawn = panels.filter(function (p) { return p.html; });
+    function hidden(p) { return !!(saved[p.id] && saved[p.id].hidden); }
+    layoutHidden = drawn.filter(hidden);
+    var shown = drawn.filter(function (p) { return !hidden(p); });
+    layoutShown = []; layoutIds = [];
+    if (!shown.length && layoutHidden.length) return allHiddenHtml();
     if (!canArrange()) {
-      return '<div class="lflow">' + readingOrder(shown, saved).map(function (p) {
-        var w = saved[p.id] ? saved[p.id].w : (p.w || LAYOUT_COLUMNS);
-        return '<div class="lcell" style="--span:' + w + '">' + p.html + '</div>';
+      var list = narrow.matches ? phoneOrder(drawn, saved, all[phoneKey(page)]) : readingOrder(drawn, saved);
+      layoutIds = list.map(function (p) { return p.id; });
+      list = list.filter(function (p) { return !hidden(p); });
+      layoutShown = list.map(function (p) { return p.id; });
+      return '<div class="lflow">' + list.map(function (p, i) {
+        var w = placeOf(saved, p.id) ? saved[p.id].w : (p.w || LAYOUT_COLUMNS);
+        return '<div class="lcell" style="--span:' + w + '" data-panel="' + FT.esc(p.id) + '">' + (edit ? flowEditHtml(p, i, list.length) : '') + p.html + '</div>';
       }).join('') + '</div>';
     }
+    layoutShown = shown.map(function (p) { return p.id; });
     return '<div class="grid-stack" data-page="' + FT.esc(page) + '">' + shown.map(function (p) {
-      var s = saved[p.id];
+      var s = placeOf(saved, p.id);
       var place = s ? ' gs-x="' + s.x + '" gs-y="' + s.y + '" gs-w="' + s.w + '"' : ' gs-w="' + (p.w || LAYOUT_COLUMNS) + '" gs-auto-position="true"';
-      var hide = FT.state.editLayout ? '<button class="hidebtn" data-act="core.hidePanel" data-id="' + FT.esc(p.id) + '" aria-label="Hide this panel">Hide</button>' : '';
+      var hide = edit ? '<button class="hidebtn" data-act="core.hidePanel" data-id="' + FT.esc(p.id) + '" aria-label="Hide ' + FT.esc(panelName(p)) + '">Hide</button>' : '';
       return '<div class="grid-stack-item" gs-id="' + FT.esc(p.id) + '"' + place + '><div class="grid-stack-item-content">' + p.html + '</div>' + hide + '</div>';
     }).join('') + '</div>';
   };
@@ -568,24 +618,60 @@ var FT = (function () {
     FT.rpc('layout', 'save', { page: page, items: items }, { render: false }).catch(function () {});
   }
 
-  function initGrids() {
-    grids.forEach(function (g) { g.destroy(false); });
-    grids = [];
-    if (!canArrange()) return;
-    Array.prototype.forEach.call(document.querySelectorAll('#app .grid-stack'), function (el) {
-      var grid = window.GridStack.init({
-        column: LAYOUT_COLUMNS, cellHeight: 8, margin: 8, float: false, animate: false,
-        staticGrid: !FT.state.editLayout, sizeToContent: true, resizable: { handles: 'e, w' }
-      }, el);
-      var page = el.dataset.page;
-      grid.on('dragstop resizestop', function () { setTimeout(function () { saveLayout(page, grid); }, 0); });
-      grids.push(grid);
+  // Heights follow content: a panel that grows or shrinks without a redraw (typing in the notes, a card dropped into a
+  // column, a list loading) is measured again on the next frame. Not while a panel or card is being dragged: GridStack
+  // measures the panels itself when a drag ends, and cells moving under a dragged card would confuse the drag.
+  var panelWatch = null, gridBusy = false;
+  function watchPanels() {
+    if (panelWatch) { panelWatch.disconnect(); panelWatch = null; }
+    if (!grids.length || !window.ResizeObserver) return;
+    var waiting = [], frame = 0;
+    function fitWaiting() {
+      frame = 0;
+      if (gridBusy || FT.state.dragging) { frame = setTimeout(fitWaiting, 150); return; }
+      var items = waiting; waiting = [];
+      items.forEach(function (item) { if (document.body.contains(item)) FT.fitPanel(item); });
+    }
+    panelWatch = new ResizeObserver(function (entries) {
+      entries.forEach(function (e) {
+        var item = e.target.closest('.grid-stack-item');
+        if (item && waiting.indexOf(item) === -1) waiting.push(item);
+      });
+      if (!frame) frame = requestAnimationFrame(fitWaiting);
+    });
+    grids.forEach(function (g) {
+      Array.prototype.forEach.call(g.el.querySelectorAll('.grid-stack-item > .grid-stack-item-content > :first-child'), function (c) { panelWatch.observe(c); });
     });
   }
 
+  function initGrids() {
+    grids.forEach(function (g) { g.destroy(false); });
+    grids = [];
+    gridBusy = false;
+    if (canArrange()) {
+      Array.prototype.forEach.call(document.querySelectorAll('#app .grid-stack'), function (el) {
+        var grid = window.GridStack.init({
+          column: LAYOUT_COLUMNS, cellHeight: 8, margin: 8, float: false, animate: false,
+          staticGrid: !FT.state.editLayout, sizeToContent: true, resizable: { handles: 'e, w' }
+        }, el);
+        var page = el.dataset.page;
+        grid.on('dragstart resizestart', function () { gridBusy = true; });
+        grid.on('dragstop resizestop', function () {
+          gridBusy = false;
+          setTimeout(function () {
+            Array.prototype.forEach.call(grid.el.querySelectorAll('.grid-stack-item'), function (item) { FT.fitPanel(item); });
+            saveLayout(page, grid);
+          }, 0);
+        });
+        grids.push(grid);
+      });
+    }
+    watchPanels();
+  }
+
   /**
-   * A panel whose content changed without a redraw (for example a rotating quote) calls this so its grid cell
-   * grows or shrinks to fit. Heights are otherwise measured when the page draws.
+   * A panel whose content changed without a redraw calls this so its grid cell grows or shrinks to fit. Most need not:
+   * a ResizeObserver does it for every panel (watchPanels). Heights are also measured when the page draws.
    */
   FT.fitPanel = function (el) {
     var item = el && el.closest('.grid-stack-item');
@@ -594,10 +680,15 @@ var FT = (function () {
   };
 
   function renderLayoutButton() {
-    var btn = $('layoutBtn');
-    if (!btn) return;
-    btn.hidden = !canArrange() || !layoutPage;
-    btn.setAttribute('aria-pressed', FT.state.editLayout ? 'true' : 'false');
+    var on = editing(), btn = $('layoutBtn'), item = $('menuLayoutBtn');
+    if (btn) {
+      btn.hidden = !canEdit();
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (item) {
+      item.hidden = !canEdit();
+      item.textContent = on ? 'Done editing layout' : 'Edit layout';
+    }
   }
 
   function setPanelHidden(id, hidden) {
@@ -605,25 +696,91 @@ var FT = (function () {
     var page = layoutPage;
     FT.store.layout = FT.store.layout || {};
     var pageLayout = FT.store.layout[page] = FT.store.layout[page] || {};
-    var place = pageLayout[id] || { x: 0, y: 10000, w: 12 };
-    if (hidden) place.hidden = true; else delete place.hidden;
-    pageLayout[id] = place;
-    FT.render();
-    FT.rpc('layout', 'setHidden', { page: page, id: id, hidden: hidden }, { render: false }).catch(FT.saveFailed);
+    var before = pageLayout[id] ? JSON.parse(JSON.stringify(pageLayout[id])) : null;
+    FT.optimistic(function () {
+      var place = pageLayout[id] || { x: 0, y: 10000, w: 12 };
+      if (hidden) place.hidden = true; else delete place.hidden;
+      pageLayout[id] = place;
+      return function () { if (before) pageLayout[id] = before; else delete pageLayout[id]; };
+    }, function () { return FT.rpc('layout', 'setHidden', { page: page, id: id, hidden: hidden }, { render: false }); }).catch(function () {});
   }
 
-  function hiddenListHtml() {
-    if (!layoutHidden.length) return '';
-    return '<span class="hiddenlist">Hidden: ' + layoutHidden.map(function (p) {
-      return '<button class="btn sm" data-act="core.showPanel" data-id="' + FT.esc(p.id) + '">Show ' + FT.esc(p.title || p.id) + '</button>';
-    }).join(' ') + '</span>';
+  /** Swap a panel with its neighbour in the phone's order (d is -1 for up, 1 for down). Shown at once, saved behind. */
+  function movePanel(id, d) {
+    var page = layoutPage, at = layoutShown.indexOf(id), other = layoutShown[at + d];
+    if (!page || at === -1 || !other) return;
+    var order = layoutIds.slice(), i = order.indexOf(id), j = order.indexOf(other);
+    order[i] = other; order[j] = id;
+    var key = phoneKey(page), before = (FT.store.layout || {})[key];
+    FT.optimistic(function () {
+      FT.store.layout = FT.store.layout || {};
+      FT.store.layout[key] = order;
+      return function () { if (before) FT.store.layout[key] = before; else delete FT.store.layout[key]; };
+    }, function () { return FT.rpc('layout', 'saveOrder', { page: page, order: order }, { render: false }); }).catch(function () {});
   }
 
   function editBarHtml() {
-    if (!FT.state.editLayout || !canArrange() || !layoutPage) return '';
-    return '<div class="editbar" role="status"><span><b>Editing layout.</b> Drag a panel to move it. Drag its left or right edge to change its width. "Hide" takes a panel off the page.</span>' + hiddenListHtml() +
-      '<span class="actions" style="margin:0"><button class="btn sm" data-act="core.layoutReset">Reset this page</button>' +
-      '<button class="btn sm primary" data-act="core.layout">Done</button></span></div>';
+    if (!editing()) return '';
+    var how = canArrange() ? 'Drag a panel to move it. Drag its left or right edge to change its width. '
+      : narrow.matches ? '▲ ▼ change the order on this phone; a desktop keeps its own layout. ' : '';
+    how += '"Hide" takes a panel off the page; "Add feature" brings it back or adds more.';
+    return '<div class="editbar" role="status"><span><b>Editing layout.</b> <span class="edithow">' + how + '</span></span>' +
+      '<span class="actions" style="margin:0"><button class="btn sm primary addfeature" data-act="core.addFeature">+ Add feature</button>' +
+      '<button class="btn sm" data-act="core.layoutReset">Reset this page</button>' +
+      '<button class="btn sm" data-act="core.layout">Done</button></span></div>' +
+      '<p class="edithint">' + how + '</p>';
+  }
+
+  // ---------- Add feature ----------
+  // In Edit layout, "Add feature" lists what this page could show but does not: its hidden panels, and whatever modules
+  // offer through the slot 'addable.<page>': render(FT, project) returns [{ id, title, description, panel, add }],
+  // where add() shows the item (on screen first, saved behind) and panel is the id of the panel it makes, if any.
+  var featureItems = { hidden: [], more: [] };
+
+  function collectFeatures() {
+    var project = layoutPage === 'project' ? FT.project(FT.state.projectId) : null;
+    featureItems = {
+      hidden: layoutHidden.map(function (p) { return { id: p.id, panel: p.id, title: panelName(p), description: p.description || '' }; }),
+      more: layoutPage ? FT.slots('addable.' + layoutPage).reduce(function (all, s) { return all.concat(s.render(FT, project) || []); }, []) : []
+    };
+    return featureItems;
+  }
+
+  function featureRows(kind, items) {
+    return '<ul class="featlist">' + items.map(function (it, i) {
+      return '<li><div class="feat"><b>' + FT.esc(it.title) + '</b>' + (it.description ? '<small>' + FT.esc(it.description) + '</small>' : '') + '</div>' +
+        '<button class="btn sm primary" data-act="core.addFeatureItem" data-kind="' + kind + '" data-i="' + i + '" aria-label="Add ' + FT.esc(it.title) + '">Add</button></li>';
+    }).join('') + '</ul>';
+  }
+
+  function featuresHtml() {
+    var f = collectFeatures();
+    return '<div id="dlg-features">' +
+      (f.hidden.length ? '<h3 class="feathead">Hidden on this page</h3>' + featureRows('hidden', f.hidden) : '') +
+      (f.more.length ? '<h3 class="feathead">Can be added here</h3>' + featureRows('more', f.more) : '') +
+      (f.hidden.length || f.more.length ? '' : '<p class="empty">Everything this page can show is already on it.</p>') + '</div>';
+  }
+
+  function addFeatureDialog() {
+    FT.dialog({
+      title: 'Add feature', subtitle: 'Bring back a hidden panel, or add something to this page.',
+      body: featuresHtml(), submit: 'Done', cancel: false, onSubmit: function () {}
+    });
+  }
+
+  function addFeature(kind, i) {
+    var it = (featureItems[kind] || [])[i];
+    if (!it) return;
+    var hiddenPanel = it.panel && layoutHidden.some(function (p) { return p.id === it.panel; });
+    if (kind === 'more' && it.add) it.add();
+    if (hiddenPanel) setPanelHidden(it.panel, false);
+    var box = $('dlg-features');
+    if (box) {
+      box.outerHTML = featuresHtml();
+      var next = document.querySelector('#dlg-features [data-act="core.addFeatureItem"]') || $('dlg-submit');
+      if (next) next.focus();
+    }
+    FT.toast('Added: ' + it.title);
   }
 
   var renderWaiting = false;
@@ -639,7 +796,8 @@ var FT = (function () {
     else if (modules[FT.state.view] && modules[FT.state.view].tab) html = modules[FT.state.view].tab.render(FT);
     var y = window.scrollY;
     $('app').innerHTML = editBarHtml() + html; // after the page html, so the bar knows the page's hidden panels
-    document.body.classList.toggle('editing-layout', !!(FT.state.editLayout && canArrange() && layoutPage));
+    document.body.classList.toggle('editing-layout', editing());
+    document.body.classList.toggle('editing-grid', editing() && canArrange());
     initGrids();
     renderLayoutButton();
     window.scrollTo(0, y);
@@ -1264,16 +1422,34 @@ var FT = (function () {
     closeMenu();
     if (el.value === NEW_MODE) newModeDialog(); else FT.switchMode(el.value);
   });
-  FT.action('core.layout', function () { FT.state.editLayout = !FT.state.editLayout; FT.render(); });
+  FT.action('core.layout', function () { closeMenu(); FT.state.editLayout = !FT.state.editLayout; FT.render(); });
   FT.action('core.undo', function () { FT.closeDialog(); FT.undo(); });
   FT.action('core.redo', function () { FT.closeDialog(); FT.redo(); });
   FT.action('core.settings', function () { closeMenu(); settingsDialog(); });
   FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
   FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });
+  // ▲ ▼ redraw the page: keep the pressed button under the finger and focused, so it can be pressed again.
+  FT.action('core.movePanel', function (el) {
+    var id = el.dataset.id, d = el.dataset.d, top = el.getBoundingClientRect().top;
+    movePanel(id, Number(d));
+    var again = Array.prototype.filter.call(document.querySelectorAll('#app [data-act="core.movePanel"]'), function (b) { return b.dataset.id === id && b.dataset.d === d; })[0];
+    if (!again) return;
+    window.scrollBy(0, again.getBoundingClientRect().top - top);
+    if (again.disabled) again = again.parentNode.querySelector('[data-act="core.movePanel"]:not([disabled])') || again;
+    try { again.focus({ preventScroll: true }); } catch (e) {}
+  });
+  // From the "All panels are hidden" message, Add feature also turns Edit layout on.
+  FT.action('core.addFeature', function () {
+    if (!FT.state.editLayout) { FT.state.editLayout = true; FT.render(); }
+    addFeatureDialog();
+  });
+  FT.action('core.addFeatureItem', function (el) { addFeature(el.dataset.kind, Number(el.dataset.i)); });
   FT.action('core.layoutReset', function () {
     if (!layoutPage) return;
-    if (FT.store.layout) delete FT.store.layout[layoutPage];
-    FT.rpc('layout', 'reset', { page: layoutPage }).catch(function () {});
+    var page = layoutPage;
+    if (FT.store.layout) { delete FT.store.layout[page]; delete FT.store.layout[phoneKey(page)]; }
+    FT.render();
+    FT.rpc('layout', 'reset', { page: page }).catch(function () {});
   });
   FT.action('core.wide', function () {
     var on = !document.body.classList.contains('wide');

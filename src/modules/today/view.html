@@ -146,9 +146,9 @@
       : '<section class="panel"><p class="empty">No active projects yet. Add one to get a focus for the day.</p><button class="btn primary" data-act="core.tab" data-view="projects">Go to Projects</button></section>';
     // A panel marked beside: true (the small tasks) sits next to the focus by default; the rest go after the rotation.
     var extra = extraPanels();
-    return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [{ id: 'focus', title: 'Today\'s focus', html: focus, w: 7 }]
+    return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [{ id: 'focus', title: 'Today\'s focus', description: 'The project picked for today, its next action and the session timer.', html: focus, w: 7 }]
       .concat(extra.filter(function (p) { return p.beside; }))
-      .concat([{ id: 'rotation', title: 'Weekly rotation', html: f ? rotationHtml(t) : '', w: extra.some(function (p) { return p.beside; }) ? 7 : 5 }])
+      .concat([{ id: 'rotation', title: 'Weekly rotation', description: 'Which category leads on each day of the week.', html: f ? rotationHtml(t) : '', w: extra.some(function (p) { return p.beside; }) ? 7 : 5 }])
       .concat(extra.filter(function (p) { return !p.beside; })));
   }
 
@@ -282,7 +282,7 @@
   FT.module({
     id: 'today',
     tab: { title: 'Today', order: 10, render: render },
-    slots: { 'project.page': [{ id: 'session', title: 'Session', order: -5, span: 'full', render: projectSessionHtml }] }
+    slots: { 'project.page': [{ id: 'session', title: 'Session', description: 'On today\'s focus project: the running session, or Start session.', order: -5, span: 'full', render: projectSessionHtml }] }
   });
 
   /**

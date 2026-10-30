@@ -1,6 +1,8 @@
 <style>
 #app { position: relative; }
 .stickylayer { position: absolute; inset: 0; pointer-events: none; z-index: 15; }
+/* While the page's layout is being edited the notes step aside, so they cover no panel or Hide button. */
+body.editing-layout .stickylayer, body.editing-layout .stickyfab { display: none; }
 /* Pastel paper with dark text in both themes; --paper-a is how solid the paper is (the text always stays solid). */
 .sticky { --paper: #fff3a3; --paper-a: 1; position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 120px; min-height: 80px; max-width: min(900px, 100%); max-height: 900px; touch-action: pan-x pan-y;
   background: color-mix(in srgb, var(--paper) calc(var(--paper-a) * 100%), transparent); color: #2a2418; border-radius: 4px 4px 12px 4px;

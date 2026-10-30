@@ -735,6 +735,22 @@ test('page layouts are saved per page and per mode, validated, and can be reset'
   assert.deepStrictEqual(Object.keys(r.slices.layout), ['project']);
 });
 
+test('a phone order is saved per page apart from the desktop grid, readable in Settings, and reset with the page', () => {
+  const s = fresh();
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }, { id: 'rotation', x: 7, y: 0, w: 5 }] });
+  s.call('layout', 'saveOrder', { page: 'today', order: ['rotation', 'focus', 'rotation', 'list-ab12'] });
+  let saved = json(s.run('bootstrap()')).data.layout;
+  assert.deepStrictEqual(saved['today.phone'], ['rotation', 'focus', 'list-ab12'], 'a repeated id is kept once');
+  assert.deepStrictEqual(saved.today.focus, { x: 0, y: 0, w: 7 }, 'the desktop grid is untouched');
+  const row = s.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.today.phone');
+  assert.strictEqual(row[1], '["rotation","focus","list-ab12"]', 'one readable row');
+  assert.throws(() => s.call('layout', 'saveOrder', { page: 'today', order: ['<b>'] }), /Bad panel id/);
+  assert.throws(() => s.call('layout', 'saveOrder', { page: 'To day', order: [] }), /Unknown page/);
+  s.call('layout', 'reset', { page: 'today' });
+  saved = json(s.run('bootstrap()')).data.layout;
+  assert.ok(!saved.today && !saved['today.phone'], 'reset clears both');
+});
+
 test('a pending import runs once, in its own mode, when that mode is first opened', () => {
   const s = fresh();
   s.run(`function pendingImportData_() { return {
