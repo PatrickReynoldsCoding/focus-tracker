@@ -4,19 +4,21 @@ This guide is for any AI assistant (Claude, ChatGPT, Gemini or another) that can
 
 ## In short
 
-- Focus Tracker keeps everything in Google Drive, in the folder "Focus Tracker". It has one subfolder per mode ("Personal" or "Work"), and each subfolder holds that mode's spreadsheet. If the owner does not say which mode, ask.
+- Focus Tracker keeps everything in Google Drive, in the folder "Focus Tracker". It has one subfolder per mode ("Personal" or "Work"), and each subfolder holds that mode's spreadsheet. If the owner does not say which mode, use the mode whose Categories tab has the category that fits; if more than one could fit, or you can reach more than one spreadsheet and it is not clear, ask.
 - Add things by adding rows at the bottom of a tab. Change things by changing cells. Never delete rows, never move, rename or delete columns or tabs, and never edit the grey tabs.
-- Fill only the columns on the left, the ones with a white header. Leave the grey-header columns (from id on) empty: the app fills them the next time it opens.
+- Fill only the columns marked "yes" or "if known" for each tab in "The tabs" below (in most tabs, the columns left of id). Leave the others empty: the app fills them the next time it opens. Go by that list, not by colour: a connector may not show colours.
 - Point at other rows by their name (a card's project, a link's from and to), written exactly as in their own tab.
 - Never create files in Drive. The app only sees files it made itself. Notes go into the project's notes Doc or its notes cell (see "Notes").
 - Never put sensitive information in the sheet, and never copy the contents of a file into it (see "Safety rules").
-- If the app cannot use a row, it writes the reason in that row's problem column. Read the problem columns when you finish.
+- If the app cannot use a row, it writes the reason in that row's problem column. Read the problem columns when you finish. The app only checks rows when it next opens, so if you cannot see a reason yet, tell the owner to open the app and look for problems.
+- Keep the owner's wording. Do not invent details they did not give (a link's note, a reason, a date).
 
 ## Where things go
 
 | What to save | Where | How |
 |---|---|---|
-| A new project or goal | Projects | A row with name, category and next_action. |
+| A new project or goal | Projects | A row with name and category; next_action if the owner gave one (empty is fine). |
+| What a project is about, a description, ideas, decisions | Notes | Projects has no description column: these go in the project's notes (see "Notes"). |
 | The next step on a project | Projects, next_action | One short, concrete sentence. Replace the old one. |
 | Notes, ideas, research, meeting notes, decisions | The project's notes | See "Notes". Not in cards, not in new files. |
 | A task on a project | Tasks | A row with title, project and column (To do, Doing or Done). |
@@ -52,7 +54,8 @@ Each project has notes: formatted text the owner reads and edits in the app. The
 
 - **The notes cell holds a Google Docs link** (https://docs.google.com/document/...): open that Doc and add your text to it. Keep what is there. Add new text at the end, under a heading with the date, for example "## 2026-11-03". The app brings the Doc's text into the project the next time the project is opened.
 - **The notes cell is empty, or holds another link** (an older notes file): write the notes into the notes cell itself, as plain text, replacing the link. The app adds the text to the end of the project's notes when it next opens, makes the Doc, and puts the link back in the cell.
-- Notes may use simple markdown: # for a heading, - for a list item, **bold**, *italic*, and [text](https://...) for a link. One paragraph per line.
+- Notes may use simple markdown: # for a heading, - for a list item, **bold**, *italic*, and [text](https://...) for a link. One paragraph per line: use real line breaks inside the cell (not the two characters backslash and n).
+- Writing text into the notes cell never loses the old notes: the app adds your text to the end of them.
 - Never create a new Doc or file for notes, and never rename or move the notes Doc: the app could no longer find it.
 - A card has its own short note: the note column in Tasks. To change a card's note, write note and empty its note_html cell.
 
@@ -61,7 +64,7 @@ Each project has notes: formatted text the owner reads and edits in the app. The
 - Cells are plain text. Dates look like 2026-11-03, a time like 2026-11-03T14:05:00Z. Yes/no columns hold yes or are empty.
 - Leave id, order, created and the other grey-header columns empty in a new row. The app fills them, and the ids next to the names (project_id, column_id and so on), the next time it opens.
 - A name must match exactly one row in its tab. Capital letters do not matter; spelling does. If two rows share the name, the app does not guess: it writes a problem instead.
-- A category is a label from the Categories tab of the same spreadsheet, for example "Coding". Read that tab first; never make up a category.
+- A category is a category's label or id from the Categories tab of the same spreadsheet, for example "Coding" or "coding" (existing rows usually hold the id; either works). Read that tab first; never make up a category.
 - A new project and the rows that point at it can be added in the same edit, in any order.
 - Do not write in the problem column. When a row has a problem, change the cell it names; the app clears the problem the next time it opens.
 
@@ -287,7 +290,8 @@ Why: the notes go in the notes cell because the project is new and has no notes 
 
 ## Changing an existing project safely
 
-- Find the project's row in Projects by its name. If no row or more than one row has that name, ask the owner which project is meant.
+- Find the project's row in Projects by its name. If exactly one project is a clear close match ("Focus Tracker app" when only "Focus Tracker" exists), use it and tell the owner which one you changed. If there is no clear match, or more than one, ask the owner which project is meant.
+- If the owner gives a next action that is also one of the tasks, set next_action and add the card as well: they are shown in different places.
 - Change cells in place: next_action, status (active, paused, done, archived), a criterion's done, a resource's value.
 - To move a card (for example to Done), write the column's name in its column cell and empty its column_id cell. To change a card's note, write note and empty note_html. These two are the only grey cells you may change.
 - Add new cards, resources, criteria and links as new rows at the bottom of their tab, pointing at the project by name.

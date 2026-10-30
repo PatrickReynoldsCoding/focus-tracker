@@ -255,6 +255,11 @@ Three read-only reviews (phone and dialogs; dark, E-ink and Work themes; desktop
 - Not verified: Drive's markdown import of the guide's tables and checkboxes on Google; a real assistant (Claude or another) following the guide through a connector. Try it on a test mode first.
 - Also fixed: a race in the jsdom card-note step (it read the note before the server's cleaned copy came back).
 
+### Assistant guide tested with mock data (2026-10-30)
+- A fresh agent was given only `docs/assistant-guide.md` and a JSON copy of the seeded test sheet, and asked to save a new project from a chat (notes, a GitHub repo, three cards, a blocker that did not exist yet, a done criterion) and to change an existing project's next action. Its rows were applied to the fake sheet and the app loaded them all with no problems: cards in To do, the repo under Code, "Waiting on Fix workshop bench", the criterion, the next action.
+- Its 13 critiques fed back into the guide: a default mode when the category makes it clear, category label or id both accepted, what to do with a close project-name match, next_action optional, descriptions go in notes, real line breaks in the notes cell, the notes cell never loses old notes, fill columns by the list not by colour, keep the owner's wording and invent nothing, and tell the owner to check problems when the assistant cannot.
+- Not tried yet: a real assistant through a Google connector on Paddy's Drive.
+
 ### Separate project: PR notifications (dropped 2026-10-28, not wanted)
 - Wanted: search work GitHub for his open PRs and notify him when someone comments, as a macOS notification on his work Mac.
 - Apps Script cannot show native macOS notifications. Recommendation: a small local tool on the work Mac using the `gh` CLI (already signed in) run by a scheduled job (launchd) that checks for new comments and calls the macOS notification command. This also keeps a work token out of his personal Google account.
