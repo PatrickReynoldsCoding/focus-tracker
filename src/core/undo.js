@@ -11,7 +11,7 @@
 var UNDO_KEEP_ = 30;
 var UNDO_MAX_LENGTH_ = 45000; // a sheet cell holds 50,000 characters
 // Calls whose row changes are bookkeeping, not something a person would undo.
-var NOT_UNDOABLE_ = { 'notes.save': 1, 'whiteboard.save': 1 };
+var NOT_UNDOABLE_ = { 'notes.save': 1, 'notes.syncDoc': 1, 'notes.checkDoc': 1, 'whiteboard.save': 1 };
 
 // Made when needed: Table is defined in another file, and Apps Script does not promise the order files load in.
 function undoTable_() {

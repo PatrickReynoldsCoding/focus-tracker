@@ -405,6 +405,16 @@ async function run(browser, size) {
   assert.ok((await pg.innerText('#nt-text')).includes('a list item that becomes a heading'), 'and they are in the editor');
   log('Notes typed just before a reload come back and are saved, including a heading inside a list item');
 
+  // ---------- 7: the notes' Google Doc ----------
+  // Opening a project with notes makes their Doc in the background; then "Open in Docs" shows and links it.
+  await pg.waitForSelector('#nt-link:not([hidden])', { timeout: 15000 });
+  const docLink = await pg.evaluate(() => { const a = document.getElementById('nt-link'); return { text: a.textContent, href: a.href, visible: a.offsetParent !== null }; });
+  const docRow = env.server.run('bootstrap()').data.notes.find((n) => n.project_id === notesId);
+  assert.strictEqual(docLink.text, 'Open in Docs');
+  assert.ok(docLink.visible, '[' + size.name + '] "Open in Docs" is on screen');
+  assert.ok(/^https:\/\/docs\.google\.com\/document\/d\//.test(docLink.href) && docLink.href === docRow.doc, '[' + size.name + '] and links the Doc: ' + docLink.href);
+  log('"Open in Docs" shows once the notes Doc exists');
+
   await ctx.close();
   await env.close();
   assert.deepStrictEqual(errors, [], 'page errors: ' + errors.join(' | '));

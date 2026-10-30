@@ -197,6 +197,59 @@ function makeDrive() {
   return api;
 }
 
+function blob(text, mime, name) {
+  const data = String(text === undefined ? '' : text);
+  return { getDataAsString: () => data, getContentType: () => mime || 'text/plain', getName: () => name || '' };
+}
+
+/**
+ * The Drive advanced service (v3) for Google Docs made from markdown: Files.create, update, get and export. A Doc is a
+ * file in the fake DriveApp (so tests can see where it is) whose content is the markdown it was given; export returns it.
+ * docs.edit(id, text) is a person or an assistant editing the Doc in Google Docs. docs.calls counts calls by name.
+ */
+function makeDocs(drive) {
+  let clock = 0;
+  const stamp = () => { clock = Math.max(Date.now(), clock + 1); return new Date(clock).toISOString(); };
+  const calls = { create: 0, update: 0, get: 0, export: 0 };
+  const doc = (id) => {
+    const f = drive.files[id];
+    if (!f || f.mime !== 'application/vnd.google-apps.document') throw new Error('GoogleJsonResponseException: File not found: ' + id);
+    return f;
+  };
+  const meta = (f) => ({ id: f.id, name: f.name, mimeType: f.mime, modifiedTime: f.modifiedTime, trashed: !!f.trashed });
+  const api = {
+    calls,
+    Files: {
+      create(resource, media) {
+        calls.create++;
+        const parent = drive.folders[(resource.parents || [])[0]];
+        if (!parent) throw new Error('GoogleJsonResponseException: File not found: ' + (resource.parents || [])[0]);
+        const f = parent.createFile(resource.name, media ? media.getDataAsString() : '', resource.mimeType);
+        f.getUrl = () => 'https://docs.google.com/document/d/' + f.id + '/edit';
+        f.modifiedTime = stamp();
+        return meta(f);
+      },
+      update(resource, id, media) {
+        calls.update++;
+        const f = doc(id);
+        if (resource && resource.name) f.name = resource.name;
+        if (media) f.content = media.getDataAsString();
+        f.modifiedTime = stamp();
+        return meta(f);
+      },
+      get(id) { calls.get++; return meta(doc(id)); },
+      export(id, mime) {
+        calls.export++;
+        if (mime !== 'text/markdown') throw new Error('Export only supports text/markdown here');
+        return blob(doc(id).content, mime);
+      }
+    },
+    edit(id, text) { const f = doc(id); f.content = text; f.modifiedTime = stamp(); },
+    docs: () => Object.values(drive.files).filter((f) => f.mime === 'application/vnd.google-apps.document')
+  };
+  return api;
+}
+
 function loadServer(opts = {}) {
   const ss = makeSpreadsheet();
   const spreadsheets = { [ss.getId()]: ss };
@@ -205,6 +258,7 @@ function loadServer(opts = {}) {
   drive.addSpreadsheetFile(ss.getId(), ss.name);
   // Copying a spreadsheet's file copies its tabs too, so a test can open the backup
   drive.onCopy = (file, copy) => { if (spreadsheets[file.id]) spreadsheets[copy.id] = copySpreadsheet(spreadsheets[file.id], copy.id, copy.name); };
+  const docs = makeDocs(drive);
   const mock = { weekday: null, logs: [] };
   // One script lock. Waiting for it while this execution already holds it would hang on Google, so it throws here.
   let lockHeld = false;
@@ -213,7 +267,8 @@ function loadServer(opts = {}) {
     releaseLock() { lockHeld = false; }
   };
   const sandbox = {
-    console,
+    // console.log is what the server writes to Apps Script's execution log (timings): kept in mock.logs, not printed
+    console: Object.assign(Object.create(console), { log: (...a) => mock.logs.push(a.join(' ')) }),
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       openById: (id) => spreadsheets[id],
@@ -228,6 +283,7 @@ function loadServer(opts = {}) {
     LockService: { getScriptLock: () => lock },
     Utilities: {
       getUuid: () => crypto.randomUUID(),
+      newBlob: (data, mime, name) => blob(Array.isArray(data) ? Buffer.from(data).toString('utf8') : data, mime, name),
       formatDate: (d, tz, fmt) => {
         if (fmt === 'u') return String(mock.weekday || ((d.getUTCDay() + 6) % 7 + 1));
         return d.toISOString().slice(0, 10);
@@ -235,6 +291,7 @@ function loadServer(opts = {}) {
     },
     Session: { getScriptTimeZone: () => 'Europe/London' },
     DriveApp: drive,
+    Drive: { Files: docs.Files },
     Logger: { log: (m) => mock.logs.push(m) }
   };
   vm.createContext(sandbox);
@@ -248,7 +305,7 @@ function loadServer(opts = {}) {
   files.forEach((f) => vm.runInContext(fs.readFileSync(f, 'utf8'), sandbox, { filename: path.relative(root, f) }));
   // Run helpers in the sandbox so results keep their own realm
   const run = (code) => vm.runInContext(code, sandbox);
-  return { sandbox, ss, spreadsheets, script, user, drive, mock, run };
+  return { sandbox, ss, spreadsheets, script, user, drive, docs, mock, run };
 }
 
 module.exports = { loadServer, sheetCalls };

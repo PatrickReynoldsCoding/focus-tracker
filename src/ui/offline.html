@@ -19,9 +19,10 @@
  */
 (function () {
   // Bump SCHEMA when the shape of the saved copy (bootstrap data) changes: older copies are then dropped. 2: sheet layout v2
-  // (kanban rows carry owner, cards note, resources value). 3: the links slice. QUEUE_SCHEMA is for the queue: queued changes are api calls,
-  // which the server still takes after a layout change, so they are kept unless the calls themselves change.
-  var SCHEMA = 3;
+  // (kanban rows carry owner, cards note, resources value). 3: the links slice. 4: notes rows carry doc (the notes' Google Doc).
+  // QUEUE_SCHEMA is for the queue: queued changes are api calls, which the server still takes after a layout change,
+  // so they are kept unless the calls themselves change.
+  var SCHEMA = 4;
   var QUEUE_SCHEMA = 1;
   var QUEUE_TIMEOUT = 30000; // a queued kind of change that has not been answered after this long is treated as offline
   var OTHER_TIMEOUT = 60000;
