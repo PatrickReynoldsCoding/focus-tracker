@@ -867,6 +867,7 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#nh-next1')); click($('#nh-next2'));
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && habitRow('Spanish'), 'on Today once started');
+    await waitFor(() => (habitsNow().habits.find((h) => h.name === 'Spanish') || {}).status === 'active' && w.FT.pendingSaves() === 0, 'started on the server'); // shown first, saved after
     const sp = habitsNow().habits.find((h) => h.name === 'Spanish');
     assert.deepStrictEqual([sp.status, sp.per, sp.sessions, sp.started, sp.description], ['active', 'day', 1, TODAY, 'For the trip next summer']);
     assert.strictEqual(habitsNow().habits.filter((h) => h.name === 'Spanish').length, 1, 'the same row, not a new one');
