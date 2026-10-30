@@ -4,6 +4,7 @@
  * If the row has been changed since (another device), the newest edit wins and the older version is kept:
  * a line in the Log for rows, a conflict copy file for project notes. Edits sent straight away carry no _base and skip all this.
  * Not covered: columns, lists themselves, sticky notes, whiteboards, resources, categories, the Today state (last write wins).
+ * Habit taps need no entry here: habits.tap sends +1 or -1 for a day, never a total, so taps from two devices add up.
  */
 
 // api call -> table, the fields the call changes (argument name -> row field), and how to name the row.

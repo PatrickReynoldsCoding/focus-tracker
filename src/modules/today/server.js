@@ -7,7 +7,9 @@
  * and "remind me" adds a row to the Reminders tab that shows as a banner when due.
  *
  * The weekly rotation (a lead category, "any", or away for each weekday) is the mode's default until edited.
- * "This week" changes are saved with the week's Monday and stop applying when a new week starts.
+ * "This week" changes are saved with the week's Monday and stop applying when a new week starts. Plan my week can also
+ * change next week (next.of and next.monday ... in Settings), and those become this week's changes when it starts.
+ * Never further ahead. The habits and to-dos on Today are their own modules (habits, todos).
  * The rotation and this week's changes are per mode and live in the mode's Settings tab (core/settings.js), one row
  * per day, for example rotation.monday = coding. The session and pomodoro state are per user and live in user
  * properties (they change every few seconds). Both follow you across devices.
@@ -24,7 +26,6 @@ function todayModule() {
   var POMODORO_DEFAULTS = { work: 25, break: 5 };
   var NEXT_PHASE = { work: 'break', break: 'work' };
   var ANY = 'any';   // Settings text for "any category"
-  var NONE = 'none'; // Settings text for "no daily minimum"
   var ANY_LABEL = 'Any category';
   var AWAY = 'away';
   var AWAY_LABEL = 'Away';
@@ -53,7 +54,7 @@ function todayModule() {
   function load_(dayKey) {
     var raw = PropertiesService.getUserProperties().getProperty(KEY);
     var s = raw ? JSON.parse(raw) : {};
-    if (s.day !== dayKey) s = { day: dayKey, skipped: [], jobDone: false, session: s.session || null };
+    if (s.day !== dayKey) s = { day: dayKey, skipped: [], session: s.session || null };
     return s;
   }
 
@@ -131,17 +132,35 @@ function todayModule() {
     return usual;
   }
 
-  /** This week's changes by weekday (week.of and week.monday ...). Empty once the saved week is over, so they reset on Monday. */
+  /**
+   * A week's changes by weekday: the week.* rows when week.of is that week, else the next.* rows when next.of is
+   * (next week as planned last week). Empty once the saved week is over, so they reset on Monday.
+   */
   function weekChanges_(weekKey, ids) {
-    var saved = settingsWithPrefix_('week.');
     var changes = {};
-    if (saved['week.of'] !== weekKey) return changes;
-    WEEKDAYS.forEach(function (day) {
-      var text = saved['week.' + WEEKDAY_NAMES_[day]];
-      if (text !== undefined) changes[day] = dayPlan_(planOf_(text), ids);
+    ['week', 'next'].some(function (prefix) {
+      var saved = settingsWithPrefix_(prefix + '.');
+      if (saved[prefix + '.of'] !== weekKey) return false;
+      WEEKDAYS.forEach(function (day) {
+        var text = saved[prefix + '.' + WEEKDAY_NAMES_[day]];
+        if (text !== undefined) changes[day] = dayPlan_(planOf_(text), ids);
+      });
+      return true;
     });
     return changes;
   }
+
+  /** Settings rows for a week's changes under prefix (week or next): every day, '' for a day that is as usual. */
+  function weekValues_(prefix, weekKey, changes) {
+    var values = {};
+    values[prefix + '.of'] = weekKey;
+    WEEKDAYS.forEach(function (day) {
+      values[prefix + '.' + WEEKDAY_NAMES_[day]] = Object.prototype.hasOwnProperty.call(changes, day) ? planText_(changes[day]) : '';
+    });
+    return values;
+  }
+
+  function nextWeekKey_(weekKey) { return isoAddDays_(weekKey, 7); }
 
   function plan_(usual, week) {
     var plan = {};
@@ -156,13 +175,6 @@ function todayModule() {
       labels[day] = plan[day] === AWAY ? AWAY_LABEL : category ? category.label : ANY_LABEL;
     });
     return labels;
-  }
-
-  /** The daily-minimum category: the user's choice once saved, else the mode's. null when none or deleted. */
-  function dailyMinimum_(ids) {
-    var saved = settingsWithPrefix_('rotation.')['rotation.daily_minimum'];
-    var id = saved === undefined ? activeMode_().dailyMinimum : saved === NONE ? null : saved;
-    return ids.indexOf(id) !== -1 ? id : null;
   }
 
   function skipCounts_() {
@@ -203,7 +215,8 @@ function todayModule() {
     var focusId = s.session ? s.session.projectId : (picked || pool[0] || null);
     return {
       day: d.key, weekday: d.weekday, lead: lead, away: plan[d.weekday] === AWAY, usual: usual, week: week,
-      labels: labels_(plan, categories), focusId: focusId, ranked: ranked, dailyMinimum: dailyMinimum_(ids), jobDone: s.jobDone,
+      labels: labels_(plan, categories), focusId: focusId, ranked: ranked, weekKey: d.weekKey, nextWeekKey: nextWeekKey_(d.weekKey),
+      next: weekChanges_(nextWeekKey_(d.weekKey), ids),
       session: s.session, pomodoroSettings: pomodoroSettings_(), skipCounts: skipCounts_(), reminders: dueReminders_(d.key)
     };
   }
@@ -264,7 +277,7 @@ function todayModule() {
 
       /**
        * Save the rotation. a.usual: { weekday: categoryId | 'away' | '' } for every day; a.week: the same for days
-       * that differ this week only; a.dailyMinimum: a category id or '' for none.
+       * that differ this week only.
        */
       saveRotation: function (a, ctx) {
         var ids = ctx.call('categories', 'ids'), d = dayInfo_();
@@ -274,8 +287,7 @@ function todayModule() {
           assert_(WEEKDAYS.indexOf(Number(day)) !== -1, 'Unknown weekday: ' + day);
           week[day] = planFromInput_(a.week[day], ids);
         });
-        assert_(!a.dailyMinimum || ids.indexOf(a.dailyMinimum) !== -1, 'Unknown category: ' + a.dailyMinimum);
-        var values = { 'rotation.daily_minimum': a.dailyMinimum || NONE, 'week.of': d.weekKey };
+        var values = { 'week.of': d.weekKey };
         WEEKDAYS.forEach(function (day) {
           values['rotation.' + WEEKDAY_NAMES_[day]] = planText_(days[day]);
           values['week.' + WEEKDAY_NAMES_[day]] = Object.prototype.hasOwnProperty.call(week, day) ? planText_(week[day]) : '';
@@ -294,12 +306,27 @@ function todayModule() {
         return true;
       },
 
-      toggleJob: function (a, ctx) {
-        var d = dayInfo_(), s = load_(d.key);
-        s.jobDone = !s.jobDone;
-        save_(s);
+      /**
+       * Plan my week: the lead for one day of this week or next week (never further). a.week: that week's Monday;
+       * a.day: ISO weekday; a.plan: a category id, 'away', '' for any category, or 'usual' to go back to the usual day.
+       */
+      planDay: function (a, ctx) {
+        var ids = ctx.call('categories', 'ids'), d = dayInfo_();
+        var prefix = a.week === d.weekKey ? 'week' : a.week === nextWeekKey_(d.weekKey) ? 'next' : null;
+        assert_(prefix, 'You can plan this week or next week only.');
+        var day = Number(a.day);
+        assert_(WEEKDAYS.indexOf(day) !== -1, 'Unknown weekday: ' + a.day);
+        var changes = weekChanges_(a.week, ids);
+        if (a.plan === 'usual') delete changes[day]; else changes[day] = planFromInput_(a.plan, ids);
+        setSettings_(weekValues_(prefix, a.week, changes));
         ctx.refresh('today');
-        return s.jobDone;
+        return true;
+      },
+
+      /** ISO weekdays that are Away in the usual rotation (habits leave them out of a daily habit's weekly target). */
+      awayDays: function (a, ctx) {
+        var usual = usual_(ctx.call('categories', 'ids'));
+        return WEEKDAYS.filter(function (day) { return usual[day] === AWAY; });
       },
 
       start: function (a, ctx) {

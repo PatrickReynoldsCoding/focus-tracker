@@ -190,7 +190,10 @@ var FT = (function () {
     'whiteboard.create': 'Whiteboard added', 'whiteboard.rename': 'Whiteboard rename', 'whiteboard.remove': 'Whiteboard removed',
     'whiteboard.setShowToday': 'Whiteboard on Today', 'lists.setProject': 'List link', 'lists.showToday': 'List on Today',
     'resources.add': 'Resource added', 'resources.update': 'Resource edit', 'resources.remove': 'Resource removed',
-    'links.add': 'Project link added', 'links.remove': 'Project link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap'
+    'links.add': 'Project link added', 'links.remove': 'Project link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap',
+    'habits.create': 'Habit added', 'habits.update': 'Habit edit', 'habits.remove': 'Habit deleted', 'habits.tap': 'Habit session', 'habits.setStatus': 'Habit pause or end',
+    'habits.move': 'Habit moved', 'habits.plan': 'Plan change', 'habits.copyWeek': 'Plan copied', 'habits.answer': 'Step-up answer',
+    'todos.add': 'To-do added', 'todos.toggle': 'To-do tick', 'todos.remove': 'To-do deleted', 'todos.setDay': 'To-do moved', 'todos.update': 'To-do edit'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
 
@@ -365,7 +368,8 @@ var FT = (function () {
     if ($('dlg-cancel')) $('dlg-cancel').onclick = FT.closeDialog;
     $('dlg-scrim').onclick = function (e) { if (e.target.id === 'dlg-scrim') requestClose(); };
     $('dialogRoot').onkeydown = function (e) {
-      if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submit(); }
+      // An input with its own Enter action (data-enter, such as a to-do box in Plan my week) does not submit the dialog.
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !e.target.dataset.enter) { e.preventDefault(); submit(); }
       if (e.key === 'Tab') {
         var items = Array.prototype.filter.call($('dialogRoot').querySelectorAll('a[href], button, input, select, textarea, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'),
           function (n) { return !n.disabled && n.offsetParent !== null; });

@@ -242,3 +242,19 @@ Answered 2026-10-29: Today variant A; intention is a free-text box (not committe
 11. **Never-miss-twice note** for committed daily habits: helpful or nagging?
 12. **Habits in Work mode**: allowed (any mode can have habits), or Personal only?
 13. **Daily minimum name after migration**: "Daily minimum: job search", or rename it now to "Job hunting, 10 min"?
+
+## As built (2026-10-30)
+
+Built in `src/modules/habits/`, `src/modules/todos/`, the v3 step in `src/core/migrate.js` and Plan my week's focus lead in `src/modules/today/`. Columns as in §3. Where it differs from the design above, and why:
+
+- **Intention** is free text (Paddy's answer), shown in bold under the name. Everything that hung on committed / trying is gone: no dashed dots, no "trying" tag, no "Keep it, make it committed, or let it go?" after 4 weeks; the default pace is 2 weeks for every habit. The never-miss-twice note shows for every habit per day (it was for committed ones).
+- **Prompt answers.** Besides `yes`, `not now` and `at goal`, `prompt` rows can be `stop asking` and `keep asking` (the answers to "Stop asking about X?"). That question shows straight after the third "Not now" in a row, not at the next interval. "Keep asking" starts the count again.
+- **When a prompt is checked.** A due prompt whose level was not met is not pushed on by a write (snapshots never write); it is checked again on each load, but over the full weeks before this one, so in practice it can only change on a Monday. "At most one a day": no step-up card once any prompt was answered today.
+- **Level rows.** A level row is written when a habit is made, when its sessions, per or size are edited (from today, replacing a change waiting for a later day) and on "Yes, adjust" (from next Monday, daily habits tomorrow). The habit row holds the newest level at once; Today and the prompt use the level row in force (this week's Monday for weekly habits). A habit typed into the sheet with no level row uses its own row.
+- **Daily targets and Away.** A daily habit's weekly target, for the prompt, leaves out the weekdays that are Away in the usual rotation (`today.awayDays`).
+- **Taps** are for today or up to 7 days back (so a queue that waited offline still lands), refused further back. The "−" takes one off today and shows only when today has a session.
+- **Plan my week** is a wide dialog, not a page. On a phone it scrolls sideways instead of the per-day list in the mockup. To-dos move by "pick up, then tap a day" (no drag). Planning a habit or a to-do is allowed from today to next Sunday; past days show what was done. `plan` counts include the sessions already done that day, so a ring is a planned session not yet done. Next week's focus lead is kept in Settings as `next.of` and `next.<day>`.
+- **To-dos** on Today: open ones for today, earlier days ("From Tue 27") and anytime, plus the ones ticked today. Future ones show only in Plan my week. A deleted project's to-dos stay, unlinked.
+- **Daily minimum migration** (§5) names the habit after the category ("Job search", Paddy's brief) with intention "Daily minimum", and clears `rotation.daily_minimum` in Settings. It adds rows only, so it makes no backup copy. A new spreadsheet gets no habit.
+- **Delete.** Besides Pause and End there is Delete (with Undo), which also removes the habit's log rows. End keeps them.
+- Not built yet: strength words, step down ("Make it smaller?"), the Sunday/Monday banner, celebrations beyond the "Nice." message and a short pop of the dot.

@@ -20,9 +20,10 @@
 (function () {
   // Bump SCHEMA when the shape of the saved copy (bootstrap data) changes: older copies are then dropped. 2: sheet layout v2
   // (kanban rows carry owner, cards note, resources value). 3: the links slice. 4: notes rows carry doc (the notes' Google Doc).
+  // 5: habits and to-dos, no daily minimum.
   // QUEUE_SCHEMA is for the queue: queued changes are api calls, which the server still takes after a layout change,
   // so they are kept unless the calls themselves change.
-  var SCHEMA = 4;
+  var SCHEMA = 5;
   var QUEUE_SCHEMA = 1;
   var QUEUE_TIMEOUT = 30000; // a queued kind of change that has not been answered after this long is treated as offline
   var OTHER_TIMEOUT = 60000;
@@ -141,7 +142,10 @@
     'criteria.add': 1, 'criteria.update': 1, 'criteria.remove': 1,
     'stickies.add': 1, 'stickies.update': 1, 'stickies.remove': 1, 'resources.add': 1, 'resources.update': 1, 'resources.remove': 1, 'links.add': 1, 'links.remove': 1,
     'lists.rename': 1, 'lists.setColor': 1, 'lists.showToday': 1, 'lists.setDisplay': 1, 'lists.setProject': 1, 'whiteboard.setShowToday': 1,
-    'notes.save': 1, 'projects.update': 1
+    'notes.save': 1, 'projects.update': 1,
+    // A habit tap sends +1 or -1, not a total, so taps made on two devices offline add up (docs/habits-ideas.md §3).
+    'habits.tap': 1, 'habits.plan': 1, 'habits.answer': 1, 'habits.setStatus': 1, 'habits.move': 1, 'habits.remove': 1, 'habits.copyWeek': 1,
+    'todos.add': 1, 'todos.toggle': 1, 'todos.remove': 1, 'todos.setDay': 1, 'today.planDay': 1
   };
   // Of those, the ones where a newer call to the same row replaces an older one still waiting right behind it.
   var MERGEABLE = /\.(update|updateTask|moveTask|rename|renameColumn|moveColumn|save|setColor|showToday|setDisplay|setProject|setShowToday)$/;

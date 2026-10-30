@@ -11,10 +11,11 @@
  * The headers below are the v2 layout as it was released; later changes are new steps, not edits here.
  */
 
-var SCHEMA_VERSION = 2;
+var SCHEMA_VERSION = 3;
 
 var SCHEMA_STEPS_ = [
-  { to: 2, run: migrateToV2_ }
+  { to: 2, run: migrateToV2_ },
+  { to: 3, run: migrateToV3_ }
 ];
 
 // Tabs that mean a spreadsheet already holds app data. A spreadsheet with none of them is new and starts at the latest version.
@@ -270,4 +271,52 @@ function migrateSettingsToSheet_() {
 /** A day of the rotation as Settings text: a category id, away, or any. */
 function dayPlanText_(value) {
   return value === null || value === undefined || value === '' ? 'any' : String(value);
+}
+
+// ---------- v3: the daily minimum becomes a habit (docs/habits-ideas.md §5) ----------
+
+// The daily minimum each built-in mode had by default when v2 was released (MODES.dailyMinimum, gone since v3).
+var V2_DAILY_MINIMUM_DEFAULTS_ = { personal: 'job' };
+var V3_HABIT_HEADERS_ = ['name', 'intention', 'sessions', 'per', 'size', 'small_version', 'goal', 'step_up_every', 'prompts', 'category',
+  'description', 'status', 'problem', 'id', 'next_prompt', 'started', 'order', 'updated_at'];
+var V3_HABIT_LOG_HEADERS_ = ['id', 'habit_id', 'habit', 'day', 'kind', 'count', 'value', 'updated_at'];
+
+/**
+ * v2 to v3. The mode's daily-minimum category (Settings rotation.daily_minimum, else the mode's old default) becomes one
+ * habit: named after the category, 1 a day, 10 min, linked to it, prompts off. If today's "10 minutes done" flag is set,
+ * today gets one session, so nothing changes on screen on the day of the switch. The setting is then cleared.
+ * Only adds rows, so no backup. Safe to run again: SCHEMA_V3_HABIT.<mode> says it has run, and a habit already linked to
+ * the category is never doubled.
+ */
+function migrateToV3_() {
+  var props = PropertiesService.getScriptProperties();
+  var doneKey = 'SCHEMA_V3_HABIT.' + modeId_();
+  if (props.getProperty(doneKey)) return;
+  tableCache_ = {};
+  var saved = settingsWithPrefix_('rotation.', true)['rotation.daily_minimum'];
+  var id = saved === undefined || saved === '' ? V2_DAILY_MINIMUM_DEFAULTS_[modeId_()] || '' : saved === 'none' ? '' : saved;
+  var categories = lookRows_('Categories');
+  if (!categories.length) categories = activeMode_().categories || []; // not read yet: the mode's starting categories fill it on first use
+  var category = id ? categories.filter(function (c) { return c.id === id; })[0] : null;
+  var made = 'none';
+  if (category) {
+    var today = todayIso_();
+    var habits = new Table('Habits', V3_HABIT_HEADERS_, ['sessions', 'order']);
+    var log = new Table('Habit log', V3_HABIT_LOG_HEADERS_, ['count']);
+    var habit = habits.all().filter(function (h) { return h.category === id; })[0];
+    if (!habit) {
+      habit = habits.insert({
+        name: category.label, intention: 'Daily minimum', sessions: 1, per: 'day', size: '10 min', category: id, prompts: 'off',
+        status: 'active', started: today, order: habits.all().reduce(function (m, h) { return Math.max(m, h.order); }, 0) + 1
+      });
+      log.insert({ habit_id: habit.id, habit: habit.name, day: today, kind: 'level', count: 0, value: '1 a day, 10 min' });
+      var raw = PropertiesService.getUserProperties().getProperty(modeKey_('today.state'));
+      var state = null;
+      try { state = raw ? JSON.parse(raw) : null; } catch (e) { state = null; }
+      if (state && state.day === today && state.jobDone) log.insert({ habit_id: habit.id, habit: habit.name, day: today, kind: 'done', count: 1, value: '' });
+    }
+    made = habit.id;
+  }
+  props.setProperty(doneKey, made);
+  setSettings_({ 'rotation.daily_minimum': '' });
 }

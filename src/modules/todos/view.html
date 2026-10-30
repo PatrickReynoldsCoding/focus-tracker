@@ -1,0 +1,122 @@
+<style>
+.todos { list-style: none; margin: 0; padding: 0; }
+.todos li { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.todos li:last-child { border-bottom: 0; }
+.todos input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; cursor: pointer; }
+.todos .t { min-width: 0; overflow-wrap: anywhere; }
+.todos .when { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.todos li.done .t { text-decoration: line-through; color: var(--muted); }
+.todos .rm { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.todos .rm:hover { background: var(--surface-2); color: var(--ink); }
+.todoadd { display: flex; gap: 8px; margin-top: 10px; }
+.todoadd input { flex: 1 1 auto; min-width: 0; width: auto; }
+.todoadd .btn { flex: none; }
+.todoadd select { flex: none; width: auto; }
+@media (max-width: 760px) { .todos input[type="checkbox"] { width: 28px; height: 28px; } .todos .rm { min-width: 44px; min-height: 44px; } }
+:root[data-theme="eink"] .todos input[type="checkbox"] { width: 36px; height: 36px; }
+</style>
+<script>
+/**
+ * To-dos in Today's "Small tasks" panel: one-off things, for a day or anytime. Ticking, adding and deleting show at once
+ * and are sent with { render: false }; a delete shows the Undo message straight away. Today shows open to-dos for today,
+ * earlier days and anytime, and the ones ticked today. FT.todos lets Plan my week (habits module) move and add them.
+ */
+(function () {
+  var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var addDay = 'today'; // the day picked in the add box, kept while the page redraws
+
+  function slice() { return FT.store.todos || { day: '', items: [] }; }
+  function byId(id) { return slice().items.filter(function (t) { return t.id === id; })[0]; }
+
+  function addDays(day, n) {
+    return new Date(Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) + n * 86400000).toISOString().slice(0, 10);
+  }
+  function dayWord(day, today) {
+    if (!day) return 'Anytime';
+    if (day === today) return 'Today';
+    if (day === addDays(today, 1)) return 'Tomorrow';
+    var wd = new Date(day + 'T00:00:00Z').getUTCDay();
+    return (day < today ? 'From ' : '') + DAY_NAMES[(wd + 6) % 7] + ' ' + Number(day.slice(8, 10));
+  }
+
+  function shown() {
+    var s = slice(), today = s.day;
+    return s.items.filter(function (t) { return t.done ? t.done === today : !t.day || t.day <= today; }).sort(function (a, b) {
+      if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+      if (!a.day !== !b.day) return a.day ? -1 : 1;
+      return (a.day || '').localeCompare(b.day || '') || a.order - b.order;
+    });
+  }
+
+  function itemHtml(t, today) {
+    var id = FT.esc(t.id), done = !!t.done;
+    return '<li class="' + (done ? 'done' : '') + '"><input type="checkbox" aria-label="Done: ' + FT.esc(t.title) + '"' + (done ? ' checked' : '') + ' data-change="todos.tick" data-id="' + id + '">' +
+      '<span class="t">' + FT.linkify(t.title) + '</span><span class="when">' + (done ? 'Done · ' : '') + FT.esc(dayWord(t.day || (done ? today : ''), today)) + '</span>' +
+      '<button class="rm" data-act="todos.remove" data-id="' + id + '" aria-label="Delete to-do ' + FT.esc(t.title) + '">×</button></li>';
+  }
+
+  function sectionHtml() {
+    var s = slice(), list = shown();
+    return '<div class="subhead">To-dos</div>' +
+      (list.length ? '<ul class="todos">' + list.map(function (t) { return itemHtml(t, s.day); }).join('') + '</ul>'
+        : '<p class="empty" style="padding:4px 0">Nothing to do today. Add one below, or plan the week.</p>') +
+      '<div class="todoadd"><input type="text" id="td-new" placeholder="Add a to-do" aria-label="New to-do" maxlength="200" data-enter="todos.add">' +
+      '<select id="td-day" aria-label="When" data-change="todos.pickDay">' + [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['', 'Anytime']].map(function (o) {
+        return '<option value="' + o[0] + '"' + (o[0] === addDay ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('') + '</select><button class="btn" data-act="todos.addBtn">Add</button></div>';
+  }
+
+  FT.module({ id: 'todos', slots: { 'today.smalltasks': [{ order: 10, render: sectionHtml }] } });
+
+  /** Add a to-do for an ISO day ('' for anytime). Shows at once. */
+  function add(title, day) {
+    var s = slice();
+    var t = { id: FT.newId(), title: title.slice(0, 200), day: day, done: '', project_id: '', note: '', order: s.items.reduce(function (m, x) { return Math.max(m, x.order); }, 0) + 1 };
+    s.items.push(t);
+    FT.render();
+    FT.rpc('todos', 'add', { id: t.id, title: t.title, day: day }, { render: false }).catch(FT.saveFailed);
+    return t;
+  }
+
+  function addFromBox() {
+    var el = document.getElementById('td-new'), title = el ? el.value.trim() : '';
+    if (!title) return;
+    var today = slice().day;
+    add(title, addDay === 'today' ? today : addDay === 'tomorrow' ? addDays(today, 1) : '');
+    var again = document.getElementById('td-new');
+    if (again) again.focus();
+  }
+  FT.on('enter', 'todos.add', addFromBox);
+  FT.action('todos.addBtn', addFromBox);
+  FT.on('change', 'todos.pickDay', function (el) { addDay = el.value; });
+
+  FT.on('change', 'todos.tick', function (el) {
+    var t = byId(el.dataset.id), today = slice().day;
+    if (!t) return;
+    var before = t.done, on = el.checked;
+    FT.optimistic(function () { t.done = on ? today : ''; return function () { t.done = before; }; },
+      function () { return FT.rpc('todos', 'toggle', { id: t.id, done: on }, { render: false }); }).catch(function () {});
+  });
+
+  FT.action('todos.remove', function (el) {
+    var s = slice(), t = byId(el.dataset.id);
+    if (!t) return;
+    var items = s.items;
+    FT.optimistic(function () { s.items = items.filter(function (x) { return x.id !== t.id; }); return function () { s.items = items; }; },
+      function () { return FT.rpc('todos', 'remove', { id: t.id }, { render: false }); }).catch(function () {});
+    FT.deleted('To-do');
+  });
+
+  FT.todos = {
+    add: add,
+    /** Move a to-do to an ISO day, or anytime with ''. */
+    setDay: function (id, day) {
+      var t = byId(id);
+      if (!t) return;
+      var before = t.day;
+      FT.optimistic(function () { t.day = day; return function () { t.day = before; }; },
+        function () { return FT.rpc('todos', 'setDay', { id: id, day: day }, { render: false }); }).catch(function () {});
+    }
+  };
+})();
+</script>

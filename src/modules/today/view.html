@@ -83,15 +83,7 @@
       t.pomodoroSettings.work + ' / ' + t.pomodoroSettings.break + ' min</button>';
   }
 
-  function minimumHtml(categoryId, project, done) {
-    var label = FT.category(categoryId).label;
-    return '<section class="panel"><div class="label">Daily minimum: ' + FT.esc(label.toLowerCase()) + '</div>' +
-      (project ? '<p style="margin:0 0 4px"><b>' + FT.esc(project.name) + '</b></p><p style="margin:0 0 12px;color:var(--muted)">' + FT.linkify(project.next_action) + '</p>'
-               : '<p style="margin:0 0 12px;color:var(--muted)">No active ' + FT.esc(label.toLowerCase()) + ' project yet.</p>') +
-      '<button class="btn ' + (done ? 'done' : '') + '" data-act="today.job">' + (done ? 'Done for today' : 'Mark today\'s 10 minutes done') + '</button></section>';
-  }
-
-  /** Panels other modules add to Today, such as lists: each slot returns [{ id, html, w }]. */
+  /** Panels other modules add to Today, such as the small tasks and lists: each slot returns [{ id, html, w }]. */
   function extraPanels() {
     return FT.slots('today.panels').reduce(function (all, s) { return all.concat(s.render(FT) || []); }, []);
   }
@@ -116,8 +108,9 @@
       return '<tr class="' + (isToday ? 'todayrow' : '') + '"><td>' + d[1] + (isToday ? ' (today)' : '') + '</td>' +
         '<td class="' + (plan === AWAY ? 'away' : '') + '">' + FT.esc((t.labels || {})[day] || '') + (changed ? '<span class="tag">this week</span>' : '') + '</td></tr>';
     }).join('');
+    var plan = FT.slots('today.planWeek').length ? '<button class="btn sm" data-act="habits.planWeek">Plan my week</button>' : '';
     return '<section class="panel"><div class="tophead"><div class="label">Weekly rotation</div>' +
-      '<button class="btn sm" data-act="today.rotation">Edit</button></div><table class="rot"><tbody>' + rows + '</tbody></table></section>';
+      '<span class="actions" style="margin:0">' + plan + '<button class="btn sm" data-act="today.rotation">Edit</button></span></div><table class="rot"><tbody>' + rows + '</tbody></table></section>';
   }
 
   function remindersHtml(t) {
@@ -147,17 +140,16 @@
   function render() {
     var t = FT.store.today || {};
     var f = t.focusId ? FT.project(t.focusId) : null;
-    var minimum = t.dailyMinimum;
-    var minimumProject = f && minimum ? (activeProjects().filter(function (p) { return p.category === minimum && p.id !== f.id; })[0] || (f.category === minimum ? f : null)) : null;
     var resting = t.away && !t.session && showFocusOnAwayDay !== t.day;
     var focus = resting ? awayHtml(t)
       : f ? focusHtml(t, f)
       : '<section class="panel"><p class="empty">No active projects yet. Add one to get a focus for the day.</p><button class="btn primary" data-act="core.tab" data-view="projects">Go to Projects</button></section>';
-    return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [
-      { id: 'focus', title: 'Today\'s focus', html: focus, w: 7 },
-      { id: 'minimum', title: 'Daily minimum', html: f && minimum ? minimumHtml(minimum, minimumProject, t.jobDone) : '', w: 5 },
-      { id: 'rotation', title: 'Weekly rotation', html: f ? rotationHtml(t) : '', w: 5 }
-    ].concat(extraPanels()));
+    // A panel marked beside: true (the small tasks) sits next to the focus by default; the rest go after the rotation.
+    var extra = extraPanels();
+    return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [{ id: 'focus', title: 'Today\'s focus', html: focus, w: 7 }]
+      .concat(extra.filter(function (p) { return p.beside; }))
+      .concat([{ id: 'rotation', title: 'Weekly rotation', html: f ? rotationHtml(t) : '', w: extra.some(function (p) { return p.beside; }) ? 7 : 5 }])
+      .concat(extra.filter(function (p) { return !p.beside; })));
   }
 
   // ---------- alerts ----------
@@ -293,6 +285,26 @@
     slots: { 'project.page': [{ id: 'session', title: 'Session', order: -5, span: 'full', render: projectSessionHtml }] }
   });
 
+  /**
+   * Plan my week (habits module) changes the lead for one day of this week (week 0) or next week (1). plan: a category
+   * id, 'away', '' for any, or 'usual'. Shown at once; this week's day also changes the rotation panel.
+   */
+  FT.today = {
+    planLead: function (week, day, plan) {
+      var t = FT.store.today, key = week === 0 ? 'week' : 'next';
+      var changes = t[key] = t[key] || {}, had = Object.prototype.hasOwnProperty.call(changes, day), before = changes[day];
+      var labelBefore = (t.labels || {})[day];
+      callNow('planDay', { week: week === 0 ? t.weekKey : t.nextWeekKey, day: day, plan: plan }, function () {
+        if (plan === 'usual') delete changes[day]; else changes[day] = plan === '' ? null : plan;
+        if (week === 0 && t.labels) {
+          var p = plan === 'usual' ? (t.usual || {})[day] : changes[day];
+          t.labels[day] = p === AWAY ? 'Away' : p ? FT.category(p).label : 'Any category';
+        }
+        return function () { if (had) changes[day] = before; else delete changes[day]; if (t.labels) t.labels[day] = labelBefore; };
+      });
+    }
+  };
+
   FT.onRender(function () {
     clearInterval(timer);
     tick();
@@ -368,22 +380,16 @@
       subtitle: 'The lead category gets a head start each day. "This week" changes end on Sunday night.',
       wide: true,
       body: rotationTableHtml(t),
-      fields: [{ id: 'minimum', label: 'Daily minimum panel', type: 'select', value: t.dailyMinimum || '',
-        options: [{ value: '', label: 'None' }].concat(FT.categories().map(function (c) { return { value: c.id, label: c.label }; })) }],
-      onSubmit: function (v) {
+      onSubmit: function () {
         var usual = {}, week = {};
         DAYS.forEach(function (d) {
           usual[d[0]] = document.getElementById('rot-usual-' + d[0]).value;
           var thisWeek = document.getElementById('rot-week-' + d[0]).value;
           if (thisWeek !== 'same') week[d[0]] = thisWeek;
         });
-        return FT.rpc('today', 'saveRotation', { usual: usual, week: week, dailyMinimum: v.minimum }, { quiet: true });
+        return FT.rpc('today', 'saveRotation', { usual: usual, week: week }, { quiet: true });
       }
     });
-  });
-  FT.action('today.job', function () {
-    var t = FT.store.today;
-    callNow('toggleJob', undefined, function () { t.jobDone = !t.jobDone; return function () { t.jobDone = !t.jobDone; }; });
   });
   FT.action('today.pause', function () {
     var s = FT.store.today.session;

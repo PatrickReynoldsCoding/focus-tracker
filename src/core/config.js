@@ -10,7 +10,7 @@ var APP_NAME = 'Focus Tracker';
 /** The public wrapper page (GitHub Pages, docs/banner-and-hosting.md). Settings links to it. */
 var WRAPPER_URL = 'https://patrickreynoldscoding.github.io/focus-tracker/';
 
-var MODULES = ['today', 'projects', 'categories', 'lists', 'criteria', 'kanban', 'notes', 'whiteboard', 'stickies', 'resources', 'links', 'log', 'insights', 'layout'];
+var MODULES = ['today', 'habits', 'todos', 'projects', 'categories', 'lists', 'criteria', 'kanban', 'notes', 'whiteboard', 'stickies', 'resources', 'links', 'log', 'insights', 'layout'];
 
 /**
  * Modes keep their data apart: each has its own spreadsheet and its own subfolder of the tracker folder.
@@ -18,7 +18,6 @@ var MODULES = ['today', 'projects', 'categories', 'lists', 'criteria', 'kanban',
  *   categories   starting categories, written to the mode's Categories tab the first time. Edited in the app after that.
  *                color is a palette slot 1-8 (see --cat-N in ui/styles.html).
  *   rotation     lead category per ISO weekday (1 = Monday ... 7 = Sunday). null means any category.
- *   dailyMinimum category whose top project shows in Today's "daily minimum" panel, or null for no panel.
  * The first mode is the default. Its property names have no suffix, so data from before modes existed stays with it.
  * More modes can be made in the app (mode menu, "New mode"); those are kept in script properties, see core/mode.js.
  */
@@ -30,8 +29,7 @@ var MODES = [
       { id: 'job', label: 'Job search', color: '2' },
       { id: 'house', label: 'House', color: '3' }
     ],
-    rotation: { 1: 'coding', 2: 'coding', 3: 'job', 4: 'coding', 5: 'house', 6: 'house', 7: null },
-    dailyMinimum: 'job'
+    rotation: { 1: 'coding', 2: 'coding', 3: 'job', 4: 'coding', 5: 'house', 6: 'house', 7: null }
   },
   {
     id: 'work', label: 'Work',
@@ -42,8 +40,7 @@ var MODES = [
       { id: 'career', label: 'Career', color: '5' },
       { id: 'admin', label: 'Admin', color: '2' }
     ],
-    rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null },
-    dailyMinimum: null
+    rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null }
   }
 ];
 

@@ -24,7 +24,7 @@ function allModes_() {
   var custom = (raw ? JSON.parse(raw) : []).map(function (saved) {
     return {
       id: saved.id, label: saved.label, accent: saved.accent, categories: NEW_MODE_CATEGORIES_,
-      rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null }, dailyMinimum: null
+      rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null }
     };
   });
   allModesCache_ = MODES.concat(custom);
@@ -47,7 +47,7 @@ function newModeId_(label, modes) {
 }
 
 /**
- * Make a new mode. It starts with one category ("General"), no lead categories and no daily minimum.
+ * Make a new mode. It starts with one category ("General"), no lead categories and no habits.
  * Its spreadsheet and Drive folder are created the first time it opens.
  */
 function addMode_(label) {

@@ -1,0 +1,684 @@
+<style>
+.small-tasks .tophead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.small-tasks .subhead { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 2px; }
+.habit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.habit:last-child { border-bottom: 0; }
+.habit .hname { font-weight: 600; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; color: var(--ink); }
+.habit .hname:hover { text-decoration: underline; }
+.habit .size { color: var(--muted); }
+.habit .intent { font-size: 12.5px; color: var(--muted); grid-column: 1 / -1; }
+.habit .intent b { font-weight: 600; color: var(--ink); }
+.habit .hcount { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; text-align: right; }
+.habit .hcount b { color: var(--ink); }
+.habit .hnext { grid-column: 1 / -1; font-size: 13.5px; color: var(--muted); }
+.habit .hnext b { color: var(--ink); font-weight: 500; }
+.habit .hnext button { border: 0; background: none; padding: 0; color: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.habit .hnote { grid-column: 1 / -1; font-size: 13.5px; background: var(--surface-2); border-radius: 6px; padding: 6px 10px; }
+.dots { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.dot { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--accent); background: transparent; cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--accent-ink); font-weight: 700; font-size: 15px; }
+.dot.on { background: var(--accent); }
+.dot.add { border-style: dashed; border-color: var(--line-strong); color: var(--muted); }
+.dot.pop { animation: ftpop 0.25s ease-out; }
+@keyframes ftpop { 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .dot.pop { animation: none; } }
+.extra { font-family: var(--font-mono); font-size: 13px; font-weight: 600; padding: 3px 8px; border-radius: 99px; border: 2px solid var(--accent); background: repeating-linear-gradient(45deg, var(--accent) 0 3px, var(--accent-soft) 3px 6px); color: var(--ink); }
+.extra span { background: var(--surface); padding: 0 4px; border-radius: 4px; }
+.minus { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; width: 30px; height: 30px; cursor: pointer; color: var(--muted); padding: 0; }
+.paused-list { font-size: 13px; color: var(--muted); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.stepcard { border: 2px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 14px; margin-bottom: 8px; }
+.stepcard h3 { font-size: 18px; margin: 0 0 4px; }
+.stepcard p { margin: 4px 0; }
+.stepcard .actions { margin-top: 10px; }
+.choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.choice.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.choice button { border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px 12px; cursor: pointer; font-size: 14px; text-align: left; background: var(--surface); color: var(--ink); }
+.choice button small { display: block; color: var(--muted); font-size: 12.5px; font-weight: 400; }
+.choice button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; font-weight: 600; }
+.choice button[aria-pressed="true"]::before { content: "\2713\00a0"; font-weight: 700; }
+.stepnote { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.advice { font-size: 13.5px; background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 14px; }
+.hrow2 { display: grid; grid-template-columns: 90px auto minmax(0, 1fr); gap: 8px; align-items: center; }
+.ramp { display: flex; align-items: flex-end; gap: 4px; height: 90px; margin-top: 22px; padding-bottom: 2px; border-bottom: 1px solid var(--line-strong); }
+.ramp div { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 4px; position: relative; }
+.ramp div.goal { background: repeating-linear-gradient(45deg, var(--accent) 0 3px, var(--accent-soft) 3px 6px); border: 2px solid var(--accent); border-bottom: 0; }
+.ramp div span { position: absolute; top: -18px; left: -6px; right: -6px; text-align: center; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.rampaxis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 4px; }
+.hstep { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.hmanage { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+/* Plan my week */
+.weektoggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; margin-top: 8px; }
+.weektoggle button { border: 0; background: var(--surface); padding: 7px 14px; font-weight: 600; cursor: pointer; color: var(--ink); }
+.weektoggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.weektoggle button[aria-pressed="true"]::before { content: "\2713\00a0"; }
+.planscroll { overflow-x: auto; margin-top: 12px; }
+.plan { display: grid; grid-template-columns: 150px repeat(7, minmax(84px, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-width: 760px; }
+.plan > div { padding: 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-height: 44px; font-size: 13.5px; }
+.plan .h { font-family: var(--font-mono); font-size: 12px; color: var(--muted); background: var(--surface-2); text-align: center; }
+.plan .h.today { background: var(--accent-soft); color: var(--ink); font-weight: 700; }
+.plan .rl { font-weight: 600; }
+.plan .rl small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
+.plan .cell { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; justify-content: center; cursor: pointer; }
+.plan .cell.past, .plan .cell.away { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface-2) 6px 8px); cursor: default; }
+.plan .cell select { padding: 4px; font-size: 12.5px; width: 100%; }
+.plan .cell.picking { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.pdot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--accent); display: inline-block; background: transparent; padding: 0; cursor: pointer; }
+.pdot.on { background: var(--accent); cursor: default; }
+.chip { font-size: 12px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; line-height: 1.3; cursor: pointer; color: var(--ink); }
+.chip[aria-pressed="true"] { border: 2px solid var(--accent); background: var(--accent-soft); font-weight: 600; }
+.chip.done { cursor: default; }
+.plan .cell input { width: 100%; font-size: 12.5px; padding: 4px; }
+.plegend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin-top: 10px; align-items: center; }
+.plegend .pdot { width: 12px; height: 12px; vertical-align: -2px; cursor: default; }
+.anytime { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 760px) {
+  .dot, .minus { width: 44px; height: 44px; }
+  .choice, .choice.three { grid-template-columns: minmax(0, 1fr); }
+}
+:root[data-theme="eink"] .dot { width: 44px; height: 44px; border: 3px solid #000; }
+:root[data-theme="eink"] .dot.on { background: #000; color: #fff; }
+:root[data-theme="eink"] .dot.add { border-style: dashed; }
+:root[data-theme="eink"] .dot.pop { animation: none; }
+:root[data-theme="eink"] .extra { background: #fff; border: 2px solid #000; }
+:root[data-theme="eink"] .stepcard { background: #fff; border: 3px solid #000; }
+:root[data-theme="eink"] .habit .hnote, :root[data-theme="eink"] .advice { border: 2px dashed #000; background: #fff; }
+:root[data-theme="eink"] .choice button[aria-pressed="true"] { background: #000; color: #fff; }
+:root[data-theme="eink"] .choice button[aria-pressed="true"] small { color: #fff; }
+:root[data-theme="eink"] .ramp div.goal { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .pdot { border-color: #000; }
+:root[data-theme="eink"] .pdot.on { background: #000; }
+</style>
+<script>
+/**
+ * Habits on Today (docs/habits-ideas.md, mockups today-a, new-habit, step-up, plan-week): the "Small tasks" panel with a
+ * row of dots per habit and the "Want to go further?" card, the new-habit and edit dialogs, and Plan my week.
+ * Sections other modules add to the panel (the to-dos) come from the 'today.smalltasks' slot.
+ * A tap shows at once and is sent with { render: false }; the server only adds or takes away one session, so taps
+ * that waited offline add up. Counts are written as text ("2 of 5 this week"), never shown by colour alone.
+ */
+(function () {
+  var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var PACES = [['1 week', 'week'], ['2 weeks', '2 weeks'], ['3 weeks', '3 weeks'], ['4 weeks', '4 weeks'], ['', 'Don\'t ask']];
+  var MAX = { day: 10, week: 21 };
+  var popId = null;          // the habit whose newest dot fills with a short animation on the next draw
+  var planWeek = 0;          // Plan my week: 0 this week, 1 next week
+  var pickedTodo = null;     // Plan my week: the to-do picked up to drop on a day
+  var addingDay = null;      // Plan my week: the day with an open "add a to-do" box
+  var stepChoice = {};       // the offer picked on the prompt card, by habit id
+
+  function slice() { return FT.store.habits || { habits: [], log: [] }; }
+  function habit(id) { return slice().habits.filter(function (h) { return h.id === id; })[0]; }
+  function activeHabits() { return slice().habits.filter(function (h) { return h.status === 'active'; }); }
+
+  // ---------- ISO dates, as the server works them out ----------
+  function addDays(day, n) {
+    var d = new Date(Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) + n * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  function weekdayOf(day) { var d = new Date(day + 'T00:00:00Z').getUTCDay(); return d === 0 ? 7 : d; }
+  function mondayOf(day) { return addDays(day, 1 - weekdayOf(day)); }
+  function shortDate(day) { return DAY_NAMES[weekdayOf(day) - 1] + ' ' + Number(day.slice(8, 10)); }
+  function longDate(day) { return Number(day.slice(8, 10)) + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+day.slice(5, 7) - 1]; }
+
+  // ---------- counts ----------
+  function count(habitId, day, kind) {
+    var r = slice().log.filter(function (x) { return x.habit_id === habitId && x.day === day && x.kind === kind; })[0];
+    return r ? r.count : 0;
+  }
+  function weekCount(habitId, monday, kind) {
+    var n = 0;
+    for (var i = 0; i < 7; i++) n += count(habitId, addDays(monday, i), kind);
+    return n;
+  }
+  /** Change a count in the store (the screen shows it before the server answers). Returns a function that puts it back. */
+  function bump(habitId, day, kind, fn) {
+    var s = slice(), row = s.log.filter(function (x) { return x.habit_id === habitId && x.day === day && x.kind === kind; })[0];
+    var before = row ? row.count : 0, next = Math.max(0, fn(before));
+    if (row) row.count = next; else { row = { id: 'local-' + FT.newId(), habit_id: habitId, day: day, kind: kind, count: next }; s.log.push(row); }
+    return function () { row.count = before; };
+  }
+  function levelText(sessions, per, size) { return sessions + ' a ' + per + (size ? ', ' + size : ''); }
+  /** { done, target, label }: this week for a habit per week, today for one per day. */
+  function progress(h) {
+    var s = slice(), target = Number(h.level ? h.level.sessions : h.sessions) || 1;
+    var done = h.per === 'week' ? weekCount(h.id, s.monday, 'done') : count(h.id, s.day, 'done');
+    return { done: done, target: target, label: h.per === 'week' ? 'this week' : 'today' };
+  }
+
+  // ---------- the Small tasks panel ----------
+  function categoryLine(h) {
+    if (!h.category || !FT.store.categories) return '';
+    var cat = FT.category(h.category), focus = (FT.store.today || {}).focusId;
+    var active = (FT.store.projects || []).filter(function (p) { return p.status === 'active' && p.category === h.category; });
+    var p = active.filter(function (x) { return x.id !== focus; })[0] || active[0];
+    return '<div class="hnext">' + FT.esc(cat.label) + ' · ' + (p ? '<button data-act="today.open" data-id="' + FT.esc(p.id) + '">' + FT.esc(p.name) + '</button>: <b>' + FT.linkify(p.next_action) + '</b>'
+      : 'no active project yet') + '</div>';
+  }
+
+  /** "Never miss twice", for a habit per day: after one day off, a calm word, never two days running. */
+  function missNote(h) {
+    var s = slice(), target = Number(h.level ? h.level.sessions : h.sessions) || 1;
+    var y = addDays(s.day, -1), y2 = addDays(s.day, -2);
+    if (h.per !== 'day' || count(h.id, s.day, 'done') || !h.started || String(h.started).slice(0, 10) > y2) return '';
+    if (count(h.id, y, 'done') >= target || count(h.id, y2, 'done') < target) return '';
+    return '<div class="hnote">Yesterday was a day off. A short one today keeps it going.' + (h.small_version ? ' Small version: ' + FT.esc(h.small_version) + ' counts.' : '') + '</div>';
+  }
+
+  function dotsHtml(h, pr) {
+    var name = FT.esc(h.name), html = '';
+    for (var i = 1; i <= pr.target; i++) {
+      var on = i <= pr.done, pop = on && i === pr.done && popId === h.id;
+      html += '<button class="dot' + (on ? ' on' : '') + (pop ? ' pop' : '') + '" data-act="habits.tap" data-id="' + FT.esc(h.id) + '" aria-label="' + name + ': session ' + i + ' of ' + pr.target + ', ' +
+        (on ? 'done' : 'not done') + '. Tap to add a session">' + (on ? '✓' : '') + '</button>';
+    }
+    if (pr.done >= pr.target) html += '<button class="dot add" data-act="habits.tap" data-id="' + FT.esc(h.id) + '" aria-label="' + name + ': add an extra session">+</button>';
+    if (pr.done > pr.target) html += '<span class="extra" title="Extra sessions"><span>+' + (pr.done - pr.target) + ' extra</span></span>';
+    if (count(h.id, slice().day, 'done') > 0) html += '<button class="minus" data-act="habits.untap" data-id="' + FT.esc(h.id) + '" aria-label="' + name + ': take one session off today">−</button>';
+    return '<div class="dots">' + html + '</div>';
+  }
+
+  function habitHtml(h) {
+    var pr = progress(h), size = h.level ? h.level.size : h.size;
+    var how = levelText(pr.target, h.per, '');
+    var later = h.nextLevel ? ' · ' + FT.esc(h.nextLevel.value) + ' from ' + (h.per === 'week' ? 'Monday' : 'tomorrow') : '';
+    return '<div class="habit" data-id="' + FT.esc(h.id) + '">' +
+      '<div><button class="hname" data-act="habits.edit" data-id="' + FT.esc(h.id) + '" aria-label="Edit habit ' + FT.esc(h.name) + '">' + FT.esc(h.name) + '</button>' + (size ? '<span class="size"> · ' + FT.esc(size) + '</span>' : '') + '</div>' +
+      '<div class="hcount" aria-live="polite"><b>' + pr.done + '</b> of ' + pr.target + ' ' + pr.label + '</div>' +
+      '<div class="intent">' + (h.intention ? '<b>' + FT.esc(h.intention) + '</b> · ' : '') + how + later + '</div>' +
+      dotsHtml(h, pr) + categoryLine(h) + missNote(h) + '</div>';
+  }
+
+  function promptHtml() {
+    var p = slice().prompt, h = p && habit(p.habitId);
+    if (!h || h.status !== 'active') return '';
+    var id = FT.esc(h.id);
+    if (p.kind === 'stop') {
+      return '<div class="stepcard" role="region" aria-label="Stop asking about ' + FT.esc(h.name) + '?"><h3>Stop asking about ' + FT.esc(h.name) + '?</h3>' +
+        '<p>You\'ve said "Not now" three times. Staying at ' + FT.esc(p.level) + ' is a fine place to be.</p>' +
+        '<div class="actions"><button class="btn primary" data-act="habits.answer" data-answer="stop asking" data-id="' + id + '">Stop asking</button>' +
+        '<button class="btn" data-act="habits.answer" data-answer="keep asking" data-id="' + id + '">Keep asking</button></div></div>';
+    }
+    var chosen = stepChoice[h.id] !== undefined ? stepChoice[h.id] : p.selected;
+    var weeks = p.weeks === 1 ? 'last week' : 'the last ' + p.weeks + ' weeks';
+    return '<div class="stepcard" role="region" aria-label="Want to go further?"><h3>Want to go further?</h3>' +
+      '<p><b>' + FT.esc(h.name) + '</b>: ' + FT.esc(p.level) + ' done ' + weeks + '. One small step:</p>' +
+      '<div class="choice" role="group" aria-label="The step">' + p.options.map(function (o, i) {
+        return '<button type="button" data-act="habits.pickStep" data-id="' + id + '" data-i="' + i + '" aria-pressed="' + (i === chosen) + '">' + FT.esc(o.label) +
+          '<small>' + (o.size_label ? FT.esc(o.size_label) + ' each · ' : '') + FT.esc(o.change) + '</small></button>';
+      }).join('') + '</div>' +
+      '<div class="stepnote">' + (p.goal ? 'Goal: ' + FT.esc(p.goal) + '. ' : '') + (h.per === 'week' ? 'Starts Monday, so this week stays as it is.' : 'Starts tomorrow.') + '</div>' +
+      '<div class="actions"><button class="btn primary" data-act="habits.answer" data-answer="yes" data-id="' + id + '">Yes, adjust</button>' +
+      '<button class="btn" data-act="habits.answer" data-answer="not now" data-id="' + id + '">Not now</button>' +
+      '<button class="btn" data-act="habits.answer" data-answer="at goal" data-id="' + id + '">I\'m at my goal</button></div></div>';
+  }
+
+  function panelHtml() {
+    var s = slice(), list = activeHabits();
+    var paused = s.habits.filter(function (h) { return h.status === 'paused'; });
+    var sections = FT.slots('today.smalltasks').map(function (x) { return x.render(FT) || ''; }).join('');
+    return '<section class="panel small-tasks"><div class="tophead"><div class="label">Small tasks</div><span class="actions" style="margin:0">' +
+      '<button class="btn sm" data-act="habits.planWeek">Plan my week</button><button class="btn sm" data-act="habits.new">+ Habit</button></span></div>' +
+      promptHtml() +
+      '<div class="subhead">Habits</div>' +
+      (list.length ? '<div class="habits">' + list.map(habitHtml).join('') + '</div>'
+        : '<p class="empty" style="padding:4px 0">No habits yet. "+ Habit" adds one, such as 10 minutes of fitness a day.</p>') +
+      (paused.length ? '<div class="paused-list">Paused: ' + paused.map(function (h) {
+        return '<button class="btn sm" data-act="habits.resume" data-id="' + FT.esc(h.id) + '" aria-label="Resume ' + FT.esc(h.name) + '">' + FT.esc(h.name) + ' · Resume</button>';
+      }).join('') + '</div>' : '') +
+      sections + '</section>';
+  }
+
+  function todayPanels() {
+    var html = panelHtml();
+    popId = null;
+    return [{ id: 'smalltasks', title: 'Small tasks', html: html, w: 5, beside: true }];
+  }
+
+  FT.module({ id: 'habits', slots: { 'today.panels': [{ order: 0, render: todayPanels }], 'today.planWeek': [{}] } });
+
+  // ---------- taps ----------
+  function send(fn, args) {
+    return function () { return FT.rpc('habits', fn, args, { render: false }); };
+  }
+
+  FT.action('habits.tap', function (el) {
+    var h = habit(el.dataset.id), s = slice();
+    if (!h) return;
+    popId = h.id;
+    FT.optimistic(function () { return bump(h.id, s.day, 'done', function (n) { return n + 1; }); },
+      send('tap', { id: h.id, day: s.day, delta: 1 })).catch(function () {});
+    var pr = progress(h);
+    FT.toast('Nice. ' + h.name + ': ' + pr.done + ' of ' + pr.target + ' ' + pr.label + '.', null, { label: 'Undo', run: FT.undo });
+  });
+
+  FT.action('habits.untap', function (el) {
+    var h = habit(el.dataset.id), s = slice();
+    if (!h || !count(h.id, s.day, 'done')) return;
+    FT.optimistic(function () { return bump(h.id, s.day, 'done', function (n) { return n - 1; }); },
+      send('tap', { id: h.id, day: s.day, delta: -1 })).catch(function () {});
+    var pr = progress(h);
+    FT.toast('One session taken off. ' + h.name + ': ' + pr.done + ' of ' + pr.target + ' ' + pr.label + '.', null, { label: 'Undo', run: FT.undo });
+  });
+
+  FT.action('habits.resume', function (el) { setStatus(el.dataset.id, 'active'); });
+
+  function setStatus(id, status) {
+    var h = habit(id);
+    if (!h) return;
+    var before = h.status;
+    FT.optimistic(function () { h.status = status; return function () { h.status = before; }; }, send('setStatus', { id: id, status: status })).catch(function () {});
+    FT.toast(status === 'paused' ? h.name + ' is paused. It leaves Today until you resume it.' : status === 'ended' ? h.name + ' has ended. Its history is kept.' : h.name + ' is back on Today.',
+      null, { label: 'Undo', run: FT.undo });
+  }
+
+  // ---------- "Want to go further?" ----------
+  FT.action('habits.pickStep', function (el) { stepChoice[el.dataset.id] = Number(el.dataset.i); FT.render(); });
+
+  FT.action('habits.answer', function (el) {
+    var s = slice(), p = s.prompt, h = habit(el.dataset.id), answer = el.dataset.answer;
+    if (!h || !p) return;
+    var option = stepChoice[h.id] !== undefined ? stepChoice[h.id] : p.selected || 0;
+    var every = p.every || 'a while', o = p.options && p.options[option], text;
+    if (answer === 'yes') text = h.name + ' is ' + levelText(o.sessions, h.per, o.size) + ' from ' + p.from + '. Next check in ' + every + '.';
+    else if (answer === 'not now') text = 'No change. We\'ll ask again in ' + every + '.';
+    else if (answer === 'at goal') text = h.name + ' is at your goal: ' + p.level + '. No more prompts.';
+    else if (answer === 'stop asking') text = 'No more prompts for ' + h.name + '. Turn them back on in its settings.';
+    else text = 'We\'ll keep asking.';
+    var saved = { prompts: h.prompts, sessions: h.sessions, size: h.size, nextLevel: h.nextLevel };
+    FT.optimistic(function () {
+      s.prompt = null;
+      delete stepChoice[h.id];
+      if (answer === 'yes') { h.sessions = o.sessions; h.size = o.size; h.nextLevel = { value: levelText(o.sessions, h.per, o.size) }; }
+      if (answer === 'at goal') h.prompts = 'at goal';
+      if (answer === 'stop asking') h.prompts = 'off';
+      return function () { s.prompt = p; Object.assign(h, saved); };
+    }, send('answer', { id: h.id, answer: answer, option: option })).then(function () {
+      if (slice().prompt) FT.render(); // after a third "Not now" the server asks once whether to stop asking
+    }).catch(function () {});
+    FT.toast(text, null, { label: 'Undo', run: FT.undo });
+  });
+
+  // ---------- new habit (three short steps) and editing ----------
+  function parseSize(text) {
+    var m = /^\s*(\d+(?:\.\d+)?)\s*(.*?)\s*$/.exec(String(text || ''));
+    return m ? { n: Number(m[1]), unit: m[2] } : null;
+  }
+  function sizeText(n, unit) { return n + (unit ? ' ' + unit : ''); }
+  function isMinutes(unit) { return /^min/i.test(unit || ''); }
+
+  /** Start low: about a third of the sessions and half the size, never below 1 session or 5 minutes. */
+  function startLevels(goal) {
+    var sz = parseSize(goal.size), out = [];
+    var low = { sessions: Math.max(1, Math.round(goal.sessions / 3)), size: goal.size };
+    if (sz) low.size = sizeText(isMinutes(sz.unit) ? Math.max(5, Math.floor(sz.n / 2 / 5) * 5 || 5) : Math.max(1, Math.floor(sz.n / 2)), sz.unit);
+    out.push(low);
+    var mid = { sessions: Math.max(low.sessions, Math.floor((low.sessions + goal.sessions) / 2)), size: goal.size };
+    if (sz) { var lowN = parseSize(low.size).n, m = (lowN + sz.n) / 2; mid.size = sizeText(isMinutes(sz.unit) ? Math.floor(m / 5) * 5 : Math.floor(m), sz.unit); }
+    if (mid.sessions !== low.sessions || mid.size !== low.size) out.push(mid);
+    if (goal.sessions !== low.sessions || goal.size !== low.size) out.push({ sessions: goal.sessions, size: goal.size, goal: true });
+    return out;
+  }
+
+  /** The steps from start to goal, one prompt at a time, as the server offers them (the step that has further to go first). */
+  function rampSteps(start, goal) {
+    var steps = [{ sessions: start.sessions, size: start.size }], cur = steps[0];
+    var gs = parseSize(goal.size);
+    for (var guard = 0; guard < 40; guard++) {
+      var sz = parseSize(cur.size), sessionsLeft = goal.sessions - cur.sessions, stepN = 0, sizeLeft = 0;
+      if (sz && gs && gs.unit === sz.unit && sz.n < gs.n) { stepN = isMinutes(sz.unit) ? (sz.n < 30 ? 5 : 10) : Math.max(1, Math.round(sz.n * 0.2)); sizeLeft = Math.ceil((gs.n - sz.n) / stepN); }
+      if (sessionsLeft <= 0 && sizeLeft <= 0) break;
+      cur = sizeLeft > sessionsLeft ? { sessions: cur.sessions, size: sizeText(Math.min(gs.n, sz.n + stepN), sz.unit) } : { sessions: cur.sessions + 1, size: cur.size };
+      steps.push(cur);
+    }
+    return steps;
+  }
+
+  function rampHtml(start, goal, paceText) {
+    var weeksEach = { '1 week': 1, '2 weeks': 2, '3 weeks': 3, '4 weeks': 4 }[paceText];
+    if (!weeksEach) return '<p class="stepnote">No prompts: the habit stays at the level you start with. You can change it any time.</p>';
+    var steps = rampSteps(start, goal);
+    if (steps.length < 2) return '<p class="stepnote">You start at your goal, so there is nothing to step up to.</p>';
+    var weight = function (l) { var sz = parseSize(l.size); return l.sessions * (sz ? sz.n : 1); };
+    var top = Math.max.apply(null, steps.map(weight));
+    var weeks = (steps.length - 1) * weeksEach;
+    var when = new Date(Date.now() + weeks * 7 * 86400000).toLocaleDateString('en-GB', { month: 'long' });
+    var shown = steps.length > 12 ? steps.filter(function (x, i) { return i % Math.ceil(steps.length / 12) === 0 || i === steps.length - 1; }) : steps;
+    return '<label>If you say yes each time</label><div class="ramp" aria-hidden="true">' + shown.map(function (l, i) {
+      var sz = parseSize(l.size);
+      return '<div class="' + (i === shown.length - 1 ? 'goal' : '') + '" style="height:' + Math.max(6, Math.round(weight(l) / top * 100)) + '%"><span>' + l.sessions + (sz ? '×' + sz.n : '') + '</span></div>';
+    }).join('') + '</div><div class="rampaxis"><span>Now</span><span>Goal · week ' + weeks + '</span></div>' +
+      '<p class="stepnote">About ' + weeks + ' weeks to the goal, around ' + when + ' if you say yes each time. Slower is fine.</p>';
+  }
+
+  function categoryOptions(selected) {
+    return '<option value="">Nothing</option>' + FT.categories().map(function (c) {
+      return '<option value="' + FT.esc(c.id) + '"' + (c.id === selected ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
+    }).join('');
+  }
+  function perOptions(selected) {
+    return ['day', 'week'].map(function (p) { return '<option value="' + p + '"' + (p === selected ? ' selected' : '') + '>' + p + '</option>'; }).join('');
+  }
+  function paceButtons(selected) {
+    var paces = PACES.some(function (p) { return p[0] === selected; }) ? PACES : PACES.slice(0, 4).concat([[selected, selected]], PACES.slice(4)); // a pace typed in the sheet, such as "10 days"
+    return '<div class="choice three" role="group" aria-label="Ask me every">' + paces.map(function (p) {
+      return '<button type="button" class="hpace" data-pace="' + p[0] + '" aria-pressed="' + (p[0] === selected) + '">' + p[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+  function pressed(selector) { var el = document.querySelector(selector + '[aria-pressed="true"]'); return el; }
+
+  function newHabitBody() {
+    return '<div id="nh-step1"><div class="hstep">Step 1 of 3</div>' +
+      '<label for="nh-name">Name</label><input type="text" id="nh-name" maxlength="80" placeholder="e.g. Cardio">' +
+      '<label for="nh-desc">Why, and when (optional)</label><textarea id="nh-desc" placeholder="e.g. Feel fitter. Straight after work, before dinner."></textarea>' +
+      '<label for="nh-intention">Intention (optional)</label><input type="text" id="nh-intention" maxlength="300" placeholder="e.g. 5 cardio sessions a week, or just trying it out">' +
+      '<label for="nh-sessions">How often (where you want to get to)</label><div class="hrow2"><input type="text" inputmode="numeric" id="nh-sessions" value="3" aria-label="Sessions">' +
+      '<span>sessions a</span><select id="nh-per" aria-label="Per">' + perOptions('week') + '</select></div>' +
+      '<label for="nh-size">Each session (optional)</label><input type="text" id="nh-size" maxlength="40" placeholder="e.g. 30 min, 2 km, 10 push-ups">' +
+      '<label for="nh-category">Show the next action from (optional)</label><select id="nh-category">' + categoryOptions('') + '</select>' +
+      '<div class="actions"><button type="button" class="btn primary" id="nh-next1">Next: start low</button></div></div>' +
+      '<div id="nh-step2" hidden><div class="hstep">Step 2 of 3</div><h3 style="margin:4px 0">Start low</h3><p id="nh-goaltext" class="stepnote"></p>' +
+      '<div class="advice"><b>Start lower than you think.</b> Couch to 5K starts with 60 seconds of running. A start you can keep on a bad week beats a goal you drop in week two. Most habits take about two months to settle, so there is no rush.</div>' +
+      '<label>Start with</label><div class="choice three" id="nh-starts" role="group" aria-label="Start with"></div>' +
+      '<label for="nh-small">Small version for hard days (optional)</label><input type="text" id="nh-small" maxlength="40" placeholder="e.g. 5 min">' +
+      '<p class="stepnote">On a hard day the small version still counts as a session. Something beats nothing.</p>' +
+      '<div class="actions"><button type="button" class="btn primary" id="nh-next2">Next: step up</button><button type="button" class="btn" id="nh-back2">Back</button></div></div>' +
+      '<div id="nh-step3" hidden><div class="hstep">Step 3 of 3</div><h3 style="margin:4px 0">Step up when you\'re ready</h3>' +
+      '<p class="stepnote">The app can ask now and then if you want a bit more. You always choose: <b>Yes, adjust</b>, <b>Not now</b> or <b>I\'m at my goal</b>.</p>' +
+      '<label>Ask me every</label>' + paceButtons('2 weeks') +
+      '<p class="stepnote">It only asks after you have hit the current level. If a week goes badly, it simply waits.</p><div id="nh-ramp"></div>' +
+      '<div class="actions"><button type="button" class="btn" id="nh-back3">Back</button></div></div>';
+  }
+
+  function goalFromForm() {
+    var per = val('nh-per') || 'week', n = Math.floor(Number(val('nh-sessions')));
+    if (!(n >= 1 && n <= MAX[per])) throw new Error('How often: a whole number from 1 to ' + MAX[per] + ' a ' + per + '.');
+    return { sessions: n, per: per, size: val('nh-size') };
+  }
+
+  FT.action('habits.new', function () {
+    var starts = [], startAt = 0;
+    function show(n) {
+      [1, 2, 3].forEach(function (i) { document.getElementById('nh-step' + i).hidden = i !== n; });
+      var first = document.querySelector('#nh-step' + n + ' input, #nh-step' + n + ' button');
+      if (first) first.focus();
+    }
+    function drawStarts() {
+      var goal = goalFromForm();
+      starts = startLevels(goal);
+      if (startAt >= starts.length) startAt = 0;
+      document.getElementById('nh-goaltext').innerHTML = 'Your goal is <b>' + FT.esc(levelText(goal.sessions, goal.per, goal.size)) + '</b>.';
+      document.getElementById('nh-starts').innerHTML = starts.map(function (l, i) {
+        return '<button type="button" class="hstart" data-i="' + i + '" aria-pressed="' + (i === startAt) + '">' + (l.goal ? 'The goal now' : l.sessions + ' a ' + goal.per) +
+          '<small>' + (l.goal ? FT.esc(levelText(l.sessions, goal.per, l.size)) : FT.esc(l.size || '')) + (i === 0 ? (l.size ? ' · ' : '') + 'suggested' : '') + '</small></button>';
+      }).join('');
+      if (!document.getElementById('nh-small').value && parseSize(starts[0].size) && isMinutes(parseSize(starts[0].size).unit)) document.getElementById('nh-small').placeholder = 'e.g. 5 min';
+    }
+    function drawRamp() {
+      var goal = goalFromForm(), pace = pressed('.hpace');
+      document.getElementById('nh-ramp').innerHTML = rampHtml(starts[startAt] || goal, goal, pace ? pace.dataset.pace : '');
+    }
+    FT.dialog({
+      title: 'New habit',
+      body: newHabitBody(),
+      submit: 'Create habit',
+      onOpen: function () {
+        var err = function (e) { document.getElementById('dlg-err').textContent = FT.errorText(e); };
+        document.getElementById('nh-next1').onclick = function () {
+          try { if (!val('nh-name')) throw new Error('A habit needs a name.'); drawStarts(); document.getElementById('dlg-err').textContent = ''; show(2); } catch (e) { err(e); }
+        };
+        document.getElementById('nh-next2').onclick = function () { try { drawRamp(); show(3); } catch (e) { err(e); } };
+        document.getElementById('nh-back2').onclick = function () { show(1); };
+        document.getElementById('nh-back3').onclick = function () { show(2); };
+        document.getElementById('nh-starts').onclick = function (e) {
+          var b = e.target.closest('.hstart'); if (!b) return;
+          startAt = Number(b.dataset.i); drawStarts();
+        };
+        document.querySelector('#nh-step3 .choice').onclick = function (e) {
+          var b = e.target.closest('.hpace'); if (!b) return;
+          Array.prototype.forEach.call(document.querySelectorAll('.hpace'), function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+          drawRamp();
+        };
+      },
+      onSubmit: function () {
+        var goal = goalFromForm(), name = val('nh-name');
+        if (!name) throw new Error('A habit needs a name.');
+        if (!starts.length) starts = startLevels(goal);
+        var start = starts[startAt] || starts[0], pace = pressed('.hpace');
+        var args = {
+          id: FT.newId(), name: name, description: val('nh-desc'), intention: val('nh-intention'), per: goal.per, sessions: start.sessions, size: start.size,
+          small_version: val('nh-small'), goal: levelText(goal.sessions, goal.per, goal.size), step_up_every: pace ? pace.dataset.pace : '2 weeks', category: val('nh-category')
+        };
+        return FT.rpc('habits', 'create', args, { quiet: true }).then(function () { FT.toast(name + ' added to Today. Start small.', null, { label: 'Undo', run: FT.undo }); });
+      }
+    });
+  });
+
+  FT.action('habits.edit', function (el) {
+    var h = habit(el.dataset.id);
+    if (!h) return;
+    var pace = h.step_up_every || '';
+    var paceLabel = h.prompts === 'at goal' ? 'At your goal: no prompts. Pick a pace to start them again.' : h.prompts === 'off' && pace ? 'Prompts are off. Pick a pace to start them again.' : '';
+    FT.dialog({
+      title: 'Edit habit',
+      subtitle: h.name,
+      body: '<label for="eh-name">Name</label><input type="text" id="eh-name" maxlength="80" value="' + FT.esc(h.name) + '">' +
+        '<label for="eh-desc">Why, and when</label><textarea id="eh-desc">' + FT.esc(h.description || '') + '</textarea>' +
+        '<label for="eh-intention">Intention</label><input type="text" id="eh-intention" maxlength="300" value="' + FT.esc(h.intention || '') + '">' +
+        '<label for="eh-sessions">Now</label><div class="hrow2"><input type="text" inputmode="numeric" id="eh-sessions" value="' + FT.esc(String(h.sessions)) + '" aria-label="Sessions">' +
+        '<span>sessions a</span><select id="eh-per" aria-label="Per">' + perOptions(h.per) + '</select></div>' +
+        '<label for="eh-size">Each session</label><input type="text" id="eh-size" maxlength="40" value="' + FT.esc(h.size || '') + '">' +
+        '<label for="eh-small">Small version for hard days</label><input type="text" id="eh-small" maxlength="40" value="' + FT.esc(h.small_version || '') + '">' +
+        '<label for="eh-goal">Goal</label><input type="text" id="eh-goal" maxlength="40" value="' + FT.esc(h.goal || '') + '" placeholder="e.g. 5 a week, 30 min">' +
+        '<label>Ask me every</label>' + paceButtons(h.prompts === 'on' ? pace : '') +
+        (paceLabel ? '<p class="stepnote">' + FT.esc(paceLabel) + '</p>' : '') +
+        '<label for="eh-category">Show the next action from</label><select id="eh-category">' + categoryOptions(h.category) + '</select>' +
+        '<div class="hmanage">' +
+        '<button type="button" class="btn sm" data-act="habits.move" data-id="' + FT.esc(h.id) + '" data-d="-1">Move up</button>' +
+        '<button type="button" class="btn sm" data-act="habits.move" data-id="' + FT.esc(h.id) + '" data-d="1">Move down</button>' +
+        '<button type="button" class="btn sm" data-act="habits.pause" data-id="' + FT.esc(h.id) + '">' + (h.status === 'paused' ? 'Resume' : 'Pause') + '</button>' +
+        '<button type="button" class="btn sm" data-act="habits.end" data-id="' + FT.esc(h.id) + '">End habit</button>' +
+        '<button type="button" class="btn sm" data-act="habits.remove" data-id="' + FT.esc(h.id) + '">Delete</button></div>',
+      submit: 'Save',
+      onOpen: function () {
+        document.querySelector('.dialog .choice').onclick = function (e) {
+          var b = e.target.closest('.hpace'); if (!b) return;
+          Array.prototype.forEach.call(document.querySelectorAll('.hpace'), function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+        };
+      },
+      onSubmit: function () {
+        var chosen = pressed('.hpace'), newPace = chosen ? chosen.dataset.pace : '';
+        var args = {
+          id: h.id, name: val('eh-name'), description: val('eh-desc'), intention: val('eh-intention'), sessions: val('eh-sessions'), per: val('eh-per'),
+          size: val('eh-size'), small_version: val('eh-small'), goal: val('eh-goal'), category: val('eh-category')
+        };
+        var wasOn = h.prompts === 'on' ? pace : '';
+        if (newPace !== wasOn) args.step_up_every = newPace;
+        return FT.rpc('habits', 'update', args, { quiet: true });
+      }
+    });
+  });
+
+  FT.action('habits.move', function (el) {
+    var list = slice().habits.filter(function (h) { return h.status !== 'ended'; }).sort(function (a, b) { return a.order - b.order; });
+    var i = list.map(function (h) { return h.id; }).indexOf(el.dataset.id), j = i + Number(el.dataset.d);
+    if (i === -1 || j < 0 || j >= list.length) { FT.toast(Number(el.dataset.d) < 0 ? 'It is already first.' : 'It is already last.'); return; }
+    var a = list[i], b = list[j], ao = a.order, bo = b.order;
+    FT.optimistic(function () { a.order = bo === ao ? ao + Number(el.dataset.d) : bo; b.order = ao; slice().habits.sort(function (x, y) { return x.order - y.order; }); return function () { a.order = ao; b.order = bo; }; },
+      send('move', { id: a.id, d: Number(el.dataset.d) })).catch(function () {});
+    FT.toast(a.name + ' moved ' + (Number(el.dataset.d) < 0 ? 'up' : 'down') + '.');
+  });
+  FT.action('habits.pause', function (el) {
+    var h = habit(el.dataset.id); if (!h) return;
+    FT.closeDialog();
+    setStatus(h.id, h.status === 'paused' ? 'active' : 'paused');
+  });
+  FT.action('habits.end', function (el) {
+    var h = habit(el.dataset.id); if (!h) return;
+    FT.closeDialog();
+    setStatus(h.id, 'ended');
+  });
+  FT.action('habits.remove', function (el) {
+    var h = habit(el.dataset.id); if (!h) return;
+    FT.closeDialog();
+    var s = slice(), list = s.habits, log = s.log;
+    FT.optimistic(function () {
+      s.habits = list.filter(function (x) { return x.id !== h.id; });
+      s.log = log.filter(function (r) { return r.habit_id !== h.id; });
+      if (s.prompt && s.prompt.habitId === h.id) s.prompt = null;
+      return function () { s.habits = list; s.log = log; };
+    }, send('remove', { id: h.id })).catch(function () {});
+    FT.deleted('Habit');
+  });
+
+  // ---------- Plan my week ----------
+  var AWAY = 'away';
+  function leadPlan(t, week, weekday) {
+    var changes = (week === 0 ? t.week : t.next) || {};
+    return Object.prototype.hasOwnProperty.call(changes, weekday) ? { plan: changes[weekday], changed: true } : { plan: (t.usual || {})[weekday], changed: false };
+  }
+  function leadLabel(plan) {
+    if (plan === AWAY) return 'Away';
+    if (plan === null || plan === undefined || plan === '') return 'Any';
+    return FT.category(plan).label;
+  }
+  function leadSelect(t, week, weekday) {
+    var lp = leadPlan(t, week, weekday), usual = (t.usual || {})[weekday];
+    var value = lp.changed ? (lp.plan === null ? '' : lp.plan) : 'usual';
+    var options = [['usual', leadLabel(usual) + ' (usual)'], ['', 'Any']].concat(FT.categories().map(function (c) { return [c.id, c.label]; })).concat([[AWAY, 'Away']]);
+    return '<select data-change="habits.planLead" data-week="' + week + '" data-day="' + weekday + '" aria-label="' + DAY_NAMES[weekday - 1] + ' lead">' + options.map(function (o) {
+      return '<option value="' + FT.esc(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + FT.esc(o[1]) + '</option>';
+    }).join('') + '</select>';
+  }
+
+  function todosOf() { return ((FT.store.todos || {}).items) || []; }
+
+  function planHtml() {
+    var s = slice(), t = FT.store.today || {}, monday = addDays(s.monday, planWeek * 7), today = s.day;
+    var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) { return addDays(monday, i); });
+    var awayOn = {};
+    days.forEach(function (d, i) { awayOn[d] = leadPlan(t, planWeek, i + 1).plan === AWAY; });
+    var html = '<div class="weektoggle" role="group" aria-label="Week">' +
+      '<button type="button" data-act="habits.planWhich" data-week="0" aria-pressed="' + (planWeek === 0) + '">This week · ' + longDate(s.monday) + '</button>' +
+      '<button type="button" data-act="habits.planWhich" data-week="1" aria-pressed="' + (planWeek === 1) + '">Next week · ' + longDate(addDays(s.monday, 7)) + '</button></div>' +
+      '<p class="stepnote">Planning stops at next Sunday on purpose. It is a plan, not a calendar. Tap a day to place a habit session (a ring); tap a ring to take it away.</p>' +
+      '<div class="planscroll"><div class="plan" role="table" aria-label="Plan for the week of ' + longDate(monday) + '"><div class="h" style="text-align:left">&nbsp;</div>' +
+      days.map(function (d) { return '<div class="h' + (d === today ? ' today' : '') + '">' + shortDate(d) + (d === today ? ' · today' : '') + '</div>'; }).join('');
+    if (t.usual) {
+      html += '<div class="rl">Focus lead<small>the rotation</small></div>' + days.map(function (d, i) {
+        return d < today ? '<div class="cell past">' + FT.esc(leadLabel(leadPlan(t, planWeek, i + 1).plan)) + '</div>' : '<div class="cell">' + leadSelect(t, planWeek, i + 1) + '</div>';
+      }).join('');
+    }
+    activeHabits().forEach(function (h) {
+      var done = 0, planned = 0;
+      days.forEach(function (d) { done += count(h.id, d, 'done'); if (d >= today) planned += Math.max(0, count(h.id, d, 'plan') - count(h.id, d, 'done')); });
+      var target = h.per === 'week' ? Number(h.level ? h.level.sessions : h.sessions) : null;
+      var tally = (h.per === 'week' ? target + ' a week' : (Number(h.sessions) === 1 ? 'every day' : h.sessions + ' a day')) + ' · ' + done + ' done' +
+        (target && done > target ? ', +' + (done - target) + ' extra' : '') + (planned ? ', ' + planned + ' planned' : '');
+      html += '<div class="rl">' + FT.esc(h.name) + '<small>' + FT.esc(tally) + '</small></div>' + days.map(function (d) {
+        var dn = count(h.id, d, 'done'), pl = Math.max(0, count(h.id, d, 'plan') - dn);
+        var filled = ''; for (var i = 0; i < dn; i++) filled += '<span class="pdot on" role="img" aria-label="Done"></span>';
+        if (d < today) return '<div class="cell past">' + filled + '</div>';
+        if (awayOn[d]) return '<div class="cell away">' + filled + '<span class="stepnote" style="margin:0">Away</span></div>';
+        var rings = ''; for (var j = 0; j < pl; j++) rings += '<button class="pdot" data-act="habits.planRemove" data-id="' + FT.esc(h.id) + '" data-day="' + d + '" aria-label="' + FT.esc(h.name) + ', ' + shortDate(d) + ': planned session. Tap to take it away"></button>';
+        return '<div class="cell" role="button" tabindex="0" data-act="habits.planAdd" data-id="' + FT.esc(h.id) + '" data-day="' + d + '" aria-label="' + FT.esc(h.name) + ', ' + shortDate(d) + ': ' +
+          dn + ' done, ' + pl + ' planned. Tap to plan a session">' + filled + rings + '</div>';
+      }).join('');
+    });
+    if (FT.store.todos) {
+      var items = todosOf();
+      html += '<div class="rl">To-dos<small>' + (pickedTodo ? 'tap a day to put it there' : 'tap a day to add') + '</small></div>' + days.map(function (d) {
+        var chips = items.filter(function (x) { return x.day === d; }).map(function (x) { return chipHtml(x, d < today); }).join('');
+        if (d < today) return '<div class="cell past">' + chips + '</div>';
+        var input = addingDay === d ? '<input type="text" id="pw-todo" data-enter="habits.planTodoAdd" data-day="' + d + '" placeholder="New to-do" aria-label="New to-do for ' + shortDate(d) + '">' : '';
+        return '<div class="cell' + (pickedTodo ? ' picking' : '') + '" role="button" tabindex="0" data-act="habits.planTodoDay" data-day="' + d + '" aria-label="To-dos on ' + shortDate(d) + (pickedTodo ? '. Tap to put the picked to-do here' : '. Tap to add one') + '">' + chips + input + '</div>';
+      }).join('');
+    }
+    html += '</div></div><div class="plegend"><span><span class="pdot on"></span> done</span><span><span class="pdot"></span> planned</span><span>hatched = past or Away</span></div>';
+    if (FT.store.todos) {
+      var anytime = todosOf().filter(function (x) { return !x.day && !x.done; });
+      html += '<div class="small-tasks"><div class="subhead">Anytime to-dos (no day yet)</div></div><div class="anytime">' + anytime.map(function (x) { return chipHtml(x, false); }).join('') +
+        (pickedTodo ? '<button type="button" class="btn sm" data-act="habits.planTodoDay" data-day="">Make it anytime</button>' : '') +
+        (anytime.length ? '' : '<span class="stepnote" style="margin:0">None.</span>') + '</div>';
+    }
+    html += '<div class="actions"><button type="button" class="btn" data-act="habits.copyWeek">Copy last week\'s habit days</button></div>';
+    return html;
+  }
+
+  function chipHtml(x, past) {
+    if (x.done || past) return '<span class="chip done">' + (x.done ? '✓ ' : '') + FT.esc(x.title) + '</span>';
+    return '<button type="button" class="chip" data-act="habits.planPick" data-id="' + FT.esc(x.id) + '" aria-pressed="' + (pickedTodo === x.id) + '" aria-label="' + FT.esc(x.title) + ': pick up to move to a day">' + FT.esc(x.title) + '</button>';
+  }
+
+  function drawPlan() {
+    var body = document.getElementById('pw-body');
+    if (!body) return;
+    var focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('#pw-body') ? document.activeElement : null;
+    var key = focused ? [focused.dataset.act, focused.dataset.id, focused.dataset.day, focused.dataset.week].join('|') : null;
+    body.innerHTML = planHtml();
+    var input = document.getElementById('pw-todo');
+    if (input) { input.focus(); return; }
+    if (key) {
+      var again = Array.prototype.filter.call(body.querySelectorAll('[data-act], [data-change]'), function (n) { return [n.dataset.act, n.dataset.id, n.dataset.day, n.dataset.week].join('|') === key; })[0];
+      if (again) again.focus();
+    }
+  }
+  FT.onRender(drawPlan);
+
+  FT.action('habits.planWeek', function () {
+    planWeek = 0; pickedTodo = null; addingDay = null;
+    FT.dialog({ title: 'Plan my week', wide: true, body: '<div id="pw-body"></div>', submit: 'Done', cancel: false, onOpen: drawPlan, onSubmit: function () {} });
+    var dlg = document.querySelector('.dialog.wide');
+    if (dlg) dlg.style.width = 'min(1000px, 100%)';
+  });
+  FT.action('habits.planWhich', function (el) { planWeek = Number(el.dataset.week); pickedTodo = null; addingDay = null; drawPlan(); });
+
+  function plan(h, day, delta) {
+    var before = count(h.id, day, 'plan'), done = count(h.id, day, 'done');
+    var next = delta > 0 ? Math.max(before, done) + 1 : Math.max(0, before - 1); // a plan counts the sessions already done that day
+    if (next > MAX.day) { FT.toast('That is enough for one day.'); return; }
+    FT.optimistic(function () { return bump(h.id, day, 'plan', function () { return next; }); }, send('plan', { id: h.id, day: day, count: next })).catch(function () {});
+  }
+  FT.action('habits.planAdd', function (el) { var h = habit(el.dataset.id); if (h) plan(h, el.dataset.day, 1); });
+  FT.action('habits.planRemove', function (el) { var h = habit(el.dataset.id); if (h) plan(h, el.dataset.day, -1); });
+
+  FT.on('change', 'habits.planLead', function (el) {
+    if (FT.today && FT.today.planLead) FT.today.planLead(Number(el.dataset.week), Number(el.dataset.day), el.value);
+  });
+
+  FT.action('habits.planPick', function (el) { pickedTodo = pickedTodo === el.dataset.id ? null : el.dataset.id; addingDay = null; drawPlan(); });
+  FT.action('habits.planTodoDay', function (el, e) {
+    if (e && e.target && e.target.id === 'pw-todo') return;
+    var day = el.dataset.day;
+    if (pickedTodo) {
+      var id = pickedTodo; pickedTodo = null;
+      if (FT.todos) FT.todos.setDay(id, day); else drawPlan();
+      return;
+    }
+    if (!day) return;
+    addingDay = addingDay === day ? null : day;
+    drawPlan();
+  });
+  FT.on('enter', 'habits.planTodoAdd', function (el) {
+    var title = el.value.trim(), day = el.dataset.day;
+    if (!title || !FT.todos) { addingDay = null; drawPlan(); return; }
+    addingDay = day;
+    FT.todos.add(title, day);
+  });
+
+  FT.action('habits.copyWeek', function () {
+    var s = slice(), monday = addDays(s.monday, planWeek * 7), logBefore = s.log.map(function (r) { return Object.assign({}, r); });
+    FT.optimistic(function () {
+      activeHabits().forEach(function (h) {
+        for (var i = 0; i < 7; i++) {
+          var day = addDays(monday, i), before = addDays(day, -7);
+          if (day < s.day) continue;
+          var want = Math.min(MAX.day, before < s.day ? count(h.id, before, 'done') : count(h.id, before, 'plan'));
+          bump(h.id, day, 'plan', function () { return want; });
+        }
+      });
+      return function () { s.log = logBefore; };
+    }, send('copyWeek', { week: monday })).catch(function () {});
+    FT.toast('Planned as last week went.', null, { label: 'Undo', run: FT.undo });
+  });
+})();
+</script>

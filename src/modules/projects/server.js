@@ -107,7 +107,8 @@ function projectsModule() {
         ctx.optional('today', 'removeProject', { projectId: a.id });
         ctx.optional('links', 'removeProject', { projectId: a.id });
         ctx.optional('lists', 'unlinkProject', { projectId: a.id });
-        ctx.refresh('projects', 'kanban', 'resources', 'log', 'today', 'whiteboard', 'criteria', 'stickies', 'links', 'lists');
+        ctx.optional('todos', 'removeProject', { projectId: a.id });
+        ctx.refresh('projects', 'kanban', 'resources', 'log', 'today', 'whiteboard', 'criteria', 'stickies', 'links', 'lists', 'todos');
         return true;
       }
     }
