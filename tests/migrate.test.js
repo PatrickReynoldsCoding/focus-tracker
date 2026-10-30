@@ -226,7 +226,7 @@ test('tabs are coloured, ordered people first, with a Start here guide; app colu
   });
   assert.strictEqual(s.ss.sheets['My sums'].style.tabColor, undefined, 'a person\'s own tab keeps its look');
   const guide = s.ss.sheets['Start here'].rows.map((r) => r[0]).join('\n');
-  ['Projects:', 'Tasks:', 'Resources:', 'Leave id, order and created empty', 'problem column', 'bank or card details', 'AGENTS.md'].forEach((w) => assert.ok(guide.includes(w), 'Start here says ' + w));
+  ['Projects:', 'Tasks:', 'Resources:', 'Leave id, order and created empty', 'problem column', 'bank or card details', 'Focus Tracker – guide for AI assistants'].forEach((w) => assert.ok(guide.includes(w), 'Start here says ' + w));
 });
 
 test('running the migration again changes nothing, and makes no second backup', () => {
@@ -365,7 +365,7 @@ test('rows an assistant typed are completed, resolved by name, or flagged with a
   const first = tasks.find((t) => t.title === 'First job');
   assert.strictEqual(first.project_id, shed.id, 'a project typed in the same load is found');
   const shedCols = rowsOf(sh.Columns).filter((c) => c.project_id === shed.id);
-  assert.deepStrictEqual(shedCols.map((c) => [c.name, c.id === first.column_id]), [['To do', true]], 'a board with no columns gets one');
+  assert.deepStrictEqual(shedCols.map((c) => [c.name, c.id === first.column_id]), [['To do', true], ['Doing', false], ['Done', false]], 'a project board with no columns gets the usual ones, as if made in the app');
   assert.ok(/No project called "No such project"/.test(tasks.find((t) => t.title === 'Lost card').problem));
   assert.ok(/No column called "Someday".*Use one of: To do, Doing, Done/.test(tasks.find((t) => t.title === 'Bad column').problem));
   assert.ok(!b.data.kanban.tasks.some((t) => t.title === 'Lost card' || t.title === 'Bad column'));

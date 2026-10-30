@@ -24,7 +24,8 @@ function include(name) {
 /**
  * Run once from the Apps Script editor after pushing the code.
  * Remembers the spreadsheet as the first mode's, brings it up to the current layout (core/migrate.js), creates every
- * module's tab, writes the Start here tab and finds or creates the Drive folders.
+ * module's tab, writes the Start here tab, finds or creates the Drive folders and writes the guide for AI assistants
+ * (a Google Doc in the "Focus Tracker" folder, core/guide.js).
  * Other modes need no setup: their spreadsheet and folder are created the first time the app opens them.
  */
 function setup() {
@@ -40,5 +41,6 @@ function setup() {
   });
   writeStartHere_(getSpreadsheet_());
   var folder = getModeFolder_();
-  Logger.log('Ready. Spreadsheet: ' + getSpreadsheet_().getUrl() + ' | Drive folder: ' + folder.getUrl());
+  var guide = ensureGuideDoc_();
+  Logger.log('Ready. Spreadsheet: ' + getSpreadsheet_().getUrl() + ' | Drive folder: ' + folder.getUrl() + (guide ? ' | Guide for AI assistants: ' + guide : ''));
 }

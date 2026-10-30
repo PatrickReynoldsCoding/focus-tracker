@@ -98,6 +98,8 @@ function completeFresh_(name, rule, d) {
   if (col.id === undefined) return;
   var looked = {};
   function look(tab) {
+    // The tab being completed is looked at afresh: a row completed a moment ago counts (two new rows with one name).
+    if (tab === name) return lookRows_(tab);
     if (!looked[tab]) looked[tab] = lookRows_(tab);
     return looked[tab];
   }
@@ -198,24 +200,35 @@ function resolveRef_(ref, o, look, forget) {
   return '';
 }
 
-/** A board with no columns gets one, so a card an assistant added has somewhere to go. Not recorded for undo. */
+/**
+ * A board with no columns gets one, so a card an assistant added has somewhere to go. A board whose kind has starter
+ * columns (a project's: BOARD_COLUMNS_) gets all of them, like a project made in the app, plus the one named if it is
+ * not among them. Not recorded for undo.
+ */
 function createTarget_(ref, o, name, forget) {
   if (!tableCache_[tableCacheKey_(ref.table)] && !getSpreadsheet_().getSheetByName(ref.table)) return 'Open the app once, so it can make the ' + ref.table + ' tab.';
-  var row = { id: newId_(), name: name, order: 1 };
-  (ref.within || []).forEach(function (w) { row[w] = o[w] || ''; });
-  appendRaw_(ref.table, row);
+  var names = [];
+  (ref.within || []).forEach(function (w) { if (!cellEmpty_(o[w]) && ref.starter && ref.starter[w]) names = ref.starter[w].slice(); });
+  if (!names.some(function (n) { return sameName_(n, name); })) names.push(name);
+  var rows = names.map(function (n, i) {
+    var row = { id: newId_(), name: n, order: i + 1 };
+    (ref.within || []).forEach(function (w) { row[w] = o[w] || ''; });
+    return row;
+  });
+  appendRaw_(ref.table, rows);
   forget(ref.table);
-  o[ref.id] = row.id; o[ref.name] = name;
+  var hit = rows.filter(function (r) { return sameName_(r.name, name); })[0];
+  o[ref.id] = hit.id; o[ref.name] = hit.name;
   return '';
 }
 
-/** Add a row with one write, outside the undo journal. */
-function appendRaw_(name, obj) {
+/** Add rows with one write, outside the undo journal. */
+function appendRaw_(name, objs) {
   withLock_(function () {
     var d = new Table(name, ['id']).read_(true);
-    var row = d.headers.map(function (h) { return obj[h] === undefined ? '' : String(obj[h]); });
-    d.sh.getRange(d.rows.length + 2, 1, 1, row.length).setNumberFormat('@').setValues([row]);
-    d.rows.push(row);
+    var rows = objs.map(function (obj) { return d.headers.map(function (h) { return obj[h] === undefined ? '' : String(obj[h]); }); });
+    d.sh.getRange(d.rows.length + 2, 1, rows.length, d.headers.length).setNumberFormat('@').setValues(rows);
+    rows.forEach(function (row) { d.rows.push(row); });
   });
 }
 

@@ -10,7 +10,9 @@
  *   refs     a row points at another row by id and shows its name: { id, name, table, label, noun, within, first, create }
  *            label: the target's name column (default 'name'); within: the target must share these ids with the row
  *            (a card's column must be on the card's board); first: an empty name and id means the first target by
- *            order; create: a board with no columns gets one, so an assistant's card always has somewhere to go.
+ *            order; create: a board with no columns gets one, so an assistant's card always has somewhere to go (the name
+ *            for an unnamed one); starter: { owner id column: names } a board of that kind starts with all of these, as
+ *            if it had been made in the app (a column named that is not among them is added after them).
  *   required columns a usable row must have
  *   oneOf    exactly one of these must be set
  *   fill     defaults for a new row (no id yet); 'now' is the time, 'next' one more than the largest in the tab
@@ -28,6 +30,14 @@ var PROJECT_STATUSES_ = ['active', 'paused', 'done', 'archived'];
 var RESOURCE_TYPES_ = ['link', 'drive', 'phone', 'email', 'text'];
 var HABIT_PERS_ = ['day', 'week'];
 var HABIT_STATUSES_ = ['active', 'paused', 'ended'];
+var LINK_TYPES_ = ['blocks', 'relates'];
+// A project's board starts with these columns: made by the app for a new project, and for a project an assistant typed in.
+var BOARD_COLUMNS_ = ['To do', 'Doing', 'Done'];
+
+/** A word from a fixed set, typed by hand ("Active ", "Blocks"), as the app writes it. Changes row in place. */
+function lowerWord_(row, key) {
+  if (typeof row[key] === 'string' && row[key]) row[key] = row[key].trim().toLowerCase();
+}
 
 /** A Google Drive or Docs address is a Drive file; any other address is a link. */
 function resourceTypeFor_(value) {
@@ -58,18 +68,24 @@ var TAB_STYLE = [
   { name: 'Projects', people: true, color: '#1e88e5', wrap: ['name', 'next_action', 'problem'],
     complete: { required: ['name'], fill: { status: 'active', next_action: 'Decide the first small step', last_touched: 'now', created: 'now' },
       check: function (row, look) {
+        lowerWord_(row, 'status');
         if (row.status && PROJECT_STATUSES_.indexOf(row.status) === -1) return 'Status must be one of: ' + PROJECT_STATUSES_.join(', ') + '.';
+        // Never guess between two projects with one name: rows elsewhere point at projects by name.
+        if (look('Projects').some(function (p) { return p.id !== row.id && sameName_(p.name, row.name); })) {
+          return 'There is already a project called "' + String(row.name).trim() + '". To change it, edit that row; for a new project, use another name.';
+        }
         return checkCategory_(row, look, true);
       } } },
   { name: 'Tasks', people: true, color: '#43a047', wrap: ['title', 'note', 'problem'],
     complete: { required: ['title'], fill: { order: 'next', created: 'now' }, oneOf: ['project_id', 'list_id'], html: ['note', 'note_html'],
       refs: [PROJECT_REF_, { id: 'list_id', name: 'list', table: 'Lists' },
-        { id: 'column_id', name: 'column', table: 'Columns', within: ['project_id', 'list_id'], first: true, create: 'To do' }] } },
+        { id: 'column_id', name: 'column', table: 'Columns', within: ['project_id', 'list_id'], first: true, create: 'To do', starter: { project_id: BOARD_COLUMNS_ } }] } },
   { name: 'Lists', people: true, color: '#fdd835', wrap: ['name', 'problem'],
     complete: { required: ['name'], fill: { order: 'next', created: 'now' }, refs: [PROJECT_REF_] } },
   { name: 'Resources', people: true, color: '#8e24aa', wrap: ['title', 'value', 'note', 'problem'],
     complete: { required: ['title', 'value'], fill: { added: 'now' }, refs: [PROJECT_REF_],
       check: function (row, look) {
+        lowerWord_(row, 'type');
         if (!row.type) row.type = /^https:\/\//i.test(row.value) ? resourceTypeFor_(row.value) : 'text';
         if (RESOURCE_TYPES_.indexOf(row.type) === -1) return 'Type must be one of: ' + RESOURCE_TYPES_.join(', ') + '.';
         if ((row.type === 'link' || row.type === 'drive') && !/^https:\/\//i.test(row.value)) return 'A link needs a full address that starts with https://';
@@ -82,6 +98,7 @@ var TAB_STYLE = [
   { name: 'Habits', people: true, color: '#e53935', wrap: ['name', 'intention', 'description', 'problem'],
     complete: { required: ['name'], fill: { order: 'next', started: 'now', status: 'active', per: 'week', sessions: '1', prompts: 'off' },
       check: function (row, look) {
+        ['per', 'status', 'prompts'].forEach(function (k) { lowerWord_(row, k); });
         if (row.per && HABIT_PERS_.indexOf(row.per) === -1) return 'Per must be day or week.';
         var n = Number(row.sessions);
         if (row.sessions !== '' && row.sessions !== undefined && !(Math.floor(n) === n && n >= 1)) return 'Sessions must be a whole number, 1 or more.';
@@ -99,7 +116,8 @@ var TAB_STYLE = [
     complete: { required: ['type'], fill: { created: 'now' },
       refs: [{ id: 'from_id', name: 'from', table: 'Projects', noun: 'project' }, { id: 'to_id', name: 'to', table: 'Projects', noun: 'project' }],
       check: function (row) {
-        if (['blocks', 'relates'].indexOf(row.type) === -1) return 'Type must be blocks or relates.';
+        lowerWord_(row, 'type');
+        if (LINK_TYPES_.indexOf(row.type) === -1) return 'Type must be blocks or relates.';
         if (!row.from_id || !row.to_id) return 'Needs a project in both from and to.';
         return row.from_id === row.to_id ? 'A project cannot be linked to itself.' : '';
       } } },
@@ -190,56 +208,10 @@ function orderTabs_(ss) {
   if (byName['Start here']) ss.setActiveSheet(byName['Start here']);
 }
 
-/**
- * The Start here tab, one line per row. Short on purpose: a later phase writes a fuller guide for AI assistants.
- * Generated here so it never goes stale against TAB_STYLE.
- */
-function startHereLines_() {
-  var what = {
-    'Projects': 'one row per project or goal: its category, status (active, paused, done, archived) and next action.',
-    'Tasks': 'cards on project boards and items on lists. Fill title, column and project (or list).',
-    'Lists': 'lists that are not projects, such as "Read and watch".',
-    'Resources': 'links and other things kept with a project or a whole category: title, type (link, drive, phone, email, text) and value.',
-    'Habits': 'things you repeat: name, sessions and per (day or week), for example 3 a week. Size, goal and step_up_every (for example 2 weeks) are optional.',
-    'To-dos': 'one-off small tasks, for a day or anytime.',
-    'Whiteboards': 'drawings. Made in the app, which makes the drawing file.',
-    'Links': 'projects that block or relate to other projects.',
-    'Criteria': 'what "done" means for a project.',
-    'Log': 'one line per working session.',
-    'Categories': 'the categories projects are grouped by.'
-  };
-  var lines = [
-    [APP_NAME + ' - start here'],
-    ['This spreadsheet holds the ' + APP_NAME + ' app\'s data. People and AI assistants can read it and add rows.'],
-    [''],
-    ['The tabs']
-  ];
-  TAB_STYLE.forEach(function (spec) { if (what[spec.name]) lines.push([spec.name + ': ' + what[spec.name]]); });
-  lines.push(['Grey tabs are used by the app only. Do not edit them.']);
-  lines.push(['']);
-  lines.push(['Adding things by typing a row']);
-  lines.push(['- Fill the columns on the left (the ones with a white header). Leave id, order and created empty: the app fills them the next time it opens.']);
-  lines.push(['- Point at another row by its name: for example the project column in Tasks. The app finds the id when the name is unique.']);
-  lines.push(['- A project: a row in Projects with name, category and next_action.']);
-  lines.push(['- A card: a row in Tasks with title, project and column (an empty column means the first one on the board).']);
-  lines.push(['- A resource: a row in Resources with title, type, value and project (or only a category, to share it with the whole category). A group (free text, such as Suppliers) is optional.']);
-  lines.push(['- A habit: a row in Habits with name, sessions and per, for example 3 and week. A to-do: a row in To-dos with title and, if it is for a day, day.']);
-  lines.push(['- To change a card\'s note, write the new note and empty its note_html cell: the app makes the formatted copy again.']);
-  lines.push(['- If the app cannot use a row it leaves it alone and writes the reason in its problem column. Fix the row and the problem clears.']);
-  lines.push(['- Cells are plain text. Dates look like 2026-10-29. Yes/no columns hold yes or are empty.']);
-  lines.push(['']);
-  lines.push(['Safety rules']);
-  lines.push(['- Never put bank or card details, passwords, ID or passport numbers, tax references or health records in this sheet.']);
-  lines.push(['- Resources hold a link, a title and a short note only. Never copy the contents of a linked file here.']);
-  lines.push(['- Only link a file the owner has named or pointed at. If a file holds sensitive material, ask the owner first.']);
-  lines.push(['- Never delete rows you did not add. A backup copy is made before the app changes the layout of this sheet.']);
-  lines.push(['- The full rules for developers and assistants are in AGENTS.md in the app\'s code repository.']);
-  return lines;
-}
-
-/** Write (or rewrite) the Start here tab: one column, first in the sheet. */
+/** Write (or rewrite) the Start here tab, the short version of the guide for assistants (core/guide.js): one column, first in the sheet. */
 function writeStartHere_(ss) {
-  var lines = startHereLines_();
+  var text = guideShortLines_();
+  var lines = text.map(function (line) { return [line]; });
   var sh = ss.getSheetByName('Start here');
   var created = !sh;
   if (created) sh = ss.insertSheet('Start here');
@@ -250,4 +222,6 @@ function writeStartHere_(ss) {
   sh.setColumnWidth(1, 900);
   sh.setTabColor(tabSpec_('Start here').color);
   if (created) placeTab_(ss, sh);
+  // refreshGuide_ (core/guide.js) rewrites the tab only when this changes
+  PropertiesService.getScriptProperties().setProperty('START_HERE_HASH.' + modeId_(), textHash_(text.join('\n')));
 }

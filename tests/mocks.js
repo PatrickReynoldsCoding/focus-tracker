@@ -245,7 +245,9 @@ function makeDocs(drive) {
       }
     },
     edit(id, text) { const f = doc(id); f.content = text; f.modifiedTime = stamp(); },
-    docs: () => Object.values(drive.files).filter((f) => f.mime === 'application/vnd.google-apps.document')
+    // notes Docs; the guide for AI assistants (core/guide.js) is a Doc too, found with guide()
+    docs: () => Object.values(drive.files).filter((f) => f.mime === 'application/vnd.google-apps.document' && !/guide for AI assistants$/.test(f.name)),
+    guide: () => Object.values(drive.files).filter((f) => f.mime === 'application/vnd.google-apps.document' && /guide for AI assistants$/.test(f.name))
   };
   return api;
 }

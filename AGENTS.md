@@ -29,6 +29,15 @@ The Resources feature stores links to Google Drive files. Before adding, suggest
 - Rich text from the browser is cleaned on the server with `sanitizeRichText_` before it is stored. Never store or render browser HTML without it.
 - Cells are plain text. Dates are ISO strings. Numbers are listed in a table's `numeric` argument.
 
+## Assistants editing the user's sheet
+
+Any user's AI assistant (Claude or another, with a Google Drive or Sheets connector) may add and change rows in the user's spreadsheet. It learns how from the guide the app writes from the code: `src/core/guide.js`. The same generator makes the Doc "Focus Tracker – guide for AI assistants" in the root "Focus Tracker" folder, the Start here tab, the paragraph in Settings → AI assistant, and `docs/assistant-guide.md` (`node scripts/write-guide.js`; a test fails while it is out of date).
+
+- A new people tab needs a line in `TAB_STYLE` (`src/core/schema.js`) and an entry in `guideTabs_()`. A new column in a people tab needs its meaning there too; a test fails until it has one.
+- A new kind of information needs a line in "Where things go", so assistants put it in the right place.
+- Rows an assistant types are completed or flagged by `src/core/complete.js` (the `complete` rules in `TAB_STYLE`). When the guide tells assistants to type something, add a test that types it into the fake sheet and loads the app.
+- The guide holds no data from the sheet: no ids, addresses, names or categories. Mode names and the Doc's own address only.
+
 ## Deploying to Apps Script
 
 Paddy has given standing permission: after `npm test` passes and the change is committed, run `npx clasp push -f` and then `npx clasp deploy --deploymentId <id> --description "<short text>"` without asking first. Run `npx clasp deployments` to list the ids. Use the newest versioned deployment (not `@HEAD`), so the bookmarked URL keeps working. Never create a new deployment: it changes the URL. Tell Paddy what you deployed. `.clasp.json` stays git-ignored and ids stay out of the repository.

@@ -913,7 +913,8 @@ async function waitFor(fn, label, ms = 3000) {
     $('#dlg-note').innerHTML = '<b>Why:</b> reviewers read history<script>alert(1)</script>';
     setVal($('#dlg-cardtitle'), 'Tell a story with commits');
     click($('#dlg-submit'));
-    await waitFor(() => !$('.dialog') && $('#app .listpanel .kcard .knote'), 'note preview');
+    // The note shows at once as typed, then as the server cleaned it: wait for the cleaned one (a race before 2026-10-30).
+    await waitFor(() => !$('.dialog') && $('#app .listpanel .kcard .knote') && !$('#app .listpanel .kcard .knote').textContent.includes('alert'), 'cleaned note preview');
     const saved = $('#app .listpanel .kcard');
     assert.strictEqual(saved.querySelector('.kt').textContent, 'Tell a story with commits');
     assert.strictEqual(saved.querySelector('.knote').textContent, 'Why: reviewers read history');
@@ -1223,6 +1224,31 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.tab[aria-current="page"]').textContent !== 'Lists', 'went back');
   });
 
+  await step('Settings has an AI assistant section: the paragraph to paste, Copy, and Open guide', async () => {
+    click($('#settingsBtn'));
+    const box = await waitFor(() => $('#dlg-assistant'), 'AI assistant section');
+    const order = $$('.dialog .settingsec').map((s) => s.dataset.section);
+    assert.ok(order.indexOf('assistant') > order.indexOf('wrapper'), 'after the wrapper site');
+    assert.ok(box.readOnly, 'read-only');
+    const guideUrl = w.FT.config.guideUrl;
+    assert.ok(/^https:\/\/docs\.google\.com\/document\/d\/.+\/edit$/.test(guideUrl), 'the page knows the guide Doc');
+    ['I use Focus Tracker', '"Focus Tracker – guide for AI assistants"', guideUrl, '"Personal" or "Work"', 'Never delete rows'].forEach((t) => assert.ok(box.value.includes(t), 'the paragraph says ' + t));
+    assert.strictEqual($('#dlg-guide').getAttribute('href'), guideUrl);
+    assert.strictEqual($('#dlg-guide').getAttribute('target'), '_blank');
+    assert.strictEqual($('#dlg-guide').textContent, 'Open guide');
+    let copied = null;
+    w.document.execCommand = (cmd) => { if (cmd === 'copy') { const ta = w.document.querySelector('body > textarea'); copied = ta && ta.value; } return cmd === 'copy'; };
+    click($('#dlg-assistantcopy'));
+    assert.ok(!$('#dlg-assistantcopied').hidden && /^Copied\./.test($('#dlg-assistantcopied').textContent), 'says it copied, at once');
+    assert.strictEqual(copied, box.value, 'the paragraph is what is copied');
+    w.document.execCommand = () => false;
+    click($('#dlg-assistantcopy'));
+    assert.ok(/did not allow copying/.test($('#dlg-assistantcopied').textContent), 'a refused copy says what to do');
+    delete w.document.execCommand;
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closed');
+  });
+
   await step('whiteboards: make two named boards, rename one, remove one with Undo', async () => {
     click(tab('Projects'));
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
@@ -1397,6 +1423,37 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual($$('tr.row').length, 0);
     setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && !d.body.dataset.accent, 'back to personal');
+  });
+
+  await step('assistant rows: the guide\'s worked example, typed into the sheet, shows on the project page with no problems', async () => {
+    // The example's blocker was deleted by an earlier step: the owner makes it in the app again.
+    if (!w.FT.store.projects.some((p) => p.name === 'Garden fence repair')) server.run('rpc')('projects', 'create', { name: 'Garden fence repair', category: 'house' });
+    const example = JSON.parse(JSON.stringify(server.run('GUIDE_EXAMPLE_')));
+    const typed = example.rows.map(({ tab: t, row }) => {
+      const sh = server.ss.sheets[t], line = sh.rows[0].map((h) => (row[h] === undefined ? '' : row[h]));
+      sh.rows.push(line);
+      return { t, line, h: sh.rows[0] };
+    });
+    w.FT.ready = false; w.FT.boot();
+    await waitFor(() => w.FT.ready && w.FT.store.projects.some((p) => p.name === 'Garden irrigation'), 'reloaded with the new project');
+    typed.forEach(({ t, line, h }) => {
+      assert.strictEqual(line[h.indexOf('problem')] || '', '', t + ' row has no problem: ' + line.join('|'));
+      assert.ok(/^[0-9a-f]{8}$/.test(line[h.indexOf('id')]), t + ' row has an id');
+    });
+    click(tab('Projects'));
+    click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Garden irrigation')), 'the project in the table'));
+    await waitFor(() => $('.board') && $$('.kcard').length === 3, 'its board with three cards');
+    const cards = {};
+    $$('.col[data-colid]').forEach((c) => { cards[c.querySelector('.colname').value] = Array.from(c.querySelectorAll('.kcard')).map((k) => k.textContent.trim()).filter(Boolean); });
+    assert.deepStrictEqual(Object.keys(cards), ['To do', 'Doing', 'Done']);
+    assert.ok(cards['To do'].length === 2 && cards['To do'].some((t) => t.includes('Measure the beds')) && cards['To do'].some((t) => t.includes('Choose a drip kit')));
+    assert.ok(cards.Doing.length === 1 && cards.Doing[0].includes('Sketch the layout'));
+    const repo = await waitFor(() => $$('.reslist a').find((a) => a.textContent === 'garden-irrigation repo'), 'the repository in Resources');
+    assert.strictEqual(repo.getAttribute('href'), 'https://github.com/example/garden-irrigation');
+    assert.ok($$('.rgroup').some((g) => g.textContent === 'Code'), 'under the group Code');
+    assert.ok($('.waitbox') && $('.waitbox').textContent.includes('Waiting on Garden fence repair'), 'blocked by the existing project');
+    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('Drip lines on the two back beds'), 'the notes typed in the notes cell are the project\'s notes');
+    assert.ok($('#nt-text').querySelector('h1') && $('#nt-text').querySelector('li'), 'with their heading and list');
   });
 
   assert.deepStrictEqual(errors, [], 'no uncaught page errors');

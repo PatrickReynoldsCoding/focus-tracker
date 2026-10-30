@@ -847,7 +847,7 @@ var FT = (function () {
    * Settings is built from sections, drawn in order (lower first) each time it opens. A module adds its own with
    *   FT.settings.add({ id: 'draw', order: 50, html: function () { return '<label>…</label>…'; }, onOpen: function (root) { … } });
    * id: unique (adding the same id again replaces it). order: the core uses 0 (Undo, Redo and Back, always first), 10 (Data),
-   * 20 (When the app opens), 30 (Theme), 40 (Wrapper site) and 1000 (build label); pick a number in between.
+   * 20 (When the app opens), 30 (Theme), 40 (Wrapper site), 45 (AI assistant) and 1000 (build label); pick a number in between.
    * html(): the section's markup, a <label> heading and its controls; give element ids a 'dlg-' start so they never clash.
    * onOpen(root): optional, wires the controls up once the dialog is drawn; root is the .dialog element.
    * Settings has no Save: a choice applies (and is stored, usually in localStorage for this device) as soon as it is made.
@@ -908,6 +908,42 @@ var FT = (function () {
       '<a class="btn" id="dlg-wrapperlink" href="' + FT.esc(FT.config.wrapperUrl || '#') + '" target="_blank" rel="noopener noreferrer">Wrapper site</a></span></div>' +
       '<div id="dlg-copied" class="hint" style="background:none;padding:4px 0 0" hidden></div>';
   }, onOpen: function () { $('dlg-wrapper').addEventListener('click', copyAndOpenWrapper); } });
+
+  /** Copy text to the clipboard. done(true) once it is copied, done(false) if the browser refused. */
+  function copyText(text, done) {
+    var copied = false;
+    try {
+      var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); copied = document.execCommand('copy'); document.body.removeChild(ta);
+    } catch (e) { copied = false; }
+    if (copied) { done(true); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    else done(false);
+  }
+
+  /**
+   * AI assistant: the paragraph to paste into an assistant's memory or project instructions, made by the server from the
+   * guide (core/guide.js assistantNote_), with the guide Doc's address once it exists. Nothing is saved.
+   */
+  FT.settings.add({ id: 'assistant', order: 45, html: function () {
+    var note = FT.config.assistantNote || 'Open the app while online once, so it can write the guide for AI assistants.';
+    return '<label for="dlg-assistant">AI assistant</label><div class="settingrow"><span style="color:var(--muted)">An assistant that can use your Google Drive and Sheets (Claude, ChatGPT, Gemini) can add projects, cards, links and notes for you. ' +
+      'Paste this into its memory or project instructions, so it reads the guide first and puts things in the right place.</span></div>' +
+      '<textarea id="dlg-assistant" readonly rows="6" style="width:100%;box-sizing:border-box;margin-top:6px">' + FT.esc(note) + '</textarea>' +
+      '<span style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn" type="button" id="dlg-assistantcopy"' + (FT.config.assistantNote ? '' : ' disabled') + '>Copy</button>' +
+      (FT.config.guideUrl ? '<a class="btn" id="dlg-guide" href="' + FT.esc(FT.config.guideUrl) + '" target="_blank" rel="noopener noreferrer">Open guide</a>' : '') + '</span>' +
+      '<div id="dlg-assistantcopied" class="hint" style="background:none;padding:4px 0 0" role="status" hidden></div>';
+  }, onOpen: function () {
+    var btn = $('dlg-assistantcopy'), box = $('dlg-assistant'), say = $('dlg-assistantcopied');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      say.hidden = false; say.textContent = 'Copying…';
+      copyText(box.value, function (ok) {
+        say.textContent = ok ? 'Copied. Paste it into your assistant\'s instructions.' : 'Your browser did not allow copying. Select the text above and copy it.';
+        if (!ok) { box.focus(); box.select(); }
+      });
+    });
+  } });
 
   FT.settings.add({ id: 'build', order: 1000, html: function () {
     return '<div style="margin-top:12px;color:var(--muted);font-size:12px">Build 2026-10-28</div>';

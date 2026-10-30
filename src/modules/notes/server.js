@@ -6,6 +6,10 @@
  * The markdown file stays what the editor saves to; the Doc is a mirror written when editing is finished (syncDoc),
  * and edits made in the Doc are brought back when the project is opened (checkDoc). Both use Drive's own markdown
  * import and export (the Drive advanced service), so no new permission is needed.
+ *
+ * An AI assistant cannot make a notes file the app would see, so for a project with no notes Doc yet it writes the notes
+ * as plain text into the project's notes cell in the sheet (the guide for assistants, core/guide.js, says so). The next
+ * snapshot adds that text to the end of the project's notes and puts the link back in the cell (importTyped_).
  */
 
 function notesModule() {
@@ -90,10 +94,35 @@ function notesModule() {
     return '';
   }
 
+  /** A Projects.notes cell that holds text instead of a link: notes typed in the sheet. */
+  function typedNotes_(cell) {
+    var v = String(cell || '').trim();
+    return v && !/^https?:\/\//i.test(v) && !/^(docs|drive)\.google\.com\//i.test(v) ? v : '';
+  }
+
+  /**
+   * Notes typed into the notes cell (by an assistant, or by hand) go to the end of the project's notes, made if there
+   * are none, and the cell gets the link back: the Doc's when there is one, else the file's. In memory when there are
+   * none, so the snapshot costs no Drive call. The Doc gets the new text on its next sync, like any other save.
+   */
+  function importTyped_(ctx) {
+    var projects = ctx.optional('projects', 'list', {}) || [];
+    projects.forEach(function (p) {
+      var text = typedNotes_(p.notes);
+      if (!text) return;
+      text = text.replace(/\r\n?/g, '\n');
+      var row = rowFor_(p.id);
+      var current = row ? DriveApp.getFileById(row.file_id).getBlob().getDataAsString().replace(/\s+$/, '') : '';
+      var saved = write_({ projectId: p.id, text: current ? current + '\n' + text : text }, ctx);
+      ctx.call('projects', 'setNotesLink', { id: p.id, url: row && row.doc_id ? docUrl_(row.doc_id) : saved.url });
+    });
+  }
+
   return {
     title: 'Notes',
     tables: [T],
-    snapshot: function () {
+    snapshot: function (ctx) {
+      importTyped_(ctx);
       return T.all().map(function (r) { return { project_id: r.project_id, url: r.file_url, updated: r.updated, doc: docUrl_(r.doc_id) }; });
     },
     api: {

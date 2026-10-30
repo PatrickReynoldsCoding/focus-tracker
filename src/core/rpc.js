@@ -10,6 +10,8 @@ function bootstrap(modeId) {
   Object.keys(mods).forEach(function (id) {
     if (typeof mods[id].snapshot === 'function') data[id] = mods[id].snapshot(ctx);
   });
+  // The guide for AI assistants (core/guide.js): written to Drive and Start here only when its text changed.
+  var guideUrl = refreshGuide_();
   return {
     config: {
       appName: APP_NAME,
@@ -18,7 +20,10 @@ function bootstrap(modeId) {
       modes: allModes_().map(function (m) { return { id: m.id, label: m.label, accent: m.accent || '' }; }),
       folderUrl: getModeFolder_().getUrl(),
       wrapperUrl: WRAPPER_URL,
-      execUrl: webAppUrl_()
+      execUrl: webAppUrl_(),
+      guideName: guideDocName_(),
+      guideUrl: guideUrl,
+      assistantNote: assistantNote_(guideUrl)
     },
     modules: modeModules_().map(function (id) { return { id: id, title: mods[id].title || id }; }),
     data: data

@@ -568,7 +568,7 @@ test('data from before modes moves into the Personal folder on first load', () =
   assert.strictEqual(s.drive.pathOf(oldNote), 'Focus Tracker/Personal/Notes/fan-1.md');
   assert.strictEqual(b.config.folderUrl, s.drive.getFolderById(s.script._m['MODE_FOLDER_ID.personal']).getUrl());
   json(s.run('bootstrap()'));
-  assert.strictEqual(Object.keys(root.children).length, 1, 'a second load moves nothing');
+  assert.deepStrictEqual(Object.values(root.children).map((c) => c.name).sort(), ['Focus Tracker – guide for AI assistants', 'Personal'], 'a second load moves nothing (the guide for assistants sits at the top)');
 });
 
 test('work mode gets its own spreadsheet, folder, categories and Today state', () => {
@@ -1641,6 +1641,207 @@ test('a habit typed into the sheet is completed, and one the app cannot use is f
   assert.strictEqual(rows.find((h) => h.name === 'Bad one').problem, 'Per must be day or week.');
   const linked = rows.find((h) => h.name === 'Linked');
   assert.deepStrictEqual([linked.category, linked.status, linked.per, linked.sessions, linked.prompts], ['job', 'active', 'week', '1', 'off']);
+});
+
+
+// ---------- the guide for AI assistants (core/guide.js) ----------
+
+const GUIDE_NAME = 'Focus Tracker – guide for AI assistants';
+
+test('the guide for assistants describes every people tab and every column, from the code', () => {
+  const s = fresh();
+  assert.deepStrictEqual(json(s.run('guideGaps_()')), [], 'every people column has a meaning in GUIDE_TABS_');
+  const md = String(s.run('guideMarkdown_()'));
+  const people = json(s.run('TAB_STYLE')).filter((t) => t.people && t.name !== 'Start here');
+  assert.ok(people.length >= 11);
+  people.forEach((t) => {
+    assert.ok(md.includes('\n### ' + t.name + '\n'), 'a section for ' + t.name);
+    const section = md.split('\n### ' + t.name + '\n')[1].split('\n### ')[0].split('\n## ')[0];
+    s.ss.sheets[t.name].rows[0].forEach((h) => assert.ok(new RegExp('(^|[ |,])' + h + '([ |,.]|$)', 'm').test(section), t.name + ' lists its column ' + h));
+  });
+  ['Where things go', 'Notes', 'Worked example', 'Changing an existing project safely', 'Safety rules', 'Checklist before you finish'].forEach((h) => assert.ok(md.includes('\n## ' + h), 'has ' + h));
+  ['active, paused, done, archived', 'link, drive, phone, email, text', 'One of: day, week', 'blocks', 'group Code', 'bank or card details', 'Never delete rows', 'problem column', '"Personal" or "Work"'].forEach((w) => assert.ok(md.includes(w), 'says ' + w));
+  const fs = require('fs'), path = require('path');
+  assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'docs', 'assistant-guide.md'), 'utf8'), md, 'docs/assistant-guide.md is current: run node scripts/write-guide.js');
+});
+
+test('the guide holds no ids or addresses from the sheet: only mode names and its own address', () => {
+  const s = fresh();
+  s.run('seedStarterData()');
+  const p = s.call('projects', 'create', { name: 'Secret robot', category: 'coding' }).result;
+  s.call('resources', 'add', { projectId: p.id, category: 'coding', title: 'Robot repo', url: 'https://github.com/someone/secret-robot' });
+  s.call('notes', 'save', { projectId: p.id, text: 'private plans' });
+  s.call('notes', 'syncDoc', { projectId: p.id });
+  const b = json(s.run('bootstrap()'));
+  const guide = s.docs.guide();
+  assert.strictEqual(guide.length, 1);
+  const texts = [String(s.run('guideMarkdown_()')), guide[0].content, s.ss.sheets['Start here'].rows.map((r) => r[0]).join('\n')];
+  const ids = [s.ss.getId(), s.script._m.FOLDER_ID, s.script._m['MODE_FOLDER_ID.personal'], p.id, 'secret-robot', 'Secret robot', 'private plans']
+    .concat(b.data.projects.map((x) => x.id), b.data.kanban.tasks.map((t) => t.id), Object.keys(s.drive.files));
+  texts.forEach((t, i) => ids.forEach((id) => assert.ok(id && !t.includes(id), 'text ' + i + ' does not contain ' + id)));
+  texts.forEach((t) => (t.match(/https:\/\/[^\s)|"]+/g) || []).forEach((u) => assert.ok(/^https:\/\/(github\.com\/example\/|docs\.google\.com\/(document\/)?\.\.\.|docs\.google\.com\/$|drive\.google\.com\/$|\.\.\.)/.test(u) || u === 'https://' , 'only example addresses: ' + u)));
+});
+
+test('the guide Doc is made in the root folder on setup, and rewritten only when its text changes', () => {
+  const s = fresh();
+  const [doc] = s.docs.guide();
+  assert.ok(doc, 'setup makes it');
+  assert.strictEqual(s.drive.pathOf(doc), 'Focus Tracker/' + GUIDE_NAME);
+  assert.strictEqual(doc.content, String(s.run('guideMarkdown_()')), 'Drive\'s markdown import gets the generated guide');
+  assert.strictEqual(s.script._m.GUIDE_DOC_ID, doc.id);
+  // the page gets its address and the paragraph for an assistant's instructions
+  const b = json(s.run('bootstrap()'));
+  const url = 'https://docs.google.com/document/d/' + doc.id + '/edit';
+  assert.strictEqual(b.config.guideUrl, url);
+  assert.strictEqual(b.config.guideName, GUIDE_NAME);
+  ['"Focus Tracker"', '"' + GUIDE_NAME + '"', url, '"Personal" or "Work"', 'Never delete rows'].forEach((w) => assert.ok(b.config.assistantNote.includes(w), 'the paragraph says ' + w));
+  // unchanged text: no Drive call on later loads or migrations
+  const calls = Object.assign({}, s.docs.calls);
+  json(s.run('bootstrap()')); s.call('projects', 'create', { name: 'X', category: 'coding' }); s.run('ensureSchema_()'); json(s.run('bootstrap("work")'));
+  assert.deepStrictEqual(s.docs.calls, calls, 'no Drive call while the guide is the same');
+  // a new mode changes the text: the same Doc is rewritten once
+  json(s.run('createMode')('Side projects'));
+  json(s.run('bootstrap()')); json(s.run('bootstrap()'));
+  assert.strictEqual(s.docs.calls.update, calls.update + 1, 'rewritten once');
+  assert.strictEqual(s.docs.calls.create, calls.create);
+  assert.strictEqual(s.docs.guide().length, 1);
+  assert.ok(doc.content.includes('"Personal", "Work" or "Side projects"'));
+  // a Doc deleted in Drive is made again when the text next changes
+  delete s.drive.files[doc.id]; delete doc.parent.children[doc.id];
+  json(s.run('createMode')('Garden'));
+  const again = json(s.run('bootstrap()'));
+  const [remade] = s.docs.guide();
+  assert.ok(remade && remade.id !== doc.id && again.config.guideUrl.includes(remade.id), 'a new Doc, and the page links it');
+  // Drive refusing never stops the app
+  json(s.run('createMode')('Boat'));
+  s.run('Drive.Files.update = Drive.Files.create = function () { throw new Error("Drive is down"); }');
+  const down = json(s.run('bootstrap()'));
+  assert.strictEqual(down.config.guideUrl, again.config.guideUrl, 'the last address is still offered');
+  assert.ok(s.mock.logs.some((l) => /guide Doc not written: Drive is down/.test(l)));
+});
+
+test('Start here is the short guide, rewritten when its text changes', () => {
+  const s = fresh();
+  const text = () => s.ss.sheets['Start here'].rows.map((r) => r[0]).join('\n');
+  assert.strictEqual(text(), json(s.run('guideShortLines_()')).join('\n'));
+  ['Projects:', 'Tasks:', 'Resources:', GUIDE_NAME, 'Leave id, order and created empty', 'group Code', 'To do, Doing, Done'].forEach((w) => assert.ok(text().includes(w), 'says ' + w));
+  s.ss.sheets['Start here'].rows[1] = ['old text'];
+  json(s.run('bootstrap()'));
+  assert.strictEqual(s.ss.sheets['Start here'].rows[1][0], 'old text', 'not rewritten on every load');
+  s.script._m['START_HERE_HASH.personal'] = 'older code';
+  json(s.run('bootstrap()'));
+  assert.strictEqual(text(), json(s.run('guideShortLines_()')).join('\n'), 'rewritten once the guide changed');
+});
+
+/** Type rows into the fake sheet as an assistant would: only the columns given, everything else empty. */
+function typeRows(s, rows) {
+  rows.forEach(({ tab, row }) => { const sh = s.ss.sheets[tab]; sh.rows.push(sh.rows[0].map((h) => (row[h] === undefined ? '' : row[h]))); });
+}
+
+test('assistant rows: the guide\'s worked example, typed as written, loads with every id filled and no problem', () => {
+  const s = fresh();
+  s.run('seedStarterData()');
+  json(s.run('bootstrap()'));
+  const example = json(s.run('GUIDE_EXAMPLE_'));
+  typeRows(s, example.rows);
+  const b = json(s.run('bootstrap()')).data;
+  const sh = s.ss.sheets;
+  ['Projects', 'Tasks', 'Resources', 'Links', 'Criteria'].forEach((tab) => rowsOf(sh[tab]).forEach((r) => {
+    assert.strictEqual(r.problem, '', tab + ' row has no problem: ' + JSON.stringify(r));
+    assert.ok(/^[0-9a-f]{8}$/.test(r.id), tab + ' row has an id');
+  }));
+  const p = b.projects.find((x) => x.name === 'Garden irrigation');
+  assert.deepStrictEqual([p.category, p.status, p.next_action], ['house', 'active', 'Measure the two back beds']);
+  const cols = b.kanban.columns.filter((c) => c.owner === p.id);
+  assert.deepStrictEqual(cols.map((c) => c.name), ['To do', 'Doing', 'Done'], 'the usual board');
+  const cards = b.kanban.tasks.filter((t) => t.owner === p.id);
+  const colName = (t) => cols.find((c) => c.id === t.column_id).name;
+  assert.deepStrictEqual(cards.map((t) => [t.title, colName(t)]).sort(), [['Choose a drip kit', 'To do'], ['Measure the beds', 'To do'], ['Sketch the layout', 'Doing']]);
+  assert.ok(cards.find((t) => t.title === 'Choose a drip kit').note_html.includes('Compare two kits'));
+  const repo = b.resources.find((r) => r.title === 'garden-irrigation repo');
+  assert.deepStrictEqual([repo.type, repo.value, repo.group, repo.project_id, repo.category], ['link', 'https://github.com/example/garden-irrigation', 'Code', p.id, 'house']);
+  const fence = b.projects.find((x) => x.name === 'Garden fence repair');
+  assert.ok(b.links.some((l) => l.from_id === fence.id && l.to_id === p.id && l.type === 'blocks'));
+  assert.ok(rowsOf(sh.Criteria).some((c) => c.project_id === p.id && c.text === 'Every bed gets water from the timer'));
+  // the notes typed into the notes cell became the project's notes, and the cell holds the link again
+  const notes = b.notes.find((n) => n.project_id === p.id);
+  assert.ok(notes, 'a notes file was made');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# Plan\nDrip lines on the two back beds.\n- Timer on the outside tap\n- Water butt as a backup');
+  assert.strictEqual(rowsOf(sh.Projects).find((x) => x.id === p.id).notes, notes.url);
+  // loading again changes nothing
+  const before = JSON.stringify(Object.fromEntries(Object.keys(sh).map((n) => [n, sh[n].rows])));
+  json(s.run('bootstrap()'));
+  assert.strictEqual(JSON.stringify(Object.fromEntries(Object.keys(sh).map((n) => [n, sh[n].rows]))), before);
+});
+
+test('assistant rows: notes typed into the cell of a project that has a notes Doc go to the end of its notes', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
+  s.call('notes', 'save', { projectId: p.id, text: '# Shed\nFirst line' });
+  const doc = s.call('notes', 'syncDoc', { projectId: p.id }).result.url;
+  const sh = s.ss.sheets.Projects, col = sh.rows[0].indexOf('notes');
+  sh.rows.find((r) => r.includes(p.id))[col] = '## 2026-11-03\nRoof felt ordered';
+  json(s.run('bootstrap()'));
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# Shed\nFirst line\n## 2026-11-03\nRoof felt ordered');
+  assert.strictEqual(sh.rows.find((r) => r.includes(p.id))[col], doc, 'the Doc\'s link is back');
+  assert.ok(s.call('notes', 'syncDoc', { projectId: p.id }).result.url === doc && s.docs.docs()[0].content.includes('Roof felt ordered'), 'the Doc gets it on its next sync');
+});
+
+test('assistant rows that cannot be used are flagged with a reason, never guessed or deleted', () => {
+  const s = fresh();
+  s.run('seedStarterData()');
+  json(s.run('bootstrap()'));
+  typeRows(s, [
+    { tab: 'Projects', row: { name: 'Pond', category: 'House' } },
+    { tab: 'Projects', row: { name: 'garden FENCE repair ', category: 'House' } },
+    { tab: 'Projects', row: { name: 'Twin', category: 'Coding', status: 'Paused' } },
+    { tab: 'Projects', row: { name: 'twin', category: 'Coding' } },
+    { tab: 'Tasks', row: { title: 'Dig', project: 'Pond', column: 'Doing' } },
+    { tab: 'Tasks', row: { title: 'Ghost', project: 'No such project', column: 'To do' } },
+    { tab: 'Tasks', row: { title: 'Which twin', project: 'Twin' } },
+    { tab: 'Resources', row: { title: 'Pond repo', type: 'Link', value: 'https://github.com/example/pond', group: 'Code', project: 'Pond' } },
+    { tab: 'Resources', row: { title: 'Bad link', type: 'link', value: 'github.com/example/pond', project: 'Pond' } },
+    { tab: 'Links', row: { from: 'Pond', type: 'Relates', to: 'Twin' } },
+    { tab: 'Links', row: { from: 'Pond', type: 'blocks', to: 'Nowhere' } }
+  ]);
+  const b = json(s.run('bootstrap()')).data;
+  const problem = (tab, key, value) => rowsOf(s.ss.sheets[tab]).find((r) => r[key] === value).problem;
+  const pond = b.projects.find((p) => p.name === 'Pond');
+  assert.ok(pond && pond.category === 'house', 'a project with only a name and a category label');
+  assert.strictEqual(b.projects.filter((p) => /fence/i.test(p.name)).length, 1, 'no second fence project');
+  assert.match(problem('Projects', 'name', 'garden FENCE repair '), /already a project called "garden FENCE repair"/);
+  assert.strictEqual(b.projects.find((p) => p.name === 'Twin').status, 'paused', 'a capital letter is fine');
+  assert.match(problem('Projects', 'name', 'twin'), /already a project called "twin"/, 'two new rows with one name: the second is flagged');
+  assert.strictEqual(problem('Tasks', 'title', 'Dig'), '');
+  assert.match(problem('Tasks', 'title', 'Ghost'), /No project called "No such project"/);
+  assert.strictEqual(problem('Tasks', 'title', 'Which twin'), '', 'the flagged twin does not count, so the name is not shared');
+  assert.strictEqual(b.resources.find((r) => r.title === 'Pond repo').type, 'link');
+  assert.match(problem('Resources', 'title', 'Bad link'), /starts with https:\/\//);
+  assert.ok(b.links.some((l) => l.type === 'relates' && l.from_id === pond.id));
+  assert.match(problem('Links', 'to', 'Nowhere'), /No project called "Nowhere"/);
+  assert.ok(!b.kanban.tasks.some((t) => t.title === 'Ghost') && !b.resources.some((r) => r.title === 'Bad link'));
+  // fixing a flagged row clears its problem: the duplicate gets its own name
+  const sh = s.ss.sheets.Projects;
+  sh.rows.find((r) => r[0] === 'twin')[0] = 'Twin two';
+  const b2 = json(s.run('bootstrap()')).data;
+  assert.ok(b2.projects.some((p) => p.name === 'Twin two'));
+  assert.strictEqual(rowsOf(s.ss.sheets.Projects).length, json(s.run('bootstrap()')).data.projects.length + 1, 'only the fence duplicate is left out, and still there');
+});
+
+test('assistant rows: a card moves when its column name changes and column_id is emptied', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Kiln', category: 'house' }).result;
+  const t = s.call('kanban', 'addTask', { projectId: p.id, title: 'Fire it' });
+  const id = (t.result && t.result.id) || t.result;
+  const sh = s.ss.sheets.Tasks, h = sh.rows[0];
+  const row = sh.rows.find((r) => r.includes('Fire it'));
+  row[h.indexOf('column')] = 'done'; row[h.indexOf('column_id')] = '';
+  const b = json(s.run('bootstrap()')).data;
+  const done = b.kanban.columns.find((c) => c.owner === p.id && c.name === 'Done');
+  const card = b.kanban.tasks.find((x) => x.title === 'Fire it');
+  assert.ok(id);
+  assert.strictEqual(card.column_id, done.id);
+  assert.strictEqual(row[h.indexOf('column')], 'Done', 'written as the board spells it');
 });
 
 console.log('\n' + passed + ' server tests passed');

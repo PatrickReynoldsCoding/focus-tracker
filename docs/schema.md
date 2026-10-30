@@ -97,6 +97,8 @@ The migration, the tab styles, the Settings tab and the completing of typed rows
 - **Links** (2026-10-30) is made by the `links` module (setup, or the first load after the update). A typed row needs a project on both sides that are not the same; duplicates and blocking circles are refused by the app's own calls, not flagged in typed rows.
 - `migrateAllModes()` can be run from the Apps Script editor to migrate every mode that has a spreadsheet before the app is opened.
 
+- **Assistant integration** (2026-10-30): Start here is the short version of the guide for AI assistants (`src/core/guide.js`), whose full version is a Google Doc in the root folder. A card typed for a project board with no columns makes To do, Doing and Done (plus the column named, if it is another), not only one column. A new project row whose name another project has is flagged. A notes cell holding text instead of a link is moved into the project's notes by the notes module.
+
 ### Risks on Google's runtime (what the fakes cannot prove)
 
 - **Time and the lock.** The first load of each mode copies the spreadsheet and rewrites about 14 tabs, then styles and orders them: likely tens of seconds. Other requests wait 15 s for the script lock and then fail with a lock error (another device, a second tab). Run `migrateAllModes()` from the editor right after `clasp push`, before opening the app.

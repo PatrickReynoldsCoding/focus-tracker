@@ -9,7 +9,7 @@ function kanbanModule() {
   var COLUMNS = new Table('Columns', ['id', 'project_id', 'list_id', 'name', 'order'], ['order']);
   var TASKS = new Table('Tasks', ['title', 'column', 'project', 'list', 'note', 'color', 'problem', 'id', 'project_id', 'list_id', 'column_id', 'order', 'note_html', 'created', 'updated_at'], ['order']);
   var CARD_COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
-  var DEFAULT_COLUMNS = ['To do', 'Doing', 'Done'];
+  var DEFAULT_COLUMNS = BOARD_COLUMNS_; // core/schema.js: a board an assistant starts in the sheet gets the same
 
   function ownerOf_(row) { return row.project_id || row.list_id; }
   function withOwner_(row) { row.owner = ownerOf_(row); return row; }
@@ -48,9 +48,11 @@ function kanbanModule() {
     title: 'Kanban',
     tables: [COLUMNS, TASKS],
     snapshot: function () {
+      // Cards first: reading Tasks completes cards typed in the sheet, which can add a board's first columns.
+      var tasks = TASKS.all().sort(function (a, b) { return a.order - b.order; }).map(withOwner_);
       return {
         columns: COLUMNS.all().sort(function (a, b) { return a.order - b.order; }).map(withOwner_),
-        tasks: TASKS.all().sort(function (a, b) { return a.order - b.order; }).map(withOwner_)
+        tasks: tasks
       };
     },
     api: {

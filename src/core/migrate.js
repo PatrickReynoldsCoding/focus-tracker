@@ -68,6 +68,7 @@ function ensureSchema_() {
       version = step.to;
       props.setProperty(schemaVersionKey_(), String(version));
     });
+    ensureGuideDoc_(); // the guide for assistants describes the new layout (no Drive call when its text is the same)
   });
   tableCache_ = {}; // tabs were replaced: read them again
 }
