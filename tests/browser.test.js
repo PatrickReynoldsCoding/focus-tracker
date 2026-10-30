@@ -147,6 +147,21 @@ async function run(browser, size) {
   } else {
     log('Kanban: column drag not tried, SortableJS did not load from the CDN');
   }
+  // linked projects: + Link opens its dialog at once, the new link shows before the slow server has it, and Remove goes at once
+  const projectLinks = () => env.server.run('bootstrap()').data.links.filter((l) => l.from_id === id || l.to_id === id);
+  await quick('Links: + Link dialog', pg.locator('[data-act="links.add"]'));
+  await quick('Links: Link (save)', pg.locator('#dlg-submit'));
+  assert.ok(!(await pg.isVisible('.dialog')), 'the dialog closes at once');
+  assert.strictEqual(await pg.locator('.lklist li').count(), 1, 'the link shows at once');
+  assert.strictEqual(projectLinks().length, 0, 'before the slow server has saved it');
+  await settle();
+  assert.strictEqual(projectLinks().length, 1, 'the link reached the server');
+  await quick('Links: Remove', pg.locator('.lklist [data-act="links.remove"]'));
+  assert.strictEqual(await pg.locator('.lklist li').count(), 0, 'the link goes at once');
+  assert.ok(/Project link deleted/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'and the Undo message shows at once');
+  await settle();
+  assert.strictEqual(projectLinks().length, 0, 'the remove reached the server');
+  log('Links: + Link and Remove answer at once and reach the server');
   await quick('Resources: add a link dialog', pg.locator('[data-act="resources.add"]').first()); await closeDialog();
   await quick('Sticky: + Note', pg.locator('[data-act="stickies.add"]'));
   await settle();

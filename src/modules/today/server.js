@@ -178,9 +178,11 @@ function todayModule() {
       .map(function (r) { return { id: r.id, project_id: r.project_id, due: r.due, created: r.created }; });
   }
 
+  /** Active projects best first. Locked ones are left out, and so are ones waiting on an unfinished project (links module, if installed). */
   function ranked_(ctx, lead) {
+    var waiting = ctx.optional('links', 'waiting', {}) || {};
     return ctx.call('projects', 'list', {})
-      .filter(function (p) { return p.status === 'active' && !projectLocked_(p); })
+      .filter(function (p) { return p.status === 'active' && !projectLocked_(p) && !waiting[p.id]; })
       .map(function (p) {
         return { id: p.id, score: daysSince_(p.last_touched) + (lead && p.category === lead ? 100 : 0) };
       })

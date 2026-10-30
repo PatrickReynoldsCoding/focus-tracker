@@ -1,0 +1,138 @@
+<style>
+.lklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.lklist li { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.lklist li:last-child { border-bottom: 0; }
+.lklist .lkwords { color: var(--muted); }
+.lklist .lkname { border: 0; background: none; padding: 0; margin: 0; font: inherit; font-weight: 600; color: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.lklist .lkstatus { color: var(--muted); font-size: 13px; }
+.lklist li.waits .lkstatus { color: var(--warn); font-weight: 600; }
+.lklist .lknote { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.lkrm { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; flex: none; }
+.lkrm:hover { background: var(--surface-2); color: var(--bad); }
+.lkfoot { margin-top: 10px; }
+</style>
+<script>
+/**
+ * "Linked projects" on each project page: what blocks it, what it blocks and what it relates to, each a link to that
+ * project. "+ Link" adds one and Remove takes one away; both show at once and save in the background, with Undo.
+ * The checks the server makes (not itself, not twice, no circle of blocking links) run here first, so the dialog can say why.
+ */
+(function () {
+  var RELATIONS = [
+    { value: 'blocks', label: 'blocks' },
+    { value: 'blockedBy', label: 'is blocked by' },
+    { value: 'relates', label: 'relates to' }
+  ];
+  var FINISHED = ['done', 'archived'];
+
+  function links() { return FT.store.links || []; }
+
+  /** This project's links as lines, blocked-by first, then blocks, then related. */
+  function linesFor(projectId) {
+    var by = [], blocks = [], related = [];
+    links().forEach(function (l) {
+      if (l.type === 'blocks' && l.to_id === projectId) by.push({ link: l, other: l.from_id, name: l.from, words: 'Blocked by' });
+      else if (l.type === 'blocks' && l.from_id === projectId) blocks.push({ link: l, other: l.to_id, name: l.to, words: 'Blocks' });
+      else if (l.type === 'relates' && l.from_id === projectId) related.push({ link: l, other: l.to_id, name: l.to, words: 'Related to' });
+      else if (l.type === 'relates' && l.to_id === projectId) related.push({ link: l, other: l.from_id, name: l.from, words: 'Related to' });
+    });
+    return by.concat(blocks, related);
+  }
+
+  function lineHtml(x) {
+    var p = FT.project(x.other), name = p ? p.name : x.name || 'A deleted project';
+    var waits = x.words === 'Blocked by' && p && FINISHED.indexOf(p.status) === -1;
+    var target = p ? '<button class="lkname" data-act="links.open" data-id="' + FT.esc(p.id) + '">' + FT.esc(name) + '</button>' : '<b>' + FT.esc(name) + '</b>';
+    return '<li class="' + (waits ? 'waits' : '') + '"><span><span class="lkwords">' + x.words + '</span> ' + target +
+      (x.words === 'Blocked by' && p ? ' <span class="lkstatus">(' + FT.esc(p.status) + ')</span>' : '') +
+      (x.link.note ? '<span class="lknote">' + FT.linkify(x.link.note) + '</span>' : '') + '</span>' +
+      '<button class="lkrm" data-act="links.remove" data-id="' + FT.esc(x.link.id) + '" aria-label="Remove link: ' + FT.esc(x.words + ' ' + name) + '">Remove</button></li>';
+  }
+
+  function panel(p) {
+    var lines = linesFor(p.id);
+    return '<section class="panel"><div class="label">Linked projects</div>' +
+      (lines.length ? '<ul class="lklist">' + lines.map(lineHtml).join('') + '</ul>' : '<p class="empty">No linked projects.</p>') +
+      '<div class="lkfoot"><button class="btn sm" data-act="links.add" data-project="' + FT.esc(p.id) + '">+ Link</button></div></section>';
+  }
+
+  FT.module({ id: 'links', slots: { 'project.page': [{ id: 'linked', title: 'Linked projects', order: 22, span: 'half', render: panel }] } });
+
+  /** Does following blocking links from start reach goal? */
+  function reaches(start, goal) {
+    var seen = {}, todo = [start];
+    while (todo.length) {
+      var at = todo.pop();
+      if (at === goal) return true;
+      if (seen[at]) continue;
+      seen[at] = true;
+      links().forEach(function (l) { if (l.type === 'blocks' && l.from_id === at) todo.push(l.to_id); });
+    }
+    return false;
+  }
+
+  /** Why this link cannot be made, or ''. The same checks as the server's. */
+  function problem(fromId, toId, type) {
+    if (!fromId || !toId) return 'Pick a project.';
+    if (fromId === toId) return 'A project cannot be linked to itself.';
+    if (links().some(function (l) { return (l.from_id === fromId && l.to_id === toId) || (l.from_id === toId && l.to_id === fromId); })) return 'These projects are already linked. Remove that link first to change it.';
+    if (type === 'blocks' && reaches(toId, fromId)) return 'That would make a circle: each project would wait for the other.';
+    return '';
+  }
+
+  FT.action('links.open', function (el) { FT.go('project', { id: el.dataset.id }); });
+
+  FT.action('links.add', function (el) {
+    var projectId = el.dataset.project, self = FT.project(projectId);
+    if (!self) return;
+    var linked = {};
+    links().forEach(function (l) {
+      if (l.from_id === projectId) linked[l.to_id] = true;
+      if (l.to_id === projectId) linked[l.from_id] = true;
+    });
+    var others = (FT.store.projects || []).filter(function (p) { return p.id !== projectId && !linked[p.id]; })
+      .sort(function (a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
+    if (!others.length) { FT.toast('There is no other project to link to.'); return; }
+    FT.dialog({
+      title: 'Link a project',
+      subtitle: self.name + ' …',
+      submit: 'Link',
+      fields: [
+        { id: 'relation', label: 'This project', type: 'select', options: RELATIONS, value: 'blocks' },
+        { id: 'other', label: 'Project', type: 'select', value: others[0].id, options: others.map(function (p) {
+          return { value: p.id, label: p.name + (p.status === 'active' ? '' : ' (' + p.status + ')') };
+        }) },
+        { id: 'note', label: 'Note (optional)', placeholder: 'Why they are linked', maxlength: 300 }
+      ],
+      hint: '"Blocks" means this project must be done before the other one starts. A project that waits is left out of your focus pick.',
+      // The dialog closes and the link shows at once; if the server refuses it, it goes again with the reason.
+      onSubmit: function (v) {
+        var type = v.relation === 'relates' ? 'relates' : 'blocks';
+        var fromId = v.relation === 'blockedBy' ? v.other : projectId, toId = v.relation === 'blockedBy' ? projectId : v.other;
+        var why = problem(fromId, toId, type);
+        if (why) throw new Error(why);
+        var row = { id: FT.newId(), from: FT.project(fromId).name, type: type, to: FT.project(toId).name, note: v.note.slice(0, 300), problem: '',
+          from_id: fromId, to_id: toId, created: new Date().toISOString() };
+        var before = links();
+        FT.optimistic(function () {
+          FT.store.links = before.concat([row]);
+          return function () { FT.store.links = before; };
+        }, function () {
+          return FT.rpc('links', 'add', { id: row.id, fromId: fromId, toId: toId, type: type, note: row.note }, { render: false });
+        }).catch(function () {});
+      }
+    });
+  });
+
+  /** Removing a link is immediate; the message offers Undo. */
+  FT.action('links.remove', function (el) {
+    var id = el.dataset.id, before = links();
+    if (!before.some(function (l) { return l.id === id; })) return;
+    FT.optimistic(function () {
+      FT.store.links = before.filter(function (l) { return l.id !== id; });
+      return function () { FT.store.links = before; };
+    }, function () { return FT.rpc('links', 'remove', { id: id }, { render: false }); }).catch(function () {});
+    FT.deleted('Project link');
+  });
+})();
+</script>

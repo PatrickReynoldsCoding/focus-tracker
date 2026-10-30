@@ -18,6 +18,10 @@
 }
 .lockbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; gap: 4px; }
 .lockbox span { color: var(--ink); font-size: 14px; }
+.waitbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); display: grid; gap: 4px; }
+.waitbox span { font-size: 14px; }
+.waitmark { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: 12px; font-weight: 600; vertical-align: middle; }
+:root[data-theme="eink"] .waitmark { border: 2px solid #000; background: #fff; color: #000; }
 .tophead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .tophead .label { margin: 0; }
 .status-paused, .status-done, .status-archived { color: var(--muted); }
@@ -83,6 +87,15 @@
     } catch (e) {}
   }
 
+  /** The unfinished projects p waits for (Links tab: they block p), when the links module is installed. Finished projects wait for nothing. */
+  function waitingOn(p) {
+    var finished = function (x) { return x.status === 'done' || x.status === 'archived'; };
+    if (!p || finished(p)) return [];
+    return (FT.store.links || []).filter(function (l) { return l.type === 'blocks' && l.to_id === p.id; })
+      .map(function (l) { return FT.project(l.from_id); })
+      .filter(function (b) { return b && !finished(b); });
+  }
+
   function defaultOrder(a, b) {
     return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
   }
@@ -141,7 +154,7 @@
     var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
-      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b><button class="rowlink" data-act="projects.open" data-id="' + FT.esc(p.id) + '">' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</button></b></td><td>' + FT.pill(p.category) +
+      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b><button class="rowlink" data-act="projects.open" data-id="' + FT.esc(p.id) + '">' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</button></b>' + waitMarkHtml(p) + '</td><td>' + FT.pill(p.category) +
         '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.linkify(p.next_action) +
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
@@ -164,12 +177,25 @@
     again.setSelectionRange(caret, caret);
   }
 
+  function waitMarkHtml(p) {
+    var on = waitingOn(p);
+    return on.length ? '<span class="waitmark" title="Waiting on ' + FT.esc(on.map(function (b) { return b.name; }).join(', ')) + '">Waiting</span>' : '';
+  }
+
+  function waitBoxHtml(p) {
+    var on = waitingOn(p);
+    if (!on.length) return '';
+    return '<div class="waitbox"><b>Waiting on ' + on.map(function (b) {
+      return '<button class="rowlink" data-act="projects.open" data-id="' + FT.esc(b.id) + '">' + FT.esc(b.name) + '</button>';
+    }).join(', ') + '</b><span>It is left out of your focus pick until ' + (on.length === 1 ? 'that project is' : 'those projects are') + ' done.</span></div>';
+  }
+
   function headerHtml(p) {
     var n = FT.daysSince(p.last_touched);
     var inactive = p.status !== 'active', lockedUntil = FT.lockedUntil(p);
     return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + FT.pill(p.category) +
       '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
-      skippedHtml(p) + '</div></div></div>' +
+      skippedHtml(p) + '</div></div></div>' + waitBoxHtml(p) +
       (lockedUntil ? '<div class="lockbox"><b>🔒 Locked until ' + FT.esc(FT.lockLabel(lockedUntil)) + '</b><span>You locked this project so it cannot take over. It is hidden from your focus pick and its boards, notes and whiteboards are closed until then.</span></div>' : '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>') +
       '<div class="actions" style="margin-top:0">' +
       (lockedUntil ? '<button class="btn sm" data-act="projects.lock">Change lock…</button>' : '<button class="btn sm" data-act="projects.edit">Edit</button><button class="btn sm" data-act="projects.lock">Lock…</button>') +

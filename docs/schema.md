@@ -92,6 +92,7 @@ The migration, the tab styles, the Settings tab and the completing of typed rows
 - **Names next to ids.** Kept in step by `Table`: an insert or update that sets an id fills its name, and renaming a project, list or column rewrites the name in every tab that shows it (one write per tab). These name writes are not recorded for undo; undoing a rename rewrites them again.
 - **The browser.** Kanban columns and cards carry `owner` (their project or list id) so pages filter on one field; calls still send the owner id as `projectId` and the server works out `project_id` or `list_id`. Resources keep taking `url` in `add`. Rows that are not links (phone, email, text, typed in the sheet) show as text. The saved copy is dropped (`SCHEMA` 2); the offline queue is kept (`QUEUE_SCHEMA` 1).
 - **Lists `project`, Whiteboards `show_today`, Resources `group`** are stored and kept in step but no page uses them yet; the features that do come later.
+- **Links** (2026-10-30) is made by the `links` module (setup, or the first load after the update). A typed row needs a project on both sides that are not the same; duplicates and blocking circles are refused by the app's own calls, not flagged in typed rows.
 - `migrateAllModes()` can be run from the Apps Script editor to migrate every mode that has a spreadsheet before the app is opened.
 
 ### Risks on Google's runtime (what the fakes cannot prove)

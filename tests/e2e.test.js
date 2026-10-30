@@ -290,6 +290,53 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(onServer());
   });
 
+  await step('linked projects: + Link shows the link at once, the project waits, a click opens the other, Remove has Undo', async () => {
+    const fan = w.FT.state.projectId, cv = w.FT.store.projects.find((p) => p.name === 'CV and portfolio').id;
+    const serverLinks = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.links));
+    const lines = () => $$('.lklist li').map((li) => li.querySelector('span').textContent.trim());
+    assert.ok($$('.lcell .label').some((l) => l.textContent === 'Linked projects'), 'the panel is on the project page');
+    assert.ok($('.lklist') === null && $$('.panel .empty').some((e) => e.textContent === 'No linked projects.'));
+    click($('[data-act="links.add"]'));
+    await waitFor(() => $('.dialog'), 'link dialog');
+    assert.deepStrictEqual(Array.from($('#dlg-relation').options).map((o) => o.textContent), ['blocks', 'is blocked by', 'relates to']);
+    assert.ok(!Array.from($('#dlg-other').options).some((o) => o.value === fan), 'the project itself is not offered');
+    setVal($('#dlg-relation'), 'blockedBy', 'change');
+    setVal($('#dlg-other'), cv, 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'the dialog closes');
+    assert.deepStrictEqual(lines(), ['Blocked by CV and portfolio (active)'], 'and the link shows');
+    assert.ok($('.waitbox') && $('.waitbox').textContent.includes('Waiting on CV and portfolio'), 'the header says what it waits on');
+    await waitFor(() => serverLinks().some((l) => l.from_id === cv && l.to_id === fan && l.type === 'blocks'), 'saved on the server');
+    assert.ok(JSON.parse(JSON.stringify(server.run('bootstrap()').data.today)).ranked.indexOf(fan) === -1, 'and it is out of the focus pick');
+    click($('[data-act="links.add"]'));
+    await waitFor(() => $('.dialog'), 'link dialog again');
+    assert.ok(!Array.from($('#dlg-other').options).some((o) => o.value === cv), 'a project already linked is not offered again');
+    click($('#dlg-cancel'));
+
+    click(tab('Projects'));
+    await waitFor(() => $$('tr.row').length, 'project rows');
+    const row = $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan'));
+    assert.ok(row.querySelector('.waitmark') && row.querySelector('.waitmark').textContent === 'Waiting', 'the Projects tab marks it');
+    assert.strictEqual($$('.waitmark').length, 1);
+    click(row);
+    await waitFor(() => $('.lklist'), 'back on the project');
+    click($('.lklist [data-act="links.open"]'));
+    await waitFor(() => w.FT.state.projectId === cv && $('.lklist'), 'the blocker opens');
+    assert.deepStrictEqual(lines(), ['Blocks Bathroom extractor fan']);
+    assert.ok(!$('.waitbox'), 'the blocker waits for nothing');
+    click($('.lklist [data-act="links.open"]'));
+    await waitFor(() => w.FT.state.projectId === fan && $('.lklist'), 'and back');
+
+    click($('.lklist [data-act="links.remove"]'));
+    assert.ok(!$('.lklist') && !$('.waitbox'), 'gone at once, and the project no longer waits');
+    assert.ok(!$('#toast').hidden && $('#toast').textContent.includes('Project link deleted.') && $('#toast .toastbtn'), 'the Undo message shows at once');
+    await waitFor(() => !serverLinks().length, 'removed on the server');
+    click($('#toast .toastbtn'));
+    await waitFor(() => lines().length === 1 && serverLinks().length === 1, 'back after undo');
+    click($('.lklist [data-act="links.remove"]'));
+    await waitFor(() => !serverLinks().length && w.FT.pendingSaves() === 0, 'removed again');
+  });
+
   await step('notes autosave to a Drive file', async () => {
     const ta = $('#nt-text');
     ta.innerHTML = '<h1>Fan</h1><div>Replacement needs to be <b>100mm</b>.</div><ul><li>Checked the duct: 98mm</li></ul>';

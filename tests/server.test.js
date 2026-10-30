@@ -727,6 +727,102 @@ test('acceptance criteria: add, tick, edit, reorder, delete, undo, and they go w
   assert.strictEqual(json(s.run('bootstrap()')).data.criteria.length, 0);
 });
 
+test('linked projects: add, refuse self, duplicate and circle, remove with undo, names kept in step', () => {
+  const s = fresh();
+  const a = s.call('projects', 'create', { name: 'Walls', category: 'house' }).result;
+  const b = s.call('projects', 'create', { name: 'Paint', category: 'house' }).result;
+  const c = s.call('projects', 'create', { name: 'Hang pictures', category: 'house' }).result;
+  assert.throws(() => s.call('links', 'add', { fromId: a.id, toId: a.id, type: 'blocks' }), /itself/);
+  assert.throws(() => s.call('links', 'add', { fromId: a.id, toId: 'nope', type: 'blocks' }), /Project not found/);
+  assert.throws(() => s.call('links', 'add', { fromId: a.id, toId: b.id, type: 'depends' }), /blocks or relates/);
+  const r = s.call('links', 'add', { id: 'aaaa0001', fromId: a.id, toId: b.id, type: 'blocks', note: ' Plaster first ' });
+  assert.deepStrictEqual(Object.keys(r.slices).sort(), ['links', 'today']);
+  assert.strictEqual(r.undo.action, 'links.add');
+  const row = rowsOf(s.ss.sheets.Links)[0];
+  assert.deepStrictEqual([row.from, row.type, row.to, row.note, row.id], ['Walls', 'blocks', 'Paint', 'Plaster first', 'aaaa0001'], 'readable "<from> blocks <to>"');
+  assert.throws(() => s.call('links', 'add', { fromId: a.id, toId: b.id, type: 'relates' }), /already linked/);
+  assert.throws(() => s.call('links', 'add', { fromId: b.id, toId: a.id, type: 'relates' }), /already linked/, 'either way round');
+  s.call('links', 'add', { fromId: b.id, toId: c.id, type: 'blocks' });
+  assert.throws(() => s.call('links', 'add', { fromId: c.id, toId: a.id, type: 'blocks' }), /circle/, 'Walls > Paint > Hang pictures > Walls');
+  s.call('links', 'add', { fromId: c.id, toId: a.id, type: 'relates' }); // relating is no circle
+  s.call('projects', 'update', { id: a.id, name: 'Plaster walls' });
+  assert.strictEqual(rowsOf(s.ss.sheets.Links).find((l) => l.id === 'aaaa0001').from, 'Plaster walls', 'a rename shows in the Links tab');
+  assert.strictEqual(rowsOf(s.ss.sheets.Links).find((l) => l.type === 'relates').to, 'Plaster walls');
+  s.call('links', 'remove', { id: 'aaaa0001' });
+  assert.ok(!json(s.run('bootstrap()')).data.links.some((l) => l.id === 'aaaa0001'));
+  assert.strictEqual(json(s.run('undo')()).undone, 'links.remove');
+  assert.ok(json(s.run('bootstrap()')).data.links.some((l) => l.id === 'aaaa0001'), 'undo brings the link back');
+  assert.strictEqual(json(s.run('undo')()).undone, 'projects.update');
+  assert.strictEqual(json(s.run('undo')()).undone, 'links.add');
+  assert.strictEqual(json(s.run('bootstrap()')).data.links.length, 2, 'undo takes an added link away');
+});
+
+test('a project blocked by an unfinished project leaves the focus pick until the blocker is done', () => {
+  const s = fresh();
+  s.mock.weekday = 7;
+  const a = s.call('projects', 'create', { name: 'Blocker', category: 'coding' }).result;
+  const b = s.call('projects', 'create', { name: 'Waits', category: 'house' }).result;
+  s.run(`new Table('Projects',['id']).update('${b.id}', { last_touched: '${new Date(Date.now() - 9 * 86400000).toISOString()}' })`);
+  assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'the most neglected project leads');
+  const r = s.call('links', 'add', { fromId: a.id, toId: b.id, type: 'blocks' });
+  assert.ok(r.slices.today.ranked.indexOf(b.id) === -1, 'the answer brings Today up to date');
+  assert.deepStrictEqual(s.call('links', 'waiting').result, { [b.id]: [a.id] });
+  const state = s.call('today', 'state').result;
+  assert.strictEqual(state.focusId, a.id, 'the waiting project is not picked');
+  assert.ok(state.ranked.indexOf(b.id) === -1, 'and is not offered in Swap');
+  assert.throws(() => s.call('today', 'swap', { toId: b.id }), /active project/);
+  s.call('projects', 'update', { id: a.id, status: 'done' });
+  assert.deepStrictEqual(s.call('links', 'waiting').result, {});
+  assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'once the blocker is done it can be picked again');
+  s.call('projects', 'update', { id: a.id, status: 'archived' });
+  assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'an archived blocker holds nothing up either');
+  s.call('projects', 'update', { id: a.id, status: 'paused' });
+  assert.ok(s.call('today', 'state').result.ranked.indexOf(b.id) === -1, 'a paused blocker is not finished');
+});
+
+test('today works without the links module', () => {
+  const s = fresh();
+  s.run("MODULES = MODULES.filter(function (m) { return m !== 'links'; })");
+  const p = s.call('projects', 'create', { name: 'Alone', category: 'coding' }).result;
+  assert.strictEqual(s.call('today', 'state').result.focusId, p.id);
+  assert.strictEqual(s.call('projects', 'remove', { id: p.id }).result, true);
+});
+
+test('deleting a project removes its links both ways, and undo brings them back', () => {
+  const s = fresh();
+  const a = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
+  const b = s.call('projects', 'create', { name: 'B', category: 'coding' }).result;
+  const c = s.call('projects', 'create', { name: 'C', category: 'coding' }).result;
+  s.call('links', 'add', { fromId: a.id, toId: b.id, type: 'blocks' });
+  s.call('links', 'add', { fromId: c.id, toId: a.id, type: 'relates' });
+  s.call('links', 'add', { fromId: b.id, toId: c.id, type: 'relates' });
+  const r = s.call('projects', 'remove', { id: a.id });
+  assert.deepStrictEqual(r.slices.links.map((l) => [l.from_id, l.to_id]), [[b.id, c.id]], 'only the link without A is left');
+  assert.strictEqual(json(s.run('undo')()).undone, 'projects.remove');
+  assert.strictEqual(json(s.run('bootstrap()')).data.links.length, 3);
+});
+
+test('a link typed into the Links tab with names only gets its ids; a bad one is flagged', () => {
+  const s = fresh();
+  const a = s.call('projects', 'create', { name: 'Roof', category: 'house' }).result;
+  const b = s.call('projects', 'create', { name: 'Loft', category: 'house' }).result;
+  const sh = s.ss.sheets.Links;
+  assert.ok(sh, 'setup made the Links tab');
+  sh.rows.push(rowFrom(sh, { from: 'roof', type: 'blocks', to: 'Loft' }));
+  sh.rows.push(rowFrom(sh, { from: 'Roof', type: 'blocks', to: 'Roof' }));
+  sh.rows.push(rowFrom(sh, { from: 'Roof', type: 'needs', to: 'Loft' }));
+  sh.rows.push(rowFrom(sh, { from: 'Shed', type: 'blocks', to: 'Loft' }));
+  const links = json(s.run('bootstrap()')).data.links;
+  assert.strictEqual(links.length, 1);
+  assert.deepStrictEqual([links[0].from_id, links[0].to_id, links[0].from], [a.id, b.id, 'Roof']);
+  assert.ok(links[0].id && links[0].created);
+  const rows = rowsOf(sh);
+  assert.strictEqual(rows[1].problem, 'A project cannot be linked to itself.');
+  assert.strictEqual(rows[2].problem, 'Type must be blocks or relates.');
+  assert.ok(/No project called "Shed"/.test(rows[3].problem), rows[3].problem);
+  assert.ok(s.call('today', 'state').result.ranked.indexOf(b.id) === -1, 'the typed blocking link counts');
+});
+
 test('a list can show one item at a time on Today, every n seconds', () => {
   const s = fresh();
   const l = s.call('lists', 'create', { name: 'Life lessons' }).result;
@@ -766,8 +862,8 @@ test('rpc rejects unknown modules and functions, and bootstrap returns every sli
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'whiteboard']);
-  assert.strictEqual(b.modules.length, 12);
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'kanban', 'layout', 'links', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'whiteboard']);
+  assert.strictEqual(b.modules.length, 13);
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

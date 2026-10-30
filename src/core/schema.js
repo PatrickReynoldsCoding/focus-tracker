@@ -87,7 +87,11 @@ var TAB_STYLE = [
   { name: 'Links', people: true, color: '#3949ab', wrap: ['note', 'problem'],
     complete: { required: ['type'], fill: { created: 'now' },
       refs: [{ id: 'from_id', name: 'from', table: 'Projects', noun: 'project' }, { id: 'to_id', name: 'to', table: 'Projects', noun: 'project' }],
-      check: function (row) { return ['blocks', 'relates'].indexOf(row.type) === -1 ? 'Type must be blocks or relates.' : ''; } } },
+      check: function (row) {
+        if (['blocks', 'relates'].indexOf(row.type) === -1) return 'Type must be blocks or relates.';
+        if (!row.from_id || !row.to_id) return 'Needs a project in both from and to.';
+        return row.from_id === row.to_id ? 'A project cannot be linked to itself.' : '';
+      } } },
   { name: 'Criteria', people: true, color: '#7cb342', wrap: ['text', 'problem'],
     complete: { required: ['text', 'project_id'], fill: { order: 'next', created: 'now' }, refs: [PROJECT_REF_] } },
   { name: 'Log', people: true, color: '#d81b60', wrap: ['where_stopped', 'next_action'],
