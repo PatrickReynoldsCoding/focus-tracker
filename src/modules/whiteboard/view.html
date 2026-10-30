@@ -214,7 +214,7 @@ body.wb-open .scrim { z-index: 55; }
       (all.length ? '<ul class="wblist">' + all.map(function (w) { return boardRow(w, { project: true }); }).join('') + '</ul>'
         : '<p class="empty">' + (boards().length ? 'No whiteboards here. Pick another project, or make one.' : 'No whiteboards yet. A whiteboard is a blank Excalidraw canvas, on a project or on its own.') + '</p>') +
       '</section>';
-    return FT.layout('whiteboards', [{ id: 'boards', title: 'Whiteboards', html: html, w: 12 }]);
+    return FT.layout('whiteboards', [{ id: 'boards', title: 'Whiteboards', description: 'Every whiteboard, on a project or on its own.', html: html, w: 12 }]);
   }
 
   /** Boards marked "On Today": one panel each, with its thumbnail. A click opens the board. */
@@ -222,7 +222,7 @@ body.wb-open .scrim { z-index: 55; }
     return boards().filter(function (w) { return w.show_today; }).sort(byCreated).map(function (w) {
       var project = FT.project(w.project_id);
       return {
-        id: 'whiteboard-' + w.id, title: w.name, w: 4,
+        id: 'whiteboard-' + w.id, title: 'Whiteboard: ' + w.name, description: 'A whiteboard\'s picture; click it to open the board.', w: 4,
         html: '<section class="panel wbtodaypanel"><div class="tophead"><div class="label">Whiteboard: ' + FT.esc(w.name) + '</div>' + todayChip(w) + '</div>' +
           '<ul class="wblist" style="grid-template-columns:1fr"><li>' + thumbHtml(w) +
           '<span class="wbmeta">' + (project ? FT.esc(project.name) + ' · ' : '') + 'Saved ' + FT.fmtDate(w.updated) + '</span></li></ul></section>'
@@ -394,23 +394,36 @@ body.wb-open .scrim { z-index: 55; }
     id: 'whiteboard',
     tab: { title: 'Whiteboards', order: 30, render: tabHtml },
     slots: {
-      'project.page': [{ id: 'whiteboard', title: 'Whiteboards', order: 25, span: 'half', render: panel }],
-      'today.panels': [{ order: 20, render: todayPanels }]
+      'project.page': [{ id: 'whiteboard', title: 'Whiteboards', description: 'Excalidraw whiteboards for this project.', order: 25, span: 'half', render: panel }],
+      'today.panels': [{ order: 20, render: todayPanels }],
+      'addable.today': [{ order: 20, render: addableToday }]
     }
   });
 
   FT.on('change', 'whiteboard.filter', function (el) { tabFilter = el.value; FT.render(); });
 
   /** On Today or not: shown at once, saved in the background, put back if the save is refused. */
-  FT.action('whiteboard.today', function (el) {
-    var w = boardById(el.dataset.id);
-    if (!w) return;
-    var before = w.show_today, on = !before;
+  function setToday(w, on) {
+    var before = w.show_today;
     FT.optimistic(function () {
       w.show_today = on ? 'yes' : '';
       return function () { w.show_today = before; };
     }, function () { return FT.rpc('whiteboard', 'setShowToday', { id: w.id, on: on }, { render: false }); }).catch(function () {});
+  }
+  FT.action('whiteboard.today', function (el) {
+    var w = boardById(el.dataset.id);
+    if (w) setToday(w, !w.show_today);
   });
+
+  /** Add feature on Today: every whiteboard not on Today. */
+  function addableToday() {
+    return boards().filter(function (w) { return !w.show_today; }).sort(byCreated).map(function (w) {
+      var project = FT.project(w.project_id);
+      return { id: 'whiteboard-' + w.id, panel: 'whiteboard-' + w.id, title: 'Whiteboard: ' + w.name,
+        description: (project ? 'On ' + project.name + '. ' : '') + 'Its picture on Today; click it to open the board.',
+        add: function () { setToday(w, true); } };
+    });
+  }
 
   FT.action('whiteboard.open', function (el) { openBoard(boardById(el.dataset.id)); });
 

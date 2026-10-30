@@ -54,7 +54,7 @@
       '<div class="critadd"><input type="text" id="crit-new" placeholder="+ Add a criterion: done when…" aria-label="New criterion" data-enter="criteria.add" data-project="' + FT.esc(p.id) + '"></div></section>';
   }
 
-  FT.module({ id: 'criteria', slots: { 'project.page': [{ id: 'criteria', title: 'Acceptance criteria', order: 5, span: 'full', render: panel }] } });
+  FT.module({ id: 'criteria', slots: { 'project.page': [{ id: 'criteria', title: 'Acceptance criteria', description: 'A checklist of what done means for this project.', order: 5, span: 'full', render: panel }] } });
 
   function add(el) {
     var text = el.value.trim();

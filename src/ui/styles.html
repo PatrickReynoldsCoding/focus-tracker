@@ -114,6 +114,10 @@ a.iconbtn[hidden] { display: none; }
 .modes { flex: none; }
 .modeselect { width: auto; padding: 6px 30px 6px 12px; font-weight: 600; font-size: 13.5px; border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft); cursor: pointer; }
 @media (max-width: 760px) { .widebtn, .layoutbtn { display: none; } body.wide .wrap { max-width: 1080px; } }
+/* "Edit layout": a text button in the desktop bar, an item in the phone menu. */
+.layoutbtn { flex: none; white-space: nowrap; }
+.layoutbtn[hidden], .menulayout { display: none; }
+.btn.layoutbtn[aria-pressed="true"], .btn.layoutbtn[aria-pressed="true"]:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 /* Phone: the bar is one row: menu, name, a status dot, Settings. Views and mode are in the menu, a panel that opens over the page. */
 .menubtn { display: none; }
 @media (max-width: 760px) {
@@ -133,6 +137,7 @@ a.iconbtn[hidden] { display: none; }
   body.menuopen .tab { text-align: left; padding: 12px 14px; font-size: 16px; min-height: 44px; }
   body.menuopen .modes { display: block; }
   body.menuopen .modeselect { width: 100%; min-height: 44px; font-size: 16px; }
+  body.menuopen .menulayout:not([hidden]) { display: block; order: 30; width: 100%; min-height: 44px; font-size: 16px; text-align: left; }
 }
 
 /* Phone: a strip under the bar shows the current view and its neighbours, which is also where a sideways swipe goes. */
@@ -184,10 +189,36 @@ main { padding-top: 16px; display: grid; gap: 16px; }
 /* GridStack: the item insets by its margin; panels fill the content box. Outside edit mode nothing scrolls inside. */
 .grid-stack { margin: -8px; }
 .grid-stack-item-content { overflow: visible !important; display: grid; gap: 16px; align-content: start; }
-body.editing-layout .grid-stack-item-content { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 10px; cursor: move; }
-body.editing-layout .grid-stack-item-content > * { pointer-events: none; }
+body.editing-grid .grid-stack-item-content { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 10px; cursor: move; }
+body.editing-grid .grid-stack-item-content > * { pointer-events: none; }
 .grid-stack-placeholder > .placeholder-content { border: 2px dashed var(--accent) !important; border-radius: 10px; background: var(--accent-soft) !important; }
 .editbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.edithint { display: none; }
+/* Edit layout without the grid (a phone): each panel has a strip with its name, ▲ ▼ and Hide; its content is a short, untappable preview. */
+.pedit { display: flex; align-items: center; gap: 8px; justify-content: space-between; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px; padding: 4px 4px 4px 12px; }
+.pedit-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pedit-btns { display: flex; gap: 6px; flex: none; }
+.pedit-btn { min-width: 44px; min-height: 44px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.pedit-btn.pedit-hide { padding: 0 12px; font-size: 14px; }
+.pedit-btn:disabled { opacity: 0.35; cursor: default; }
+body.editing-layout .lcell { gap: 6px; }
+body.editing-layout .lcell > :not(.pedit) { pointer-events: none; max-height: 140px; overflow: hidden; opacity: 0.7;
+  -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+/* On a phone the bar stays in view under the header while the page scrolls; its explanation is a line below it. */
+@media (max-width: 760px) {
+  body.editing-layout .editbar { position: sticky; top: 61px; z-index: 15; padding: 8px 10px; }
+  .editbar .edithow { display: none; }
+  .edithint { display: block; margin: 0; font-size: 13.5px; color: var(--muted); }
+}
+/* Add feature: hidden panels and things that can be added, each with a line about it and Add. */
+.feathead { font-size: 13px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 14px 0 6px; font-weight: 500; }
+.featlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.featlist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 8px 12px; }
+.feat { min-width: 0; display: grid; gap: 2px; }
+.feat b { overflow-wrap: anywhere; }
+.feat small { color: var(--muted); font-size: 13px; }
+.featlist .btn { flex: none; }
+.allhidden .actions { margin-top: 8px; }
 .iconbtn[hidden] { display: none; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
@@ -367,7 +398,7 @@ textarea { min-height: 150px; resize: vertical; }
 /* ---- Theme review fixes, part 2: E-ink borders, states and tap targets ---- */
 /* Nothing thinner than 2px, and no placeholder that fades to grey. */
 :root[data-theme="eink"] .choice label, :root[data-theme="eink"] .seg label, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .mvb,
-:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .pedit-btn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
 :root[data-theme="eink"] .pager .dots i { border-width: 2px; width: 10px; height: 10px; } :root[data-theme="eink"] .pager .dots i.on { width: 20px; }
 :root[data-theme="eink"] .addcol { border: 2px dashed #000; }
 :root[data-theme="eink"] ::placeholder { color: #333; opacity: 1; }

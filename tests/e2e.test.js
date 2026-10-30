@@ -38,8 +38,9 @@ async function waitFor(fn, label, ms = 3000) {
   const dom = new JSDOM(renderIndex(modules), {
     runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://script.google.com/macros/s/test/exec',
     beforeParse(w) {
-      w.matchMedia = () => ({ matches: false, addEventListener() {} });
-      w.scrollTo = () => {};
+      // A phone-sized screen when a step sets w.__narrow (the page reads .matches each time it draws).
+      w.matchMedia = (q) => ({ get matches() { return !!w.__narrow && /max-width: 760px/.test(q); }, addEventListener() {} });
+      w.scrollTo = () => {}; w.scrollBy = () => {};
       // jsdom does not load SortableJS from the CDN. This stand-in keeps each list's options, so a test can play the end of a drag.
       w.__sortables = [];
       w.Sortable = { create(el, opts) { const s = { el, opts, destroy() { w.__sortables.splice(w.__sortables.indexOf(s), 1); } }; w.__sortables.push(s); return s; } };
@@ -1512,6 +1513,110 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('.waitbox') && $('.waitbox').textContent.includes('Waiting on Garden fence repair'), 'blocked by the existing project');
     await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('Drip lines on the two back beds'), 'the notes typed in the notes cell are the project\'s notes');
     assert.ok($('#nt-text').querySelector('h1') && $('#nt-text').querySelector('li'), 'with their heading and list');
+  });
+
+  // ---------- Edit layout: Hide, Add feature, the phone's order ----------
+  const serverData = () => JSON.parse(JSON.stringify(server.run('bootstrap')(w.FT.state.mode))).data;
+  const panelIds = () => $$('#app .lcell').map((c) => c.dataset.panel);
+  const featureRow = (title) => $$('#dlg-features li').find((li) => li.querySelector('b').textContent === title);
+  const addButton = (title) => featureRow(title).querySelector('[data-act="core.addFeatureItem"]');
+
+  await step('Edit layout is a text button; Hide takes a panel off and Add feature brings it back, with a line about it', async () => {
+    click(tab('Today'));
+    await waitFor(() => $('.focus-name'), 'Today');
+    const btn = $('#layoutBtn');
+    assert.ok(!btn.hidden, 'shown on a page with panels');
+    assert.strictEqual(btn.textContent, 'Edit layout');
+    assert.ok($('#menuLayoutBtn') && $('#menuLayoutBtn').textContent === 'Edit layout', 'the phone menu has it too');
+    click(btn);
+    assert.strictEqual(btn.getAttribute('aria-pressed'), 'true');
+    assert.ok($('.editbar [data-act="core.addFeature"]'), 'Add feature is in the bar');
+    assert.ok($('.lcell[data-panel="rotation"] .pedit [data-act="core.hidePanel"]'), 'each panel has Hide');
+    click($('.lcell[data-panel="rotation"] [data-act="core.hidePanel"]'));
+    assert.ok(!panelIds().includes('rotation'), 'gone at once');
+    await waitFor(() => (serverData().layout.today || {}).rotation && serverData().layout.today.rotation.hidden, 'the hide reached the server');
+    click($('.editbar [data-act="core.addFeature"]'));
+    assert.strictEqual($('#dlg-heading').textContent, 'Add feature');
+    assert.ok(/Hidden on this page/.test($('#dlg-features').textContent));
+    assert.ok(/Which category leads/.test(featureRow('Weekly rotation').textContent), 'with its description');
+    click(addButton('Weekly rotation'));
+    assert.ok(panelIds().includes('rotation'), 'back on the page at once');
+    assert.ok(!featureRow('Weekly rotation'), 'and gone from the list');
+    await waitFor(() => !serverData().layout.today.rotation.hidden, 'the show reached the server');
+    click($('#dlg-submit'));
+  });
+
+  await step('Add feature on Today offers every list and whiteboard not on Today, and Add shows it there', async () => {
+    const list = await w.FT.rpc('lists', 'create', { name: 'Someday ideas' });
+    const board = await w.FT.rpc('whiteboard', 'create', { name: 'Garden plan' });
+    click($('.editbar [data-act="core.addFeature"]'));
+    assert.ok(/Can be added here/.test($('#dlg-features').textContent));
+    assert.ok(/shown on Today/.test(featureRow('Someday ideas').textContent), 'a list not on Today, described');
+    assert.ok(featureRow('Whiteboard: Garden plan'), 'a whiteboard not on Today');
+    click(addButton('Someday ideas'));
+    assert.ok(panelIds().includes('list-' + list.id), 'the list is on Today at once');
+    await waitFor(() => serverData().lists.find((l) => l.id === list.id).show_today === 'yes', 'show_today reached the server');
+    click(addButton('Whiteboard: Garden plan'));
+    assert.ok(panelIds().includes('whiteboard-' + board.id), 'the board is on Today at once');
+    await waitFor(() => serverData().whiteboard.find((b) => b.id === board.id).show_today === 'yes', 'the board reached the server');
+    assert.ok(!featureRow('Someday ideas') && !featureRow('Whiteboard: Garden plan'), 'neither is offered again');
+    click($('#dlg-submit'));
+  });
+
+  await step('Add feature on a project page offers lists not linked to a project, and Add links one', async () => {
+    const list = await w.FT.rpc('lists', 'create', { name: 'Loose ends' });
+    const project = w.FT.store.projects.find((p) => p.status === 'active' && !w.FT.lockedUntil(p));
+    w.FT.go('project', { id: project.id });
+    await waitFor(() => $('.editbar'), 'still editing on the project page');
+    click($('.editbar [data-act="core.addFeature"]'));
+    assert.ok(/Adding links it to/.test(featureRow('Loose ends').textContent));
+    click(addButton('Loose ends'));
+    assert.ok(panelIds().includes('list-' + list.id), 'the list is on the project page at once');
+    await waitFor(() => serverData().lists.find((l) => l.id === list.id).project_id === project.id, 'the link reached the server');
+    click($('#dlg-submit'));
+    click($('.editbar [data-act="core.layout"]'));
+    assert.ok(!$('.editbar') && !$('.pedit'), 'Done leaves Edit layout');
+  });
+
+  await step('phone: Edit layout has ▲ ▼ and Hide; the phone order is saved apart from the desktop and used when drawn', async () => {
+    click(tab('Today'));
+    w.__narrow = true;
+    click($('#menuLayoutBtn'));
+    assert.strictEqual($('#menuLayoutBtn').textContent, 'Done editing layout');
+    const before = panelIds();
+    assert.ok(before.length >= 3 && before[0] === 'focus', 'the desktop order to start with: ' + before.join(','));
+    assert.ok($('.lcell[data-panel="focus"] [data-act="core.movePanel"][data-d="-1"]').disabled, 'the first cannot go up');
+    click($('.lcell[data-panel="focus"] [data-act="core.movePanel"][data-d="1"]'));
+    const after = [before[1], before[0]].concat(before.slice(2));
+    assert.deepStrictEqual(panelIds(), after, 'moved down at once');
+    click($('.lcell[data-panel="' + before[2] + '"] [data-act="core.movePanel"][data-d="-1"]'));
+    const want = [before[1], before[2], before[0]].concat(before.slice(3));
+    assert.deepStrictEqual(panelIds(), want);
+    await waitFor(() => JSON.stringify((serverData().layout['today.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the phone order reached the server');
+    click($('#menuLayoutBtn'));
+    assert.ok(!$('.pedit'), 'leaving Edit layout');
+    w.FT.store.layout = null;
+    await w.FT.reload();
+    assert.deepStrictEqual(panelIds(), want, 'the saved phone order is used on a phone');
+    w.__narrow = false;
+    w.FT.render();
+    assert.deepStrictEqual(panelIds(), before, 'the desktop keeps its own order');
+  });
+
+  await step('a page whose panels are all hidden says so and how to bring them back', async () => {
+    click(tab('Whiteboards'));
+    click($('#layoutBtn'));
+    click($('.lcell[data-panel="boards"] [data-act="core.hidePanel"]'));
+    assert.ok(/All panels are hidden\. Edit layout → Add feature/.test($('#app').textContent), 'in Edit layout');
+    click($('#layoutBtn'));
+    assert.ok(/All panels are hidden\. Edit layout → Add feature/.test($('#app').textContent), 'and after it');
+    click($('.allhidden [data-act="core.addFeature"]'));
+    assert.ok(w.FT.state.editLayout, 'its Add feature turns Edit layout on');
+    click(addButton('Whiteboards'));
+    assert.ok(panelIds().includes('boards') && !/All panels are hidden/.test($('#app').textContent), 'the panel is back');
+    await waitFor(() => !(serverData().layout.whiteboards || {}).boards.hidden, 'saved');
+    click($('#dlg-submit'));
+    click($('#layoutBtn'));
   });
 
   assert.deepStrictEqual(errors, [], 'no uncaught page errors');

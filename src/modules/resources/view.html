@@ -131,11 +131,11 @@
     id: 'resources',
     slots: {
       'project.page': [
-        { id: 'links-project', title: 'Resources: this project', order: 30, span: 'half', render: function (p) { return section('Resources: this project', p.category, p.id); } },
-        { id: 'links-shared', title: 'Resources: shared', order: 31, span: 'half', render: function (p) { return section('Resources: ' + FT.category(p.category).label + ' (shared)', p.category, null); } }
+        { id: 'links-project', title: 'Resources: this project', description: 'Links and Drive files for this project only.', order: 30, span: 'half', render: function (p) { return section('Resources: this project', p.category, p.id); } },
+        { id: 'links-shared', title: 'Resources: shared', description: 'Links shared by every project in this category.', order: 31, span: 'half', render: function (p) { return section('Resources: ' + FT.category(p.category).label + ' (shared)', p.category, null); } }
       ],
       'projects.tab': [
-        { id: 'links', title: 'Resources', order: 10, render: sharedPanels }
+        { id: 'links', title: 'Resources', description: 'The shared resources of each category.', order: 10, render: sharedPanels }
       ]
     }
   });

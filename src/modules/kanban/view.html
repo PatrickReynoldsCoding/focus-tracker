@@ -207,7 +207,7 @@
   });
 
   FT.kanban = { boardHtml: boardHtml };
-  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', title: 'Kanban', order: 10, span: 'full', render: panel }] } });
+  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', title: 'Kanban', description: 'The project\'s task board: columns of cards.', order: 10, span: 'full', render: panel }] } });
 
   FT.action('kanban.dir', function () {
     userDir = dir() === 'vertical' ? 'horizontal' : 'vertical';

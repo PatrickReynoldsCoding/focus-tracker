@@ -181,7 +181,7 @@
       (focusRows || '<tr><td colspan="5" class="empty">Nothing yet.</td></tr>') + '</tbody></table></div>';
 
     return [{
-      id: 'week', w: 12,
+      id: 'week', title: 'This week', description: 'Sessions, habits and to-dos for the week.', w: 12,
       html: panel('<div class="tophead" style="align-items:center"><h2 class="ins-title">' + FT.esc(title) + '</h2>' + nav + '</div>' +
         (when ? '<p class="muted" style="margin:4px 0 0">' + FT.esc(when) + '</p>' : '') + stats +
         '<div class="subhead">Habits: done against plan</div>' + habits +
@@ -245,9 +245,9 @@
     var head = '<div class="ins-filters"><label class="label" for="ins-hweeks" style="margin:0">Show</label>' +
       '<select id="ins-hweeks" data-change="insights.habitWeeks"><option value="8"' + (n === 8 ? ' selected' : '') + '>Last 8 weeks</option><option value="12"' + (n === 12 ? ' selected' : '') + '>Last 12 weeks</option></select>' +
       '<div class="legend"><span><i class="sw-done"></i>done</span><span><i class="sw-over"></i>extra</span><span><i class="sw-gap"></i>still open</span><span><i class="sw-target"></i>target</span></div></div>';
-    if (!data.habits.length) return [{ id: 'habits-head', w: 12, html: panel('<p class="empty">No habits yet. Habits you add show here with their weeks.</p>') }];
-    return [{ id: 'habits-head', w: 12, html: panel(head + '<p class="note" style="margin:0">Each week is compared with the target that applied then. Weeks not over yet, or when a habit was paused or new, are left out of the count.</p>') }]
-      .concat(data.habits.map(function (h) { return { id: 'habit-' + h.id, w: 6, html: habitCard(h, n) }; }));
+    if (!data.habits.length) return [{ id: 'habits-head', title: 'Habits', w: 12, html: panel('<p class="empty">No habits yet. Habits you add show here with their weeks.</p>') }];
+    return [{ id: 'habits-head', title: 'Habits', description: 'How the habits went, week by week.', w: 12, html: panel(head + '<p class="note" style="margin:0">Each week is compared with the target that applied then. Weeks not over yet, or when a habit was paused or new, are left out of the count.</p>') }]
+      .concat(data.habits.map(function (h) { return { id: 'habit-' + h.id, title: h.name, description: 'One habit\'s weeks.', w: 6, html: habitCard(h, n) }; }));
   }
 
   // ---------- Projects ----------
@@ -267,7 +267,7 @@
     var head = '<div class="tophead"><div class="label">Projects · time worked since ' + shortDate(set.from || data.today) + '</div>' +
       '<select class="auto" aria-label="Time span" data-change="insights.projectWeeks"><option value="4"' + (n === 4 ? ' selected' : '') + '>Last 4 weeks</option><option value="12"' + (n === 12 ? ' selected' : '') + '>Last 12 weeks</option></select></div>';
     return [{
-      id: 'projects', w: 12,
+      id: 'projects', title: 'Projects', description: 'Time and sessions per project.', w: 12,
       html: panel(head + '<div class="scroll"><table><thead><tr><th>Project</th><th>Category</th><th>Sessions</th><th>Time</th><th>Share of time</th><th>Last touched</th><th>Skipped</th></tr></thead><tbody>' +
         (rows || '<tr><td colspan="7" class="empty">No projects yet.</td></tr>') + '</tbody></table></div>' +
         '<p class="note">Time is from the Log: minutes of each finished session. Open a project for its notes and log lines.</p>')
@@ -281,7 +281,7 @@
       return '<button class="subtab" data-act="insights.sub" data-sub="' + FT.esc(s.id) + '"' + (s.id === sub.id ? ' aria-current="page"' : '') + '>' + FT.esc(s.title) + '</button>';
     }).join('') + '<span class="ins-status" role="status">' + (loading && data ? 'Updating…' : '') + '</span></nav>';
     var own = OWN.indexOf(sub) !== -1;
-    var panels = own ? sub.render() : [{ id: sub.id, html: sub.render(FT), w: 12 }];
+    var panels = own ? sub.render() : [{ id: sub.id, title: sub.title, html: sub.render(FT), w: 12 }];
     return '<div class="insights">' + nav + FT.layout('insights-' + sub.id, panels) + '</div>';
   }
 
