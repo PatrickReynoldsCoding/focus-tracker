@@ -60,13 +60,14 @@ async function waitFor(fn, label, ms = 3000) {
   const click = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   const setVal = (el, v, type = 'input') => { el.value = v; el.dispatchEvent(new w.Event(type, { bubbles: true })); };
   const tab = (name) => $$('.tab').find((t) => t.textContent === name);
+  const subtab = (name) => $$('.subtab').find((t) => t.textContent === name);
 
   let passed = 0;
   async function step(name, fn) { await fn(); passed++; console.log('  ok  ' + name); }
 
   await step('loads and shows tabs and today\'s focus', async () => {
     await waitFor(() => $('.focus-name'), 'focus name');
-    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Lists', 'Whiteboards', 'Log']);
+    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Lists', 'Whiteboards', 'Insights']);
     assert.strictEqual($('.focus-name').textContent, 'CV and portfolio', 'Wednesday leads with job, longest untouched first');
     assert.ok($('.timer') === null);
   });
@@ -539,8 +540,46 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && !$('.timer'), 'session closed');
     assert.ok($('.next').textContent.includes('Send to a friend for feedback'));
-    click(tab('Log'));
+    click(tab('Insights'));
+    click(await waitFor(() => subtab('Logs'), 'Logs sub-tab'));
     await waitFor(() => $$('tbody tr').length >= 1 && $('tbody').textContent.includes('Rewrote the opening line'), 'log row');
+  });
+
+  await step('Insights: Week, Habits, Projects and Logs sub-tabs render, the Logs filter works, and the sub-tab is remembered', async () => {
+    assert.deepStrictEqual($$('.subtab').map((b) => b.textContent), ['Week', 'Habits', 'Projects', 'Logs']);
+    assert.strictEqual(w.localStorage.getItem('ft.insights.sub'), 'logs');
+    const project = await waitFor(() => $('tr.logrow b') && $('tr.logrow b').textContent, 'project of the log row');
+    const other = Array.from($('#log-filter').options).find((o) => o.value !== 'all' && o.textContent !== project);
+    setVal($('#log-filter'), other.value, 'change');
+    await waitFor(() => !$('tbody').textContent.includes('Rewrote the opening line'), 'filtered out');
+    setVal($('#log-filter'), 'all', 'change');
+    await waitFor(() => $('tbody').textContent.includes('Rewrote the opening line'), 'back with All projects');
+
+    click(subtab('Week'));
+    const summary = JSON.parse(JSON.stringify(server.run('rpc')('insights', 'summary', {}))).result;
+    const sessions = summary.weeks.this.focus.sessions;
+    assert.ok(sessions >= 1, 'the finished session counts this week');
+    await waitFor(() => $('.insights h2') && /This week/.test($('.insights h2').textContent) && $('.stat').textContent.includes(sessions + 'focus session'), 'week at a glance');
+    assert.ok($('.insights').textContent.includes('No habits yet.'), 'no habits module: says so');
+    assert.ok($$('.insights tbody tr').some((r) => r.textContent.includes(project)), 'the session is on its day');
+    click($('[data-act="insights.week"][data-week="last"]'));
+    await waitFor(() => /Last week/.test($('.insights h2').textContent), 'last week');
+    click($('[data-act="insights.week"][data-week="this"]'));
+
+    click(subtab('Habits'));
+    await waitFor(() => $('.insights').textContent.includes('No habits yet.'), 'habits empty state');
+    click(subtab('Projects'));
+    const row = await waitFor(() => $$('.insights tbody tr').find((r) => r.textContent.includes(project)), 'project row');
+    assert.ok(/Share of time/.test($('.insights thead').textContent));
+    const expected = summary.projects[4].rows.find((r) => r.name === project).sessions;
+    assert.ok(expected >= 1);
+    assert.strictEqual(row.querySelectorAll('td.num')[0].textContent, String(expected), 'its sessions in the last 4 weeks');
+    assert.strictEqual(w.localStorage.getItem('ft.insights.sub'), 'projects');
+    click(tab('Today'));
+    click(tab('Insights'));
+    await waitFor(() => subtab('Projects').getAttribute('aria-current') === 'page' && $$('.insights tbody tr').length, 'Projects again, from this device');
+    click($$('[data-act="insights.project"]').find((b) => b.textContent === project));
+    await waitFor(() => w.FT.state.view === 'project' && w.FT.project(w.FT.state.projectId).name === project, 'a project row opens the project');
   });
 
   await step('swap focus lets you pick the project and a reminder, and the skip shows on the project', async () => {

@@ -10,7 +10,7 @@ var APP_NAME = 'Focus Tracker';
 /** The public wrapper page (GitHub Pages, docs/banner-and-hosting.md). Settings links to it. */
 var WRAPPER_URL = 'https://patrickreynoldscoding.github.io/focus-tracker/';
 
-var MODULES = ['today', 'projects', 'categories', 'lists', 'criteria', 'kanban', 'notes', 'whiteboard', 'stickies', 'resources', 'links', 'log', 'layout'];
+var MODULES = ['today', 'projects', 'categories', 'lists', 'criteria', 'kanban', 'notes', 'whiteboard', 'stickies', 'resources', 'links', 'log', 'insights', 'layout'];
 
 /**
  * Modes keep their data apart: each has its own spreadsheet and its own subfolder of the tracker folder.

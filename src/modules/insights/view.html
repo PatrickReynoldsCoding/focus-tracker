@@ -1,0 +1,297 @@
+<style>
+/* Insights (docs/mockups/insights.html). Nothing is red: under target is a light bar with the number, over target a hatched bar with "+n". */
+.insights { --over: repeating-linear-gradient(45deg, var(--accent) 0 3px, var(--accent-soft) 3px 6px); }
+:root[data-theme="eink"] .insights { --over: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px); }
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+.subtab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+.subtab[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.subtabs .ins-status { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding: 8px 0; }
+:root[data-theme="eink"] .subtab[aria-current="page"] { background: #000; color: #fff; border-bottom-color: #000; }
+:root[data-theme="eink"] .subtab { min-height: 44px; }
+.insights h2.ins-title { font-size: 22px; margin: 0; }
+.insights th, .insights td.nw { white-space: nowrap; }
+.insights .subhead { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 16px 0 2px; }
+.insights .ins-filters { display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.insights .ins-filters select { width: auto; }
+.insights .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin-left: auto; }
+.insights .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.insights .sw-done { background: var(--accent); }
+.insights .sw-over { background: var(--over); border: 1px solid var(--accent); }
+.insights .sw-target { border-top: 2px dashed var(--ink); height: 0 !important; width: 18px !important; border-radius: 0 !important; }
+.insights .sw-gap { background: var(--surface-2); border: 1px solid var(--line-strong); }
+.insights .stat { display: flex; gap: 8px 22px; flex-wrap: wrap; margin-top: 8px; }
+.insights .stat div { font-size: 13px; color: var(--muted); }
+.insights .stat b { display: block; font-family: var(--font-display); font-size: 22px; color: var(--ink); }
+.insights .hbar { height: 14px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 4px; position: relative; min-width: 80px; overflow: hidden; }
+.insights .hbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+.insights .hbar i.over { background: var(--over); }
+.insights .weeks { display: grid; grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)); gap: 4px; align-items: end; height: 120px; position: relative; margin-top: 22px; border-bottom: 1px solid var(--line-strong); }
+.insights .wk { position: relative; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.insights .wk .gap { background: var(--surface-2); border: 1px solid var(--line-strong); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.insights .wk .done { background: var(--accent); }
+.insights .wk .over { background: var(--over); border: 1px solid var(--accent); border-bottom: 0; border-radius: 4px 4px 0 0; margin-bottom: 2px; }
+.insights .wk .top { border-radius: 4px 4px 0 0; }
+.insights .wk .tgt { position: absolute; left: -2px; right: -2px; border-top: 2px dashed var(--ink); }
+.insights .wk .v { position: absolute; left: -4px; right: -4px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink); white-space: nowrap; }
+.insights .wk.off .v { color: var(--muted); }
+.insights .wkaxis { display: grid; grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)); gap: 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); text-align: center; margin-top: 4px; }
+.insights .wkaxis span { overflow: hidden; white-space: nowrap; }
+.insights .cardhead { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; }
+.insights .cardhead h3 { font-size: 19px; margin: 0; }
+.insights .cardhead h3 .size { color: var(--muted); font-weight: 400; font-size: 15px; }
+.insights .tag { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; color: var(--muted); white-space: nowrap; }
+.insights .intent { font-size: 12.5px; color: var(--muted); }
+.insights .note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.insights .linkbtn { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
+@media (max-width: 760px) {
+  .insights .weeks { height: 100px; }
+  .subtab { min-height: 44px; }
+  .insights .legend { margin-left: 0; }
+}
+</style>
+<script>
+/**
+ * Insights tab (it replaced the Log tab, in the same place). Sub-tabs: Week, Habits and Projects from this module,
+ * and any other module's 'insights.sub' slot ({ id, title, order, render }), such as the log's Logs.
+ * The numbers come from one server call, insights.summary, made when the tab is opened (not at start-up, as it reads
+ * up to 12 weeks of history). The sub-tab and the two range choices are remembered on this device.
+ */
+(function () {
+  var SUB_KEY = 'ft.insights.sub', HABIT_WEEKS_KEY = 'ft.insights.habitWeeks', PROJECT_WEEKS_KEY = 'ft.insights.projectWeeks';
+  var DAYS = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  var data = null, dataMode = null, triedMode = null, loading = false, failed = '', lastWeek = false, shownView = null;
+
+  function lsGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function lsSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+
+  var OWN = [
+    { id: 'week', title: 'Week', order: 10, render: weekPane },
+    { id: 'habits', title: 'Habits', order: 20, render: habitsPane },
+    { id: 'projects', title: 'Projects', order: 30, render: projectsPane }
+  ];
+  function subs() { return OWN.concat(FT.slots('insights.sub')).sort(function (a, b) { return (a.order || 0) - (b.order || 0); }); }
+  function currentSub() {
+    var list = subs(), id = lsGet(SUB_KEY);
+    return list.filter(function (s) { return s.id === id; })[0] || list[0];
+  }
+
+  // ---------- loading ----------
+  function load() {
+    var mode = FT.state.mode;
+    loading = true; failed = ''; triedMode = mode;
+    FT.rpc('insights', 'summary', {}, { parallel: true, quiet: true, render: false })
+      .then(function (r) { if (mode === FT.state.mode) { data = r; dataMode = mode; } })
+      .catch(function (e) { if (mode === FT.state.mode) failed = e.message || 'Could not reach Google.'; })
+      .then(function () { loading = false; if (FT.state.view === 'insights') FT.render(); });
+  }
+  // Fresh numbers each time the tab is opened (and after a mode switch); the last ones stay on screen meanwhile.
+  FT.onRender(function () {
+    var view = FT.state.view;
+    if (view === 'insights' && (shownView !== 'insights' || triedMode !== FT.state.mode) && !loading) {
+      if (dataMode !== FT.state.mode) data = null;
+      shownView = view;
+      load();
+      return;
+    }
+    shownView = view;
+  });
+
+  // ---------- small helpers ----------
+  function dayDate(iso) { return new Date(iso + 'T00:00:00Z'); }
+  function shortDate(iso) { return dayDate(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+  function duration(min) {
+    if (!min) return '–';
+    if (min < 60) return min + ' min';
+    var m = min % 60;
+    return Math.floor(min / 60) + ' h' + (m ? ' ' + (m < 10 ? '0' : '') + m : '');
+  }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  function dayList(days) {
+    var names = days.map(function (d) { return DAYS[d]; });
+    return names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] || '';
+  }
+  /** A done-against-target bar: the done part, a hatched part for extra sessions, and the words for screen readers. */
+  function hbar(done, target) {
+    if (!target) return '<span class="muted" style="font-size:13px">no target this week</span>';
+    var total = Math.max(done, target), donePct = Math.min(done, target) / total * 100, overPct = Math.max(0, done - target) / total * 100;
+    var words = done + ' of ' + target + (done > target ? ', ' + (done - target) + ' extra' : '');
+    return '<div class="hbar" role="img" aria-label="' + FT.esc(words) + '"><i style="width:' + donePct + '%"></i>' +
+      (overPct ? '<i class="over" style="left:' + donePct + '%;width:' + overPct + '%"></i>' : '') + '</div>';
+  }
+  function panel(html) { return '<section class="panel">' + html + '</section>'; }
+  function waitingPanel() {
+    if (failed) return panel('<p class="empty">Insights need Google, and it could not be reached: ' + FT.esc(failed) + '</p><button class="btn sm" data-act="insights.reload">Try again</button>');
+    return panel('<p class="empty" role="status">Adding up your weeks…</p>');
+  }
+
+  // ---------- Week ----------
+  function weekPane() {
+    if (!data) return [{ id: 'week', html: waitingPanel(), w: 12 }];
+    var wk = lastWeek ? data.weeks.last : data.weeks.this;
+    var title = (lastWeek ? 'Last week' : 'This week') + ' · ' + shortDate(wk.start) + ' – ' + shortDate(wk.end);
+    var nav = '<span><button class="btn sm" data-act="insights.week" data-week="last"' + (lastWeek ? ' disabled' : '') + '>&larr; Last week</button> ' +
+      '<button class="btn sm" data-act="insights.week" data-week="this"' + (lastWeek ? '' : ' disabled') + '>This week &rarr;</button></span>';
+    var when = '';
+    if (wk.current) {
+      var wd = new Date(data.today + 'T00:00:00Z').getUTCDay() || 7;
+      when = DAYS[wd] + '. ' + (wk.daysLeft ? plural(wk.daysLeft, 'day', 'days') + ' to go' : 'The last day of the week');
+      if (wk.away.length) when += ', ' + dayList(wk.away) + (wk.away.length === 1 ? ' is' : ' are') + ' Away';
+      when += '.';
+    }
+    var habitsDone = 0, habitsTarget = 0;
+    wk.habits.forEach(function (h) { habitsDone += h.done; habitsTarget += h.target; });
+    var stats = '<div class="stat">' +
+      '<div><b>' + wk.focus.sessions + '</b>focus ' + (wk.focus.sessions === 1 ? 'session' : 'sessions') + '</div>' +
+      '<div><b>' + duration(wk.focus.minutes) + '</b>focus time</div>' +
+      (wk.habits.length ? '<div><b>' + habitsDone + ' of ' + habitsTarget + '</b>habit sessions</div>' : '') +
+      (wk.todos ? '<div><b>' + wk.todos.done + '</b>' + (wk.todos.done === 1 ? 'to-do' : 'to-dos') + ' done</div>' : '') + '</div>';
+
+    var habitRows = wk.habits.map(function (h) {
+      var notes = [];
+      if (h.extra) notes.push('<b>+' + h.extra + ' over</b>');
+      if (h.planLater) notes.push(h.planLater + ' planned later this week');
+      if (h.per === 'day' && h.awayDays.length) notes.push(dayList(h.awayDays) + ' Away, left out');
+      if (h.pausedDays) notes.push('paused ' + plural(h.pausedDays, 'day', 'days'));
+      return '<tr><td><b>' + FT.esc(h.name) + '</b>' + (h.size ? ' <span class="muted">' + FT.esc(h.size) + '</span>' : '') + '</td>' +
+        '<td class="num">' + (h.target ? h.done + ' of ' + h.target : h.done) + '</td><td style="width:36%">' + hbar(h.done, h.target) + '</td>' +
+        '<td class="muted">' + notes.join(' · ') + '</td></tr>';
+    }).join('');
+    var habits = habitRows
+      ? '<div class="scroll"><table><thead><tr><th>Habit</th><th>Done</th><th>Progress</th><th>Note</th></tr></thead><tbody>' + habitRows + '</tbody></table></div>'
+      : '<p class="empty">No habits yet.</p>';
+
+    var t = wk.todos, todos;
+    if (!t) todos = '<p class="empty">No to-dos yet.</p>';
+    else {
+      var parts = [t.done + ' done'];
+      if (t.onDay) parts.push(t.onDay + ' on or before their day');
+      if (wk.current) {
+        if (t.toCome) parts.push(t.toCome + ' planned still to come');
+        if (t.anytime) parts.push(t.anytime + ' anytime');
+        if (t.open) parts.push(t.open + ' from earlier days still open');
+      }
+      todos = '<p style="margin:4px 0">' + parts.join(' · ') + '.</p>';
+    }
+
+    var focusRows = wk.focus.days.map(function (d) {
+      return '<tr><td class="nw">' + DAYS[d.weekday].slice(0, 3) + '</td><td class="nw">' + FT.esc(d.lead || '') + '</td><td>' + (d.focus.length ? FT.esc(d.focus.join(', ')) : '<span class="muted">–</span>') + '</td>' +
+        '<td class="num">' + d.sessions + '</td><td class="num">' + duration(d.minutes) + '</td></tr>';
+    }).join('');
+    var focus = '<div class="scroll"><table><thead><tr><th>Day</th><th>Lead</th><th>Focus</th><th>Sessions</th><th>Time</th></tr></thead><tbody>' +
+      (focusRows || '<tr><td colspan="5" class="empty">Nothing yet.</td></tr>') + '</tbody></table></div>';
+
+    return [{
+      id: 'week', w: 12,
+      html: panel('<div class="tophead" style="align-items:center"><h2 class="ins-title">' + FT.esc(title) + '</h2>' + nav + '</div>' +
+        (when ? '<p class="muted" style="margin:4px 0 0">' + FT.esc(when) + '</p>' : '') + stats +
+        '<div class="subhead">Habits: done against plan</div>' + habits +
+        '<div class="subhead">To-dos</div>' + todos +
+        '<div class="subhead">Focus</div>' + focus)
+    }];
+  }
+
+  // ---------- Habits ----------
+  function habitWeeks() { return lsGet(HABIT_WEEKS_KEY) === '12' ? 12 : 8; }
+
+  function axisLabel(iso, i, list) {
+    var d = dayDate(iso), prev = i ? dayDate(list[i - 1]) : null;
+    var text = prev && prev.getUTCMonth() === d.getUTCMonth() ? String(d.getUTCDate()) : shortDate(iso);
+    return i === list.length - 1 ? text + ' now' : text;
+  }
+
+  function habitCard(h, n) {
+    var weeks = h.weeks.slice(-n);
+    var max = Math.max.apply(null, weeks.map(function (w) { return Math.max(w.done, w.target); }).concat([1]));
+    var pct = function (x) { return (x / max * 82) + '%'; };
+    var bars = weeks.map(function (w) {
+      var inner = '', label, tip = 'Week of ' + shortDate(w.start) + ': ';
+      if (w.before) { label = ''; tip += 'before this habit started'; }
+      else if (!w.counted) { label = String(w.done); tip += w.done + ' done' + (w.pausedDays ? ', paused' : '') + ', no target that week'; inner = w.done ? '<div class="done top" style="height:' + pct(w.done) + '"></div>' : ''; }
+      else {
+        label = w.done + '/' + w.target;
+        if (w.done > w.target) inner += '<div class="over" style="height:' + pct(w.done - w.target) + '"></div>';
+        if (w.done < w.target) inner += '<div class="gap" style="height:' + pct(w.target - w.done) + '"></div>';
+        inner += '<div class="done' + (w.done === w.target ? ' top' : '') + '" style="height:' + pct(Math.min(w.done, w.target)) + '"></div>';
+        inner += '<div class="tgt" style="bottom:' + pct(w.target) + '"></div>';
+        tip += w.done + ' done of ' + w.target + (w.done > w.target ? ', ' + (w.done - w.target) + ' extra' : '') + (w.current ? ' (this week, not over yet)' : '');
+      }
+      var top = Math.max(w.done, w.counted ? w.target : 0) / max * 82;
+      inner += '<div class="v" aria-hidden="true" style="bottom:calc(' + top + '% + 2px)">' + label + '</div>';
+      return '<div class="wk' + (w.counted ? '' : ' off') + '" tabindex="0" title="' + FT.esc(tip) + '" aria-label="' + FT.esc(tip) + '">' + inner + '</div>';
+    }).join('');
+    var axis = weeks.map(function (w) { return w.start; });
+    var range = h.ranges[n] || { n: 0, of: 0, unit: 'weeks' };
+    var unit = range.unit === 'days' ? 'days' : 'full weeks';
+    var stats = '<div class="stat"><div><b>' + range.n + ' of ' + range.of + '</b>' + unit + ' on target</div>' +
+      (h.strength ? '<div><b>' + FT.esc(h.strength) + '</b>habit strength</div>' : '') +
+      (h.trend ? '<div><b>' + { up: 'Rising', level: 'Holding', down: 'Quieter' }[h.trend] + '</b>' +
+        { up: 'more than the 4 weeks before', level: 'about like the 4 weeks before', down: 'a lighter month than the one before' }[h.trend] + '</div>' : '') + '</div>';
+    var notes = h.changes.map(function (c) { return c.from + ' → ' + c.to + ' on ' + shortDate(c.day); });
+    if (!notes.length) notes.push('No level changes');
+    if (h.lastPrompt) notes.push('"' + h.lastPrompt.value + '" on ' + shortDate(h.lastPrompt.day));
+    var tags = (h.atGoal ? '<span class="tag">At goal</span> ' : '') + (h.status === 'paused' ? '<span class="tag">Paused</span> ' : '') + (h.status === 'ended' ? '<span class="tag">Ended</span> ' : '');
+    var level = h.sessions + ' a ' + h.per;
+    return panel('<div class="cardhead"><h3>' + FT.esc(h.name) + (h.size ? ' <span class="size">' + FT.esc(h.size) + '</span>' : '') + '</h3>' +
+      '<span class="intent">' + tags + FT.esc(level) + '</span></div>' +
+      (h.intention ? '<div class="intent">' + FT.esc(h.intention) + '</div>' : '') + stats +
+      '<div class="weeks" role="group" aria-label="' + FT.esc(h.name) + ', sessions per week" style="--n:' + n + '">' + bars + '</div>' +
+      '<div class="wkaxis" aria-hidden="true" style="--n:' + n + '">' + axis.map(function (iso, i) { return '<span>' + axisLabel(iso, i, axis) + '</span>'; }).join('') + '</div>' +
+      '<p class="note">' + FT.esc(notes.join(' · ')) + '</p>');
+  }
+
+  function habitsPane() {
+    if (!data) return [{ id: 'habits', html: waitingPanel(), w: 12 }];
+    var n = habitWeeks();
+    var head = '<div class="ins-filters"><label class="label" for="ins-hweeks" style="margin:0">Show</label>' +
+      '<select id="ins-hweeks" data-change="insights.habitWeeks"><option value="8"' + (n === 8 ? ' selected' : '') + '>Last 8 weeks</option><option value="12"' + (n === 12 ? ' selected' : '') + '>Last 12 weeks</option></select>' +
+      '<div class="legend"><span><i class="sw-done"></i>done</span><span><i class="sw-over"></i>extra</span><span><i class="sw-gap"></i>still open</span><span><i class="sw-target"></i>target</span></div></div>';
+    if (!data.habits.length) return [{ id: 'habits-head', w: 12, html: panel('<p class="empty">No habits yet. Habits you add show here with their weeks.</p>') }];
+    return [{ id: 'habits-head', w: 12, html: panel(head + '<p class="note" style="margin:0">Each week is compared with the target that applied then. Weeks not over yet, or when a habit was paused or new, are left out of the count.</p>') }]
+      .concat(data.habits.map(function (h) { return { id: 'habit-' + h.id, w: 6, html: habitCard(h, n) }; }));
+  }
+
+  // ---------- Projects ----------
+  function projectWeeks() { return lsGet(PROJECT_WEEKS_KEY) === '12' ? 12 : 4; }
+
+  function projectsPane() {
+    if (!data) return [{ id: 'projects', html: waitingPanel(), w: 12 }];
+    var n = projectWeeks(), set = data.projects[n] || { rows: [] };
+    var max = Math.max.apply(null, set.rows.map(function (r) { return r.minutes; }).concat([1]));
+    var rows = set.rows.map(function (r) {
+      var age = FT.daysSince(r.lastTouched), share = Math.round(r.minutes / max * 100);
+      return '<tr><td><button class="linkbtn" data-act="insights.project" data-id="' + FT.esc(r.id) + '">' + FT.esc(r.name) + '</button></td><td>' + FT.pill(r.category) + '</td>' +
+        '<td class="num">' + r.sessions + '</td><td class="num">' + duration(r.minutes) + '</td>' +
+        '<td style="width:24%"><div class="hbar" role="img" aria-label="' + share + '% of the most time on one project"><i style="width:' + share + '%"></i></div></td>' +
+        '<td>' + (age >= FT.config.staleDays ? '<b>' + FT.ageLabel(age) + '</b>' : FT.ageLabel(age)) + '</td><td class="num">' + r.skips + '</td></tr>';
+    }).join('');
+    var head = '<div class="tophead"><div class="label">Projects · time worked since ' + shortDate(set.from || data.today) + '</div>' +
+      '<select class="auto" aria-label="Time span" data-change="insights.projectWeeks"><option value="4"' + (n === 4 ? ' selected' : '') + '>Last 4 weeks</option><option value="12"' + (n === 12 ? ' selected' : '') + '>Last 12 weeks</option></select></div>';
+    return [{
+      id: 'projects', w: 12,
+      html: panel(head + '<div class="scroll"><table><thead><tr><th>Project</th><th>Category</th><th>Sessions</th><th>Time</th><th>Share of time</th><th>Last touched</th><th>Skipped</th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="7" class="empty">No projects yet.</td></tr>') + '</tbody></table></div>' +
+        '<p class="note">Time is from the Log: minutes of each finished session. Open a project for its notes and log lines.</p>')
+    }];
+  }
+
+  // ---------- the tab ----------
+  function render() {
+    var list = subs(), sub = currentSub();
+    var nav = '<nav class="subtabs" aria-label="Insights">' + list.map(function (s) {
+      return '<button class="subtab" data-act="insights.sub" data-sub="' + FT.esc(s.id) + '"' + (s.id === sub.id ? ' aria-current="page"' : '') + '>' + FT.esc(s.title) + '</button>';
+    }).join('') + '<span class="ins-status" role="status">' + (loading && data ? 'Updating…' : '') + '</span></nav>';
+    var own = OWN.indexOf(sub) !== -1;
+    var panels = own ? sub.render() : [{ id: sub.id, html: sub.render(FT), w: 12 }];
+    return '<div class="insights">' + nav + FT.layout('insights-' + sub.id, panels) + '</div>';
+  }
+
+  FT.module({ id: 'insights', tab: { title: 'Insights', order: 40, render: render } });
+
+  FT.action('insights.sub', function (el) { lsSet(SUB_KEY, el.dataset.sub); FT.render(); });
+  FT.action('insights.week', function (el) { lastWeek = el.dataset.week === 'last'; FT.render(); });
+  FT.action('insights.reload', function () { if (!loading) load(); FT.render(); });
+  FT.action('insights.project', function (el) { FT.go('project', { id: el.dataset.id }); });
+  FT.on('change', 'insights.habitWeeks', function (el) { lsSet(HABIT_WEEKS_KEY, el.value); FT.render(); });
+  FT.on('change', 'insights.projectWeeks', function (el) { lsSet(PROJECT_WEEKS_KEY, el.value); FT.render(); });
+})();
+</script>

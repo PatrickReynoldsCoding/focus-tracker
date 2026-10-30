@@ -3,8 +3,8 @@
  * Client core. Modules plug in with FT.module({...}); see AGENTS.md for the contract.
  *
  *   FT.module({
- *     id: 'log',
- *     tab:   { title: 'Log', order: 40, render: function (FT) { return '<html string>'; } },   // optional top-level tab
+ *     id: 'insights',
+ *     tab:   { title: 'Insights', order: 40, render: function (FT) { return '<html string>'; } },   // optional top-level tab
  *     slots: { 'project.page': [{ order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],   // or return [{ id, title, html, w }]
  *              'projects.tab': [{ order: 10, render: function (FT) { return html; } }],
               'today.panels': [{ order: 10, render: function (FT) { return html; } }] },        // optional extension points

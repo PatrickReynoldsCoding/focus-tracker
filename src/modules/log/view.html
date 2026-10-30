@@ -33,7 +33,8 @@
       (rows || '<tr><td colspan="5" class="empty">Nothing logged yet. Finish a session on the Today tab to add a line.</td></tr>') + '</tbody></table></div></section>';
   }
 
-  FT.module({ id: 'log', tab: { title: 'Log', order: 40, render: render } });
+  // The log is the Logs sub-tab of Insights (modules/insights). Without that module it is not shown.
+  FT.module({ id: 'log', slots: { 'insights.sub': [{ id: 'logs', title: 'Logs', order: 40, render: render }] } });
   FT.on('change', 'log.filter', function (el) { filter = el.value; FT.render(); });
 })();
 </script>

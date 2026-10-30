@@ -11,6 +11,9 @@ function logModule() {
       return T.all().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, KEEP);
     },
     api: {
+      /** Every line, oldest first as in the sheet. Insights reads this. */
+      list: function () { return T.all(); },
+
       add: function (a) {
         return T.insert({
           project_id: a.projectId,
