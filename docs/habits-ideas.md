@@ -147,7 +147,7 @@ One row per habit. Readable without the app: a person can add a habit by typing 
 | next_prompt | 2026-11-16 | ISO date. The app sets it. |
 | prompts | on | `on`, `off`, `at goal`. |
 | category | job | Optional link to a category id (shows its top project's next action). |
-| status | active | `active`, `paused`, `ended`. |
+| status | active | `active`, `paused`, `ended`, `aspiring` (an idea not started yet: name and description only; added 2026-10-30, see "As built"). |
 | started | 2026-11-02 | ISO date. |
 | order | 1 | Position on Today. |
 | updated_at | | Stamped by `Table`, for offline conflicts. |
@@ -258,3 +258,5 @@ Built in `src/modules/habits/`, `src/modules/todos/`, the v3 step in `src/core/m
 - **Daily minimum migration** (§5) names the habit after the category ("Job search", Paddy's brief) with intention "Daily minimum", and clears `rotation.daily_minimum` in Settings. It adds rows only, so it makes no backup copy. A new spreadsheet gets no habit.
 - **Delete.** Besides Pause and End there is Delete (with Undo), which also removes the habit's log rows. End keeps them.
 - Not built yet: strength words, step down ("Make it smaller?"), the Sunday/Monday banner, celebrations beyond the "Nice." message and a short pop of the dot.
+- **Two panels** (later on 2026-10-30, Paddy's request; question 2 now answered with variant B): Today has a Habits panel (id `habits`) and a To-dos panel (id `todos`) instead of one "Small tasks" panel, each moved and hidden on its own. Plan my week is in both headers. A saved layout with the old `smalltasks` id puts Habits in its place and To-dos just below it.
+- **All habits and aspiring habits** (same day): an "All habits" dialog from the Habits panel lists active, paused and ended habits (each with Edit), then Aspiring: ideas for habits not started yet, a Habits row with `status` `aspiring`, a name and an optional why/notes (`description`), no sessions or per. They are quick-added in the dialog (box and Enter), edited in place, deleted with Undo, and never shown on Today, prompted, planned or counted in Insights. "Start" opens the usual three steps filled in with the name and why; finishing makes the same row active from today with its first `level` row. The browser now gets ended and aspiring habits in the habits slice too, for the dialog.

@@ -29,7 +29,7 @@ var WRAP_WIDTH_ = 280;
 var PROJECT_STATUSES_ = ['active', 'paused', 'done', 'archived'];
 var RESOURCE_TYPES_ = ['link', 'drive', 'phone', 'email', 'text'];
 var HABIT_PERS_ = ['day', 'week'];
-var HABIT_STATUSES_ = ['active', 'paused', 'ended'];
+var HABIT_STATUSES_ = ['active', 'paused', 'ended', 'aspiring']; // aspiring: an idea, not started yet (no sessions needed)
 var LINK_TYPES_ = ['blocks', 'relates'];
 // A project's board starts with these columns: made by the app for a new project, and for a project an assistant typed in.
 var BOARD_COLUMNS_ = ['To do', 'Doing', 'Done'];
@@ -104,6 +104,7 @@ var TAB_STYLE = [
         if (row.sessions !== '' && row.sessions !== undefined && !(Math.floor(n) === n && n >= 1)) return 'Sessions must be a whole number, 1 or more.';
         if (row.status && HABIT_STATUSES_.indexOf(row.status) === -1) return 'Status must be one of: ' + HABIT_STATUSES_.join(', ') + '.';
         if (row.prompts && ['on', 'off', 'at goal'].indexOf(row.prompts) === -1) return 'Prompts must be on, off or at goal.';
+        if (row.status === 'aspiring') { row.started = ''; row.next_prompt = ''; return checkCategory_(row, look, false); } // starts in the app, with its level
         if (row.prompts === 'on' && !row.next_prompt && row.step_up_every) row.next_prompt = String(row.started || nowIso_()).slice(0, 10);
         return checkCategory_(row, look, false);
       } } },

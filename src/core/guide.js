@@ -85,20 +85,20 @@ function guideTabs_() {
       }
     },
     'Habits': {
-      what: 'Things done again and again, n sessions a day or a week.',
+      what: 'Things done again and again, n sessions a day or a week. Also ideas for habits not started yet: a row with name, description and status aspiring (sessions and per can stay empty); the owner starts it in the app, which fills in the rest.',
       columns: {
         name: ['needed', 'The habit, for example "Cardio".'],
         intention: ['optional', 'Free text: how serious it is, for example "5 cardio sessions a week" or "just trying it out".'],
-        sessions: ['needed', 'How many sessions, a whole number, 1 or more. Start low.'],
-        per: ['needed', 'One of: ' + HABIT_PERS_.join(', ') + '.'],
+        sessions: ['needed', 'How many sessions, a whole number, 1 or more. Start low. Empty for an aspiring habit.'],
+        per: ['needed', 'One of: ' + HABIT_PERS_.join(', ') + '. Empty for an aspiring habit.'],
         size: ['optional', 'How big one session is, for example "10 min".'],
         small_version: ['optional', 'The smallest version that still counts on a bad day.'],
         goal: ['optional', 'Where building up stops, written like "5 a week, 30 min".'],
         step_up_every: ['optional', 'How often the app asks to step up, for example "2 weeks". Empty for never.'],
         prompts: ['optional', 'on, off or at goal. Empty means off.'],
         category: ['optional', 'A category label, if the habit belongs to one.'],
-        description: ['optional', 'Why, in a sentence.'],
-        status: ['optional', 'One of: ' + HABIT_STATUSES_.join(', ') + '. Empty means active.'],
+        description: ['optional', 'Why, in a sentence, or notes for an idea not started yet.'],
+        status: ['optional', 'One of: ' + HABIT_STATUSES_.join(', ') + '. Empty means active. aspiring: an idea for a habit, not started; it is not on Today and not in Insights.'],
         problem: ['app', 'Why the app cannot use this row. Written by the app.']
       }
     },
@@ -294,6 +294,7 @@ function guideMarkdown_() {
     ['One project has to wait for another', 'Links', 'from the one that goes first, type blocks, to the one that waits.'],
     ['Two projects belong together', 'Links', 'type relates.'],
     ['Something to repeat (exercise, practice)', 'Habits', 'name, sessions and per, for example 3 and week. Start low.'],
+    ['An idea for a habit you haven\'t started', 'Habits', 'A row with name, description and status aspiring. No sessions or per needed.'],
     ['A one-off small task (shopping, an appointment)', 'To-dos', 'title, and day if it is for a day.'],
     ['Items that are not a project (books, films, ideas)', 'Tasks with list', 'title, list and column (the list\'s group). A new list is a row in Lists.'],
     ['A record of a work session', 'Log', 'project, where_stopped and minutes.'],

@@ -1,6 +1,17 @@
 <style>
-.small-tasks .tophead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.small-tasks .subhead { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 2px; }
+.habits-panel .tophead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.hsub { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 2px; }
+/* All habits */
+.allhabits { list-style: none; margin: 0; padding: 0; }
+.allhabits li { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.allhabits li:last-child { border-bottom: 0; }
+.allhabits .an { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.allhabits .an small { display: block; color: var(--muted); font-size: 12.5px; }
+.allhabits .an textarea { min-height: 60px; }
+.allhabits .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ideaadd { display: flex; gap: 8px; margin-top: 10px; }
+.ideaadd input { flex: 1 1 auto; min-width: 0; width: auto; }
+.ideaadd .btn { flex: none; }
 .habit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .habit:last-child { border-bottom: 0; }
 .habit .hname { font-weight: 600; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; color: var(--ink); }
@@ -89,9 +100,9 @@
 </style>
 <script>
 /**
- * Habits on Today (docs/habits-ideas.md, mockups today-a, new-habit, step-up, plan-week): the "Small tasks" panel with a
- * row of dots per habit and the "Want to go further?" card, the new-habit and edit dialogs, and Plan my week.
- * Sections other modules add to the panel (the to-dos) come from the 'today.smalltasks' slot.
+ * Habits on Today (docs/habits-ideas.md, mockups today-a, new-habit, step-up, plan-week): the Habits panel with a row
+ * of dots per habit and the "Want to go further?" card, the new-habit and edit dialogs, All habits (active, paused,
+ * ended, and aspiring ones: ideas not started yet, with Start) and Plan my week. The to-dos are their own panel (todos).
  * A tap shows at once and is sent with { render: false }; the server only adds or takes away one session, so taps
  * that waited offline add up. Counts are written as text ("2 of 5 this week"), never shown by colour alone.
  */
@@ -144,7 +155,7 @@
     return { done: done, target: target, label: h.per === 'week' ? 'this week' : 'today' };
   }
 
-  // ---------- the Small tasks panel ----------
+  // ---------- the Habits panel ----------
   function categoryLine(h) {
     if (!h.category || !FT.store.categories) return '';
     var cat = FT.category(h.category), focus = (FT.store.today || {}).focusId;
@@ -214,23 +225,22 @@
   function panelHtml() {
     var s = slice(), list = activeHabits();
     var paused = s.habits.filter(function (h) { return h.status === 'paused'; });
-    var sections = FT.slots('today.smalltasks').map(function (x) { return x.render(FT) || ''; }).join('');
-    return '<section class="panel small-tasks"><div class="tophead"><div class="label">Small tasks</div><span class="actions" style="margin:0">' +
-      '<button class="btn sm" data-act="habits.planWeek">Plan my week</button><button class="btn sm" data-act="habits.new">+ Habit</button></span></div>' +
+    return '<section class="panel habits-panel"><div class="tophead"><div class="label">Habits</div><span class="actions" style="margin:0">' +
+      '<button class="btn sm" data-act="habits.all">All habits</button><button class="btn sm" data-act="habits.planWeek">Plan my week</button>' +
+      '<button class="btn sm" data-act="habits.new">+ Habit</button></span></div>' +
       promptHtml() +
-      '<div class="subhead">Habits</div>' +
       (list.length ? '<div class="habits">' + list.map(habitHtml).join('') + '</div>'
         : '<p class="empty" style="padding:4px 0">No habits yet. "+ Habit" adds one, such as 10 minutes of fitness a day.</p>') +
       (paused.length ? '<div class="paused-list">Paused: ' + paused.map(function (h) {
         return '<button class="btn sm" data-act="habits.resume" data-id="' + FT.esc(h.id) + '" aria-label="Resume ' + FT.esc(h.name) + '">' + FT.esc(h.name) + ' · Resume</button>';
       }).join('') + '</div>' : '') +
-      sections + '</section>';
+      '</section>';
   }
 
   function todayPanels() {
     var html = panelHtml();
     popId = null;
-    return [{ id: 'smalltasks', title: 'Small tasks', html: html, w: 5, beside: true }];
+    return [{ id: 'habits', title: 'Habits', description: 'Your habits as rows of dots to tap, the step-up prompt, All habits and Plan my week.', html: html, w: 5, beside: true }];
   }
 
   FT.module({ id: 'habits', slots: { 'today.panels': [{ order: 0, render: todayPanels }], 'today.planWeek': [{}] } });
@@ -366,10 +376,11 @@
   function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function pressed(selector) { var el = document.querySelector(selector + '[aria-pressed="true"]'); return el; }
 
-  function newHabitBody() {
+  /** idea: an aspiring habit being started, whose name and why fill the first step. */
+  function newHabitBody(idea) {
     return '<div id="nh-step1"><div class="hstep">Step 1 of 3</div>' +
-      '<label for="nh-name">Name</label><input type="text" id="nh-name" maxlength="80" placeholder="e.g. Cardio">' +
-      '<label for="nh-desc">Why, and when (optional)</label><textarea id="nh-desc" placeholder="e.g. Feel fitter. Straight after work, before dinner."></textarea>' +
+      '<label for="nh-name">Name</label><input type="text" id="nh-name" maxlength="80" placeholder="e.g. Cardio" value="' + FT.esc(idea ? idea.name : '') + '">' +
+      '<label for="nh-desc">Why, and when (optional)</label><textarea id="nh-desc" placeholder="e.g. Feel fitter. Straight after work, before dinner.">' + FT.esc(idea ? idea.description || '' : '') + '</textarea>' +
       '<label for="nh-intention">Intention (optional)</label><input type="text" id="nh-intention" maxlength="300" placeholder="e.g. 5 cardio sessions a week, or just trying it out">' +
       '<label for="nh-sessions">How often (where you want to get to)</label><div class="hrow2"><input type="text" inputmode="numeric" id="nh-sessions" value="3" aria-label="Sessions">' +
       '<span>sessions a</span><select id="nh-per" aria-label="Per">' + perOptions('week') + '</select></div>' +
@@ -395,7 +406,10 @@
     return { sessions: n, per: per, size: val('nh-size') };
   }
 
-  FT.action('habits.new', function () {
+  FT.action('habits.new', function () { newHabit(null); });
+
+  /** The three steps for a new habit, or for starting an aspiring one (idea): then that row becomes active, no new row. */
+  function newHabit(idea) {
     var starts = [], startAt = 0;
     function show(n) {
       [1, 2, 3].forEach(function (i) { document.getElementById('nh-step' + i).hidden = i !== n; });
@@ -418,9 +432,10 @@
       document.getElementById('nh-ramp').innerHTML = rampHtml(starts[startAt] || goal, goal, pace ? pace.dataset.pace : '');
     }
     FT.dialog({
-      title: 'New habit',
-      body: newHabitBody(),
-      submit: 'Create habit',
+      title: idea ? 'Start a habit' : 'New habit',
+      subtitle: idea ? 'Say how often and how big, and it goes on Today.' : '',
+      body: newHabitBody(idea),
+      submit: idea ? 'Start habit' : 'Create habit',
       onOpen: function () {
         var err = function (e) { document.getElementById('dlg-err').textContent = FT.errorText(e); };
         document.getElementById('nh-next1').onclick = function () {
@@ -445,12 +460,137 @@
         if (!starts.length) starts = startLevels(goal);
         var start = starts[startAt] || starts[0], pace = pressed('.hpace');
         var args = {
-          id: FT.newId(), name: name, description: val('nh-desc'), intention: val('nh-intention'), per: goal.per, sessions: start.sessions, size: start.size,
+          id: idea ? idea.id : FT.newId(), name: name, description: val('nh-desc'), intention: val('nh-intention'), per: goal.per, sessions: start.sessions, size: start.size,
           small_version: val('nh-small'), goal: levelText(goal.sessions, goal.per, goal.size), step_up_every: pace ? pace.dataset.pace : '2 weeks', category: val('nh-category')
         };
+        if (idea) return startIdea(idea.id, args);
         return FT.rpc('habits', 'create', args, { quiet: true }).then(function () { FT.toast(name + ' added to Today. Start small.', null, { label: 'Undo', run: FT.undo }); });
       }
     });
+  }
+
+  /** Start an aspiring habit: it goes on Today at once (last), and the dialog closes before the server answers. */
+  function startIdea(id, args) {
+    var h = habit(id), s = slice();
+    if (!h) throw new Error('That habit is no longer there.');
+    var before = Object.assign({}, h);
+    var order = s.habits.reduce(function (m, x) { return Math.max(m, x.order); }, 0) + 1;
+    FT.optimistic(function () {
+      Object.assign(h, args, { status: 'active', started: s.day, order: order, level: { sessions: args.sessions, size: args.size }, prompts: args.step_up_every ? 'on' : 'off' });
+      s.habits.sort(function (a, b) { return a.order - b.order; });
+      return function () { Object.keys(h).forEach(function (k) { delete h[k]; }); Object.assign(h, before); s.habits.sort(function (a, b) { return a.order - b.order; }); };
+    }, send('start', args)).catch(function () {});
+    FT.toast(h.name + ' has started: it is on Today now. Start small.', null, { label: 'Undo', run: FT.undo });
+  }
+
+  // ---------- All habits: active, paused, ended, then aspiring ones (ideas not started yet) ----------
+  var editingIdea = null; // the aspiring habit being edited in the dialog
+
+  function ofStatus(status) { return slice().habits.filter(function (h) { return h.status === status; }); }
+
+  function habitLine(h) {
+    var more = [h.sessions ? levelText(h.sessions, h.per, h.size) : '', h.intention].filter(Boolean).map(FT.esc).join(' · ');
+    return '<li data-id="' + FT.esc(h.id) + '"><span class="an"><b>' + FT.esc(h.name) + '</b>' + (more ? '<small>' + more + '</small>' : '') + '</span>' +
+      '<span class="acts"><button type="button" class="btn sm" data-act="habits.edit" data-id="' + FT.esc(h.id) + '" aria-label="Edit ' + FT.esc(h.name) + '">Edit</button></span></li>';
+  }
+
+  function ideaLine(h) {
+    var id = FT.esc(h.id), name = FT.esc(h.name);
+    if (editingIdea === h.id) {
+      return '<li data-id="' + id + '"><span class="an"><label for="ai-name">Name</label><input type="text" id="ai-name" maxlength="80" value="' + name + '" data-enter="habits.ideaSave" data-id="' + id + '">' +
+        '<label for="ai-desc">Why, notes</label><textarea id="ai-desc" maxlength="300">' + FT.esc(h.description || '') + '</textarea></span>' +
+        '<span class="acts"><button type="button" class="btn sm primary" data-act="habits.ideaSave" data-id="' + id + '">Save</button>' +
+        '<button type="button" class="btn sm" data-act="habits.ideaCancel">Cancel</button></span></li>';
+    }
+    return '<li data-id="' + id + '"><span class="an"><b>' + name + '</b>' + (h.description ? '<small>' + FT.esc(h.description) + '</small>' : '') + '</span>' +
+      '<span class="acts"><button type="button" class="btn sm primary" data-act="habits.ideaStart" data-id="' + id + '" aria-label="Start ' + name + '">Start</button>' +
+      '<button type="button" class="btn sm" data-act="habits.ideaEdit" data-id="' + id + '" aria-label="Edit ' + name + '">Edit</button>' +
+      '<button type="button" class="btn sm" data-act="habits.ideaRemove" data-id="' + id + '" aria-label="Delete ' + name + '">Delete</button></span></li>';
+  }
+
+  function allHtml() {
+    var html = [['active', 'Active'], ['paused', 'Paused'], ['ended', 'Ended']].map(function (g) {
+      var list = ofStatus(g[0]);
+      if (!list.length && g[0] !== 'active') return '';
+      return '<div class="hsub">' + g[1] + '</div>' + (list.length ? '<ul class="allhabits" data-group="' + g[0] + '">' + list.map(habitLine).join('') + '</ul>'
+        : '<p class="empty" style="padding:4px 0">None yet. "+ Habit" on Today adds one.</p>');
+    }).join('');
+    var ideas = ofStatus('aspiring');
+    return html + '<div class="hsub">Aspiring</div><p class="stepnote">Habits you would like to start one day. A name is enough; add why or notes with Edit. Start one when you are ready.</p>' +
+      (ideas.length ? '<ul class="allhabits" data-group="aspiring">' + ideas.map(ideaLine).join('') + '</ul>' : '') +
+      '<div class="ideaadd"><input type="text" id="ah-new" maxlength="80" placeholder="An idea for a habit, e.g. Learn Spanish" aria-label="New aspiring habit" data-enter="habits.aspire">' +
+      '<button type="button" class="btn" data-act="habits.aspire">Add</button></div>';
+  }
+
+  /** Redraw the open All habits dialog, keeping what is typed in its boxes and where the focus was. */
+  function drawAll() {
+    var body = document.getElementById('ah-body');
+    if (!body) return;
+    var typed = {};
+    ['ah-new', 'ai-name', 'ai-desc'].forEach(function (id) { var el = document.getElementById(id); if (el) typed[id] = el.value; });
+    var focused = document.activeElement && body.contains(document.activeElement) ? document.activeElement.id : '';
+    body.innerHTML = allHtml();
+    Object.keys(typed).forEach(function (id) { var el = document.getElementById(id); if (el) el.value = typed[id]; });
+    var again = focused && document.getElementById(focused);
+    if (again) again.focus();
+  }
+  FT.onRender(drawAll);
+
+  FT.action('habits.all', function () {
+    editingIdea = null;
+    FT.dialog({ title: 'All habits', body: '<div id="ah-body"></div>', submit: 'Done', cancel: false, onOpen: drawAll, onSubmit: function () {} });
+  });
+
+  /** Add an aspiring habit from the box: it shows at once and the box is ready for the next one. */
+  function aspire() {
+    var el = document.getElementById('ah-new'), name = el ? el.value.trim() : '';
+    if (!name) { if (el) el.focus(); return; }
+    var s = slice(), list = s.habits;
+    var h = { id: FT.newId(), name: name.slice(0, 80), description: '', status: 'aspiring', sessions: 0, per: '', size: '', order: list.reduce(function (m, x) { return Math.max(m, x.order); }, 0) + 1 };
+    el.value = '';
+    FT.optimistic(function () { s.habits = list.concat([h]); return function () { s.habits = list; }; },
+      send('aspire', { id: h.id, name: h.name })).catch(function () {});
+    var box = document.getElementById('ah-new');
+    if (box) box.focus();
+    // No message, as for a new to-do: it shows in the list, and a message would sit over the dialog's buttons on a phone.
+  }
+  FT.on('enter', 'habits.aspire', aspire);
+  FT.action('habits.aspire', aspire);
+
+  FT.action('habits.ideaEdit', function (el) {
+    editingIdea = el.dataset.id;
+    drawAll();
+    var box = document.getElementById('ai-name');
+    if (box) box.focus();
+  });
+  FT.action('habits.ideaCancel', function () { editingIdea = null; drawAll(); });
+  function saveIdea(el) {
+    var h = habit(el.dataset.id), name = val('ai-name'), description = val('ai-desc');
+    if (!h) return;
+    if (!name) { FT.toast('A habit needs a name.', 'error'); return; }
+    var before = { name: h.name, description: h.description };
+    editingIdea = null;
+    FT.optimistic(function () { h.name = name; h.description = description; return function () { Object.assign(h, before); }; },
+      send('update', { id: h.id, name: name, description: description })).catch(function () {});
+    FT.toast(name + ' saved.', null, { label: 'Undo', run: FT.undo });
+  }
+  FT.action('habits.ideaSave', saveIdea);
+  FT.on('enter', 'habits.ideaSave', saveIdea);
+
+  FT.action('habits.ideaRemove', function (el) {
+    var h = habit(el.dataset.id), s = slice(), list = s.habits;
+    if (!h) return;
+    if (editingIdea === h.id) editingIdea = null;
+    FT.optimistic(function () { s.habits = list.filter(function (x) { return x.id !== h.id; }); return function () { s.habits = list; }; },
+      send('remove', { id: h.id })).catch(function () {});
+    FT.deleted('Habit idea');
+  });
+
+  FT.action('habits.ideaStart', function (el) {
+    var h = habit(el.dataset.id);
+    if (!h) return;
+    editingIdea = null;
+    newHabit({ id: h.id, name: h.name, description: h.description });
   });
 
   FT.action('habits.edit', function (el) {
@@ -499,7 +639,7 @@
   });
 
   FT.action('habits.move', function (el) {
-    var list = slice().habits.filter(function (h) { return h.status !== 'ended'; }).sort(function (a, b) { return a.order - b.order; });
+    var list = slice().habits.filter(function (h) { return h.status !== 'ended' && h.status !== 'aspiring'; }).sort(function (a, b) { return a.order - b.order; });
     var i = list.map(function (h) { return h.id; }).indexOf(el.dataset.id), j = i + Number(el.dataset.d);
     if (i === -1 || j < 0 || j >= list.length) { FT.toast(Number(el.dataset.d) < 0 ? 'It is already first.' : 'It is already last.'); return; }
     var a = list[i], b = list[j], ao = a.order, bo = b.order;
@@ -596,7 +736,7 @@
     html += '</div></div><div class="plegend"><span><span class="pdot on"></span> done</span><span><span class="pdot"></span> planned</span><span>hatched = past or Away</span></div>';
     if (FT.store.todos) {
       var anytime = todosOf().filter(function (x) { return !x.day && !x.done; });
-      html += '<div class="small-tasks"><div class="subhead">Anytime to-dos (no day yet)</div></div><div class="anytime">' + anytime.map(function (x) { return chipHtml(x, false); }).join('') +
+      html += '<div class="hsub">Anytime to-dos (no day yet)</div><div class="anytime">' + anytime.map(function (x) { return chipHtml(x, false); }).join('') +
         (pickedTodo ? '<button type="button" class="btn sm" data-act="habits.planTodoDay" data-day="">Make it anytime</button>' : '') +
         (anytime.length ? '' : '<span class="stepnote" style="margin:0">None.</span>') + '</div>';
     }

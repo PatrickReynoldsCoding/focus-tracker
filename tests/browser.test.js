@@ -84,30 +84,30 @@ async function run(browser, size) {
   await quickly(async () => { await pg.locator('[data-act="today.finish"]').click(); await pg.fill('#dlg-where', 'testing'); await pg.click('#dlg-submit'); await sleep(500); });
   await settle();
   await quick('Today: Swap focus dialog', pg.locator('[data-act="today.swap"]')); await closeDialog();
-  // ---------- 1 and 2: Small tasks (habits and to-dos) ----------
+  // ---------- 1 and 2: the Habits and To-dos panels ----------
   const srv = (code) => { const v = env.server.run('(function () { tableCache_ = {}; return ' + code + '; })()'); return v === undefined ? null : JSON.parse(JSON.stringify(v)); };
   const habitsNow = () => env.server.run('bootstrap()').data.habits;
   const todosNow = () => env.server.run('bootstrap()').data.todos.items;
   const today = srv('todayIso_()');
   const doneToday = (id) => { const r = habitsNow().log.find((x) => x.habit_id === id && x.kind === 'done' && x.day === today); return r ? r.count : 0; };
   const jobId = habitsNow().habits.find((h) => h.name === 'Job search').id;
-  const dot = () => pg.locator(`.small-tasks .habit[data-id="${jobId}"] [data-act="habits.tap"]`).first();
-  await quick('Small tasks: tap a dot', dot());
-  assert.ok(await pg.isVisible(`.small-tasks .habit[data-id="${jobId}"] .dot.on`), 'the dot fills at once');
+  const dot = () => pg.locator(`.habits-panel .habit[data-id="${jobId}"] [data-act="habits.tap"]`).first();
+  await quick('Habits: tap a dot', dot());
+  assert.ok(await pg.isVisible(`.habits-panel .habit[data-id="${jobId}"] .dot.on`), 'the dot fills at once');
   assert.strictEqual(doneToday(jobId), 0, 'before the slow server has it');
   await settle();
   assert.strictEqual(doneToday(jobId), 1, 'the tap reached the server');
-  await quick('Small tasks: − takes a session off', pg.locator(`.small-tasks .habit[data-id="${jobId}"] [data-act="habits.untap"]`));
+  await quick('Habits: − takes a session off', pg.locator(`.habits-panel .habit[data-id="${jobId}"] [data-act="habits.untap"]`));
   await settle();
   assert.strictEqual(doneToday(jobId), 0, 'the − reached the server');
   const unfailTap = env.failWhere((name, args) => name === 'rpc' && args[0] === 'habits' && args[1] === 'tap');
-  await quick('Small tasks: tap a dot (server will refuse)', dot());
-  assert.ok(await pg.isVisible(`.small-tasks .habit[data-id="${jobId}"] .dot.on`), 'filled while the save is on its way');
-  await pg.waitForFunction((id) => !document.querySelector(`.small-tasks .habit[data-id="${id}"] .dot.on`), jobId, { timeout: 8000 });
+  await quick('Habits: tap a dot (server will refuse)', dot());
+  assert.ok(await pg.isVisible(`.habits-panel .habit[data-id="${jobId}"] .dot.on`), 'filled while the save is on its way');
+  await pg.waitForFunction((id) => !document.querySelector(`.habits-panel .habit[data-id="${id}"] .dot.on`), jobId, { timeout: 8000 });
   assert.ok(/refused/i.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'the dot goes back and the reason is shown');
   unfailTap();
   assert.strictEqual(doneToday(jobId), 0, 'the server never changed');
-  log('Small tasks: a dot tap and − answer at once and reach the server; a refused tap is put back');
+  log('Habits: a dot tap and − answer at once and reach the server; a refused tap is put back');
 
   const grocery = () => todosNow().find((t) => t.title === 'Grocery shopping');
   await quick('To-dos: tick', pg.locator('.todos li:has-text("Grocery shopping") input[type="checkbox"]'));
@@ -147,7 +147,7 @@ async function run(browser, size) {
   assert.strictEqual(habitsNow().habits.find((x) => x.id === habit.id).prompts, 'at goal');
   log('Want to go further?: Not now, Yes, adjust and I\'m at my goal answer at once and reach the server');
 
-  await quick('Small tasks: Plan my week', pg.locator('.small-tasks [data-act="habits.planWeek"]'));
+  await quick('Habits: Plan my week', pg.locator('.habits-panel [data-act="habits.planWeek"]'));
   const tomorrowCell = pg.locator(`.plan [data-act="habits.planAdd"][data-id="${jobId}"]`).last();
   const planDay = await tomorrowCell.getAttribute('data-day');
   await quick('Plan my week: place a session', tomorrowCell);
@@ -155,8 +155,29 @@ async function run(browser, size) {
   await settle();
   assert.ok(habitsNow().log.some((r) => r.kind === 'plan' && r.day === planDay && r.habit_id === jobId), 'the plan reached the server');
   await closeDialog();
-  await quick('Small tasks: + Habit dialog', pg.locator('[data-act="habits.new"]')); await closeDialog();
+  await quick('Habits: + Habit dialog', pg.locator('[data-act="habits.new"]')); await closeDialog();
   log('Plan my week and + Habit answer at once');
+
+  const idea = () => habitsNow().habits.find((h) => h.name === 'Learn Spanish');
+  await quick('Habits: All habits dialog', pg.locator('.habits-panel [data-act="habits.all"]'));
+  await quickly(async () => { await pg.fill('#ah-new', 'Learn Spanish'); });
+  await quick('All habits: quick-add an aspiring habit', pg.locator('.ideaadd [data-act="habits.aspire"]'));
+  assert.ok(await pg.isVisible('.allhabits[data-group="aspiring"] li:has-text("Learn Spanish")'), 'the aspiring habit shows at once');
+  assert.ok(!idea(), 'before the slow server has it');
+  await settle();
+  assert.strictEqual(idea().status, 'aspiring', 'the aspiring habit reached the server');
+  await quick('All habits: Start', pg.locator('.allhabits li:has-text("Learn Spanish") [data-act="habits.ideaStart"]'));
+  assert.strictEqual(await pg.inputValue('#nh-name'), 'Learn Spanish', 'the new-habit steps start filled in');
+  // The step-up answer's message may still show over the dialog's button; a person would wait for it to go.
+  await quickly(async () => { await pg.click('#nh-next1'); await pg.click('#nh-next2'); await pg.evaluate(() => { document.getElementById('toast').hidden = true; }); });
+  await quick('Start habit: submit', pg.locator('#dlg-submit'));
+  assert.ok(!(await pg.isVisible('.dialog')), 'the dialog closes at once');
+  assert.ok(await pg.isVisible('.habits-panel .habit:has-text("Learn Spanish")'), 'and the habit is on Today at once');
+  assert.strictEqual(idea().status, 'aspiring', 'before the slow server has it');
+  await settle();
+  assert.strictEqual(idea().status, 'active', 'Start reached the server');
+  assert.ok(await pg.isVisible('.habits-panel .habit:has-text("Learn Spanish")'), 'and the screen agrees');
+  log('All habits, quick-add an aspiring habit and Start answer at once and reach the server');
 
   await quick('Today: Rotation Edit dialog', pg.locator('[data-act="today.rotationEdit"], [data-act="today.editRotation"], [data-act="today.rotation"]').first()); await closeDialog();
 

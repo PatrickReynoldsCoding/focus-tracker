@@ -1,6 +1,6 @@
 /**
- * To-dos module: one-off small tasks (grocery shopping, a job interview), shown with the habits in Today's "Small tasks"
- * panel. One row per to-do in the To-dos tab. `day` is the ISO date it is for, empty for anytime; `done` is the date it
+ * To-dos module: one-off small tasks (grocery shopping, a job interview), shown in Today's To-dos panel (next to the
+ * Habits panel). One row per to-do in the To-dos tab. `day` is the ISO date it is for, empty for anytime; `done` is the date it
  * was ticked, empty while open. A to-do can point at a project (project_id, with its name in `project`).
  * Plan my week puts to-dos on days, from today to the end of next week, never further.
  */

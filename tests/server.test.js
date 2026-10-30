@@ -735,6 +735,16 @@ test('page layouts are saved per page and per mode, validated, and can be reset'
   assert.deepStrictEqual(Object.keys(r.slices.layout), ['project']);
 });
 
+test('a saved Today layout with the old "Small tasks" panel puts Habits in its place and To-dos just below', () => {
+  const s = fresh();
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }, { id: 'smalltasks', x: 7, y: 0, w: 5 }, { id: 'rotation', x: 0, y: 30, w: 7 }] });
+  let today = json(s.run('bootstrap()')).data.layout.today;
+  assert.deepStrictEqual(today, { focus: { x: 0, y: 0, w: 7 }, rotation: { x: 0, y: 30, w: 7 }, habits: { x: 7, y: 0, w: 5 }, todos: { x: 7, y: 1, w: 5 } });
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'smalltasks', x: 0, y: 10000, w: 12, hidden: true }] });
+  today = s.call('layout', 'setHidden', { page: 'today', id: 'todos', hidden: false }).slices.layout.today;
+  assert.deepStrictEqual(today, { habits: { x: 0, y: 10000, w: 12, hidden: true }, todos: { x: 0, y: 10000, w: 12 } }, 'hidden stays hidden; a panel shown again keeps its place');
+});
+
 test('a pending import runs once, in its own mode, when that mode is first opened', () => {
   const s = fresh();
   s.run(`function pendingImportData_() { return {
@@ -1418,12 +1428,61 @@ test('habits: create with a level row, edit, reorder, pause, resume, end and del
   let b = json(s.run('bootstrap()')).data.habits;
   s.call('habits', 'setStatus', { id: fit.id, status: 'ended' });
   b = json(s.run('bootstrap()')).data.habits;
-  assert.deepStrictEqual(b.habits.map((h) => h.name), ['Cycling'], 'an ended habit leaves the app');
+  assert.deepStrictEqual(b.habits.map((h) => [h.name, h.status]), [['Fitness', 'ended'], ['Cycling', 'active']], 'an ended habit is still sent, for All habits (Today shows active ones)');
   assert.strictEqual(s.rows('Habits').length, 2, 'and stays in the sheet');
   s.call('habits', 'remove', { id: cardio.id });
   assert.ok(!s.rows('Habit log').some((r) => r.habit_id === cardio.id), 'delete takes its history too');
   s.run('undo()');
   assert.ok(s.rows('Habit log').some((r) => r.habit_id === cardio.id), 'and Undo brings both back');
+});
+
+test('habits: an aspiring habit is a name and a why, with no sessions; Start makes it active with its level row', () => {
+  const s = onDay(WED);
+  const cardio = s.call('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week', size: '15 min', step_up_every: '1 week' }).result;
+  assert.throws(() => s.call('habits', 'aspire', { name: ' ' }), /needs a name/);
+  const idea = s.call('habits', 'aspire', { id: 'aaaa0001', name: 'Learn Spanish', description: 'For the trip next summer' }).result;
+  assert.strictEqual(idea.id, 'aaaa0001', 'the browser\'s id is kept');
+  let row = s.rows('Habits').find((h) => h.id === idea.id);
+  assert.deepStrictEqual([row.status, row.sessions, row.per, row.started, row.prompts, row.next_prompt], ['aspiring', '', '', '', '', '']);
+  assert.ok(!s.rows('Habit log').some((r) => r.habit_id === idea.id), 'no level row before it starts');
+  s.call('habits', 'update', { id: idea.id, name: 'Spanish', description: 'Duolingo first', sessions: 3, per: 'day' });
+  row = s.rows('Habits').find((h) => h.id === idea.id);
+  assert.deepStrictEqual([row.name, row.description, row.sessions, row.per, row.status], ['Spanish', 'Duolingo first', '', '', 'aspiring'], 'an edit changes the name and notes only');
+  assert.throws(() => s.call('habits', 'setStatus', { id: idea.id, status: 'active' }), /has not started yet/);
+  assert.throws(() => s.call('habits', 'start', { id: cardio.id, sessions: 1, per: 'week' }), /already started/);
+
+  // never on Today's list of active habits, never a prompt, never in Insights or plans
+  s.run(`tableCache_ = {}; new Table('Habits', ['id']).update('${idea.id}', { prompts: 'on', step_up_every: '1 week', next_prompt: '2026-11-01' })`);
+  const b = json(s.run('bootstrap()')).data.habits;
+  assert.deepStrictEqual(b.habits.map((h) => [h.name, h.status]), [['Cardio', 'active'], ['Spanish', 'aspiring']]);
+  assert.strictEqual(b.prompt, null, 'no prompt for an aspiring habit');
+  assert.deepStrictEqual(s.call('habits', 'history', {}).result.habits.map((h) => h.name), ['Cardio'], 'history leaves it out');
+  assert.deepStrictEqual(s.call('insights', 'summary').result.habits.map((h) => h.name), ['Cardio'], 'so Insights never count it');
+  s.call('habits', 'copyWeek', { week: MON });
+  assert.ok(!s.rows('Habit log').some((r) => r.habit_id === idea.id), 'nothing planned for it');
+  assert.strictEqual(s.call('habits', 'move', { id: cardio.id, d: 1 }).result, false, 'it is not a place to move an active habit to');
+
+  const started = s.call('habits', 'start', { id: idea.id, name: 'Spanish', description: 'Duolingo first', sessions: 1, per: 'day', size: '10 min', goal: '1 a day, 20 min', step_up_every: '2 weeks' }).result;
+  assert.deepStrictEqual([started.status, started.started, started.sessions, started.per, started.size, started.prompts, started.next_prompt, started.order],
+    ['active', WED, 1, 'day', '10 min', 'on', '2026-11-18', 3], 'active from today, last on Today');
+  assert.deepStrictEqual(s.rows('Habit log').filter((r) => r.habit_id === idea.id).map((r) => [r.day, r.kind, r.value]), [[WED, 'level', '1 a day, 10 min']]);
+  assert.deepStrictEqual(s.call('habits', 'history', {}).result.habits.map((h) => h.name), ['Cardio', 'Spanish'], 'now it counts');
+
+  const later = s.call('habits', 'aspire', { name: 'Meditate' }).result;
+  s.call('habits', 'remove', { id: later.id });
+  assert.ok(!s.rows('Habits').some((h) => h.id === later.id), 'an aspiring habit can be deleted');
+  s.run('undo()');
+  assert.ok(s.rows('Habits').some((h) => h.id === later.id), 'and Undo brings it back');
+});
+
+test('insights read straight from the tabs leave aspiring habits out too', () => {
+  const s = insightsServer();
+  writeTab(s, 'Habits', HABIT_HEADERS, [
+    { id: 'h0000001', name: 'Job hunting', sessions: '5', per: 'week', status: 'active', started: '2026-08-31', order: '1' },
+    { id: 'h0000002', name: 'Learn Spanish', status: 'Aspiring', order: '2' }
+  ]);
+  s.run(`habitsModule = function () { return { title: 'Habits', tables: [], api: {} }; };`);
+  assert.deepStrictEqual(s.call('insights', 'summary').result.habits.map((h) => h.name), ['Job hunting']);
 });
 
 test('habits: a tap adds a session, taps past the target are extra, −1 takes one off; one log row per habit per day', () => {
@@ -1635,12 +1694,21 @@ test('a habit typed into the sheet is completed, and one the app cannot use is f
   sh.rows.push(rowFrom(sh, { name: 'Water plants', sessions: '1', per: 'week' }));
   sh.rows.push(rowFrom(sh, { name: 'Bad one', per: 'month' }));
   sh.rows.push(rowFrom(sh, { name: 'Linked', category: 'Job search' }));
-  const b = json(s.run('bootstrap()')).data.habits.habits;
-  assert.deepStrictEqual(b.map((h) => h.name), ['Seed', 'Water plants', 'Linked']);
+  // as the guide says: an idea for a habit not started yet is a row with name, description and status aspiring
+  sh.rows.push(rowFrom(sh, { name: 'Learn piano', description: 'One song by spring', status: 'Aspiring' }));
+  const b = json(s.run('bootstrap()')).data.habits;
+  assert.deepStrictEqual(b.habits.map((h) => [h.name, h.status]), [['Seed', 'active'], ['Water plants', 'active'], ['Linked', 'active'], ['Learn piano', 'aspiring']]);
+  assert.strictEqual(b.prompt, null);
   const rows = s.rows('Habits');
   assert.strictEqual(rows.find((h) => h.name === 'Bad one').problem, 'Per must be day or week.');
   const linked = rows.find((h) => h.name === 'Linked');
   assert.deepStrictEqual([linked.category, linked.status, linked.per, linked.sessions, linked.prompts], ['job', 'active', 'week', '1', 'off']);
+  const piano = rows.find((h) => h.name === 'Learn piano');
+  assert.deepStrictEqual([piano.problem, piano.status, piano.started, piano.description], ['', 'aspiring', '', 'One song by spring'], 'accepted, not started');
+  assert.ok(piano.id, 'with an id');
+  assert.ok(!s.call('habits', 'history', {}).result.habits.some((h) => h.name === 'Learn piano'), 'and not in Insights');
+  s.call('habits', 'start', { id: piano.id, sessions: 2, per: 'week', size: '15 min' });
+  assert.strictEqual(s.rows('Habits').find((h) => h.id === piano.id).status, 'active', 'it can be started in the app');
 });
 
 

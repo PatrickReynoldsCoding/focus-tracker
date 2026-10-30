@@ -15,7 +15,8 @@
  * The interface expected from the habits module (docs/habits-ideas.md §3):
  *   ctx.optional('habits', 'history', { from, to })   from and to are ISO dates, both included
  *   returns { habits: [...], log: [...] }
- *     habits  every row of the Habits tab: id, name, sessions, per (day | week), size, status (active | paused | ended),
+ *     habits  every started row of the Habits tab (never `aspiring` ones, which are ideas not started yet; read
+ *             from the tabs, they are left out here): id, name, sessions, per (day | week), size, status (active | paused | ended),
  *             started (ISO date), prompts (on | off | at goal), order. Other columns are passed through and ignored.
  *     log     Habit log rows: habit_id, day, kind, count, value.
  *             done and plan rows whose day is from..to, and every level, prompt, pause and resume row up to `to`
@@ -258,7 +259,8 @@ function insightsModule() {
     var byHabit = {};
     src.log.forEach(function (r) { (byHabit[r.habit_id] = byHabit[r.habit_id] || []).push(r); });
     return src.habits
-      .filter(function (h) { return h.id && h.name; })
+      // An aspiring habit (an idea, not started) has no weeks to show; the history api leaves them out, the tabs may not.
+      .filter(function (h) { return h.id && h.name && String(h.status || '').trim().toLowerCase() !== 'aspiring'; })
       .sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); })
       .map(function (h) {
         var t = habitTimeline_(h, byHabit[h.id] || []);

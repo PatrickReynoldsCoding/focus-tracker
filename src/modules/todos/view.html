@@ -12,12 +12,13 @@
 .todoadd input { flex: 1 1 auto; min-width: 0; width: auto; }
 .todoadd .btn { flex: none; }
 .todoadd select { flex: none; width: auto; }
+.todos-panel .tophead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 @media (max-width: 760px) { .todos input[type="checkbox"] { width: 28px; height: 28px; } .todos .rm { min-width: 44px; min-height: 44px; } }
 :root[data-theme="eink"] .todos input[type="checkbox"] { width: 36px; height: 36px; }
 </style>
 <script>
 /**
- * To-dos in Today's "Small tasks" panel: one-off things, for a day or anytime. Ticking, adding and deleting show at once
+ * Today's To-dos panel (id 'todos'): one-off things, for a day or anytime. Ticking, adding and deleting show at once
  * and are sent with { render: false }; a delete shows the Undo message straight away. Today shows open to-dos for today,
  * earlier days and anytime, and the ones ticked today. FT.todos lets Plan my week (habits module) move and add them.
  */
@@ -55,18 +56,24 @@
       '<button class="rm" data-act="todos.remove" data-id="' + id + '" aria-label="Delete to-do ' + FT.esc(t.title) + '">×</button></li>';
   }
 
-  function sectionHtml() {
+  function panelHtml() {
     var s = slice(), list = shown();
-    return '<div class="subhead">To-dos</div>' +
+    // Plan my week belongs to the habits module; the button shows when it is installed.
+    var plan = FT.slots('today.planWeek').length ? '<span class="actions" style="margin:0"><button class="btn sm" data-act="habits.planWeek">Plan my week</button></span>' : '';
+    return '<section class="panel todos-panel"><div class="tophead"><div class="label">To-dos</div>' + plan + '</div>' +
       (list.length ? '<ul class="todos">' + list.map(function (t) { return itemHtml(t, s.day); }).join('') + '</ul>'
         : '<p class="empty" style="padding:4px 0">Nothing to do today. Add one below, or plan the week.</p>') +
       '<div class="todoadd"><input type="text" id="td-new" placeholder="Add a to-do" aria-label="New to-do" maxlength="200" data-enter="todos.add">' +
       '<select id="td-day" aria-label="When" data-change="todos.pickDay">' + [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['', 'Anytime']].map(function (o) {
         return '<option value="' + o[0] + '"' + (o[0] === addDay ? ' selected' : '') + '>' + o[1] + '</option>';
-      }).join('') + '</select><button class="btn" data-act="todos.addBtn">Add</button></div>';
+      }).join('') + '</select><button class="btn" data-act="todos.addBtn">Add</button></div></section>';
   }
 
-  FT.module({ id: 'todos', slots: { 'today.smalltasks': [{ order: 10, render: sectionHtml }] } });
+  function todayPanels() {
+    return [{ id: 'todos', title: 'To-dos', description: 'One-off small tasks for today, a day this week or anytime, ticked off as you go.', html: panelHtml(), w: 5, beside: true }];
+  }
+
+  FT.module({ id: 'todos', slots: { 'today.panels': [{ order: 5, render: todayPanels }] } });
 
   /** Add a to-do for an ISO day ('' for anytime). Shows at once. */
   function add(title, day) {

@@ -9,11 +9,31 @@ function layoutModule() {
   var PREFIX = 'layout.';
   var COLUMNS = 12;
   var MAX_PANELS = 60;
+  var MAX_Y = 10000;
+  // Panels that were split or renamed, by page: a saved place for the old id goes to the new ones, the first in its
+  // place and each next one just below it (hidden if it was hidden). Today's "Small tasks" became Habits and To-dos.
+  var RENAMED = { today: { smalltasks: ['habits', 'todos'] } };
+
+  function renamed_(page, items) {
+    var map = RENAMED[page] || {};
+    Object.keys(map).forEach(function (old) {
+      var place = items[old];
+      if (!place) return;
+      map[old].forEach(function (id, i) {
+        if (items[id]) return;
+        items[id] = { x: place.x, y: Math.min(MAX_Y, place.y + i), w: place.w };
+        if (place.hidden) items[id].hidden = true;
+      });
+      delete items[old];
+    });
+    return items;
+  }
 
   function load_() {
     var saved = settingsWithPrefix_(PREFIX), all = {};
     Object.keys(saved).forEach(function (key) {
-      try { all[key.slice(PREFIX.length)] = JSON.parse(saved[key]); } catch (e) { /* a row edited by hand into something unreadable: the default layout */ }
+      var page = key.slice(PREFIX.length);
+      try { all[page] = renamed_(page, JSON.parse(saved[key])); } catch (e) { /* a row edited by hand into something unreadable: the default layout */ }
     });
     return all;
   }
@@ -42,7 +62,7 @@ function layoutModule() {
     items.forEach(function (item) {
       var id = String(item.id || '');
       assert_(/^[a-zA-Z0-9_-]{1,60}$/.test(id), 'Bad panel id.');
-      assert_(whole_(item.w, 1, COLUMNS) && whole_(item.x, 0, COLUMNS - 1) && whole_(item.y, 0, 10000), 'Bad panel position.');
+      assert_(whole_(item.w, 1, COLUMNS) && whole_(item.x, 0, COLUMNS - 1) && whole_(item.y, 0, MAX_Y), 'Bad panel position.');
       out[id] = { x: item.x, y: item.y, w: Math.min(item.w, COLUMNS - item.x) };
       if (item.hidden) out[id].hidden = true;
     });
@@ -65,7 +85,7 @@ function layoutModule() {
         var all = load_(), page = pageKey_(a.page);
         assert_(/^[a-zA-Z0-9_-]{1,60}$/.test(String(a.id || '')), 'Bad panel id.');
         var pageLayout = all[page] || {};
-        var place = pageLayout[a.id] || { x: 0, y: 10000, w: 12 };
+        var place = pageLayout[a.id] || { x: 0, y: MAX_Y, w: 12 };
         if (a.hidden) place.hidden = true; else delete place.hidden;
         pageLayout[a.id] = place;
         all[page] = pageLayout;

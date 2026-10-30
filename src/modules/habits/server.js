@@ -10,6 +10,9 @@
  * tap), plus `level` rows (value "4 a week, 30 min", day = the day it applies from), `prompt` rows (value yes, not now,
  * at goal, stop asking, keep asking) and `pause` / `resume` rows. Insights compare each week with the level then.
  *
+ * Aspiring habits (status `aspiring`): ideas not started yet, just a name and a why (description). They never show on
+ * Today, never get prompts and never reach Insights; "Start" (api.start) fills in the level and makes one active.
+ *
  * A tap sends +1 or -1 for a day, never a total, so taps made on two devices offline add up when they reach the server
  * (the offline rule in docs/habits-ideas.md §3; nothing for core/conflicts.js to settle).
  */
@@ -20,6 +23,7 @@ function habitsModule() {
   var LOG = new Table('Habit log', ['id', 'habit_id', 'habit', 'day', 'kind', 'count', 'value', 'updated_at'], ['count']);
   var PERS = ['day', 'week'];
   var STATUSES = ['active', 'paused', 'ended'];
+  var ASPIRING = 'aspiring'; // an idea for a habit, not started yet
   var ANSWERS = ['yes', 'not now', 'at goal', 'stop asking', 'keep asking'];
   var MAX_SESSIONS = { day: 10, week: 21 };
   var TAP_DAYS_BACK = 7;     // a tap that waited offline may be for a day this long ago
@@ -97,6 +101,20 @@ function habitsModule() {
 
   function sorted_() {
     return T.all().sort(function (a, b) { return a.order - b.order; });
+  }
+
+  /** Habits that have started: not aspiring. A status typed by hand ("Aspiring ") is read as the app writes it. */
+  function isAspiring_(h) { return String(h.status || '').trim().toLowerCase() === ASPIRING; }
+  function started_() { return sorted_().filter(function (h) { return !isAspiring_(h); }); }
+
+  function nextOrder_() {
+    return T.all().reduce(function (m, h) { return Math.max(m, h.order); }, 0) + 1;
+  }
+
+  /** What a habit gets when it starts today: prompts from its pace, status active, started today. */
+  function startFields_(stepUpEvery, today) {
+    var interval = intervalDays_(stepUpEvery);
+    return { prompts: interval ? 'on' : 'off', next_prompt: interval ? isoAddDays_(today, interval) : '', status: 'active', started: today };
   }
 
   // ---------- the log ----------
@@ -221,7 +239,7 @@ function habitsModule() {
 
   function snapshot_(ctx) {
     var today = todayIso_(), monday = isoMonday_(today), from = isoAddDays_(monday, -7), until = isoAddDays_(monday, 13);
-    var habits = sorted_().filter(function (h) { return h.status !== 'ended'; });
+    var habits = sorted_(); // ended and aspiring too, for the All habits dialog; Today shows the active ones
     var log = LOG.all();
     var levelsBy = {};
     log.forEach(function (r) { if (r.kind === 'level') (levelsBy[r.habit_id] = levelsBy[r.habit_id] || []).push(r); });
@@ -229,6 +247,7 @@ function habitsModule() {
     return {
       day: today, monday: monday,
       habits: habits.map(function (h) {
+        if (isAspiring_(h)) return Object.assign({}, h, { status: ASPIRING });
         var levels = levelsBy[h.id] || [];
         var out = Object.assign({}, h, { level: levelOn_(h, levels, h.per === 'week' ? monday : today) });
         var waiting = levels.filter(function (r) { return r.day > today; })[0];
@@ -237,7 +256,7 @@ function habitsModule() {
       }),
       log: log.filter(function (r) { return (r.kind === 'done' || r.kind === 'plan') && r.day >= from && r.day <= until; })
         .map(function (r) { return { id: r.id, habit_id: r.habit_id, day: r.day, kind: r.kind, count: r.count }; }),
-      prompt: prompt_(habits, today, awayDays_(ctx))
+      prompt: prompt_(habits.filter(function (h) { return !isAspiring_(h); }), today, awayDays_(ctx))
     };
   }
 
@@ -276,12 +295,36 @@ function habitsModule() {
         var today = todayIso_();
         var patch = fields_(Object.assign({ per: 'week', sessions: 1 }, a), { per: 'week', sessions: 1 }, ctx);
         assert_(patch.name, 'A habit needs a name.');
-        var interval = intervalDays_(patch.step_up_every);
         var row = T.insert(Object.assign({
-          id: clientId_(a.id), intention: '', description: '', size: '', small_version: '', goal: '', step_up_every: '', category: '',
-          prompts: interval ? 'on' : 'off', next_prompt: interval ? isoAddDays_(today, interval) : '', status: 'active', started: today,
-          order: T.all().reduce(function (m, h) { return Math.max(m, h.order); }, 0) + 1
-        }, patch));
+          id: clientId_(a.id), intention: '', description: '', size: '', small_version: '', goal: '', step_up_every: '', category: '', order: nextOrder_()
+        }, startFields_(patch.step_up_every, today), patch));
+        addLog_(row, today, 'level', 0, levelText_(row.sessions, row.per, row.size));
+        ctx.refresh('habits');
+        return row;
+      },
+
+      /**
+       * An idea for a habit, not started yet: a.name and a.description (why, notes) only; a.id from the browser. No
+       * level, no sessions: those come with Start.
+       */
+      aspire: function (a, ctx) {
+        var row = T.insert({
+          id: clientId_(a.id), name: name_(a.name), description: clean_(a.description, 300), intention: '', sessions: '', per: '', size: '', small_version: '',
+          goal: '', step_up_every: '', prompts: '', category: '', status: ASPIRING, next_prompt: '', started: '', order: nextOrder_()
+        });
+        ctx.refresh('habits');
+        return row;
+      },
+
+      /**
+       * Start an aspiring habit: a.id, and the same fields as create (name and description may change). It becomes
+       * active from today, last on Today, with its level row written.
+       */
+      start: function (a, ctx) {
+        var h = habit_(a.id), today = todayIso_();
+        assert_(isAspiring_(h), h.name + ' has already started.');
+        var patch = fields_(Object.assign({ per: 'week', sessions: 1 }, a), { per: 'week', sessions: 1 }, ctx);
+        var row = T.update(h.id, Object.assign({ order: nextOrder_() }, startFields_(patch.step_up_every, today), patch));
         addLog_(row, today, 'level', 0, levelText_(row.sessions, row.per, row.size));
         ctx.refresh('habits');
         return row;
@@ -290,6 +333,7 @@ function habitsModule() {
       /** Change any field. A new level applies from today; a new pace restarts the wait for the next prompt. */
       update: function (a, ctx) {
         var h = habit_(a.id), today = todayIso_();
+        if (isAspiring_(h)) a = { name: a.name, description: a.description }; // an idea has a name and a why, nothing more until it starts
         var patch = fields_(a, h, ctx);
         var levelChanged = ['sessions', 'per', 'size'].some(function (k) { return patch[k] !== undefined && String(patch[k]) !== String(h[k]); });
         // A pace sent with prompts off or at goal turns them on again, also when it is the same pace as before.
@@ -309,6 +353,7 @@ function habitsModule() {
       setStatus: function (a, ctx) {
         var h = habit_(a.id);
         assert_(STATUSES.indexOf(a.status) !== -1, 'Unknown status: ' + a.status);
+        assert_(!isAspiring_(h), h.name + ' has not started yet. Start it from All habits.');
         if (a.status === h.status) return h;
         var row = T.update(h.id, { status: a.status });
         var today = todayIso_();
@@ -320,7 +365,7 @@ function habitsModule() {
 
       /** Swap with the neighbour: a.d is -1 (earlier) or 1 (later). */
       move: function (a, ctx) {
-        var list = sorted_().filter(function (h) { return h.status !== 'ended'; });
+        var list = started_().filter(function (h) { return h.status !== 'ended'; });
         var i = list.map(function (h) { return h.id; }).indexOf(a.id), j = i + Number(a.d);
         assert_(i !== -1, 'Habit not found.');
         if (j < 0 || j >= list.length) return false;
@@ -340,14 +385,14 @@ function habitsModule() {
       },
 
       /**
-       * For Insights (ctx.optional): every habit (ended too), the done and plan rows from a.from to a.to (ISO dates,
+       * For Insights (ctx.optional): every habit that has started (ended too, never aspiring ones), the done and plan rows from a.from to a.to (ISO dates,
        * inclusive), and every level, prompt, pause and resume row up to a.to, older ones too. A level row's day is the
        * first day it applies; its value reads "4 a week, 30 min".
        */
       history: function (a) {
         var from = String(a.from || ''), to = String(a.to || '9999-12-31');
         return {
-          habits: sorted_().map(function (h) {
+          habits: started_().map(function (h) {
             return { id: h.id, name: h.name, sessions: h.sessions, per: h.per, size: h.size, status: h.status, started: String(h.started || '').slice(0, 10),
               prompts: h.prompts, order: h.order, intention: h.intention, goal: h.goal, category: h.category };
           }),

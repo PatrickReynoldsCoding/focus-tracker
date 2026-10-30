@@ -609,13 +609,14 @@ async function waitFor(fn, label, ms = 3000) {
   const todosNow = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.todos)).items;
   const TODAY = srv('todayIso_()'), MON = srv('isoMonday_(todayIso_())');
   const plus = (day, n) => srv("isoAddDays_('" + day + "', " + n + ')');
-  const habitRow = (name) => $$('.small-tasks .habit').find((r) => r.querySelector('.hname').textContent === name);
+  const habitRow = (name) => $$('.habits-panel .habit').find((r) => r.querySelector('.hname').textContent === name);
   const enter = (el) => el.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
-  await step('Small tasks: a dot tap shows at once and reaches the sheet, taps past the dots are extra, − takes one off', async () => {
+  await step('Habits and To-dos are two panels; a dot tap shows at once and reaches the sheet, taps past the dots are extra, − takes one off', async () => {
     click(tab('Today'));
     const row = await waitFor(() => habitRow('Job search'), 'the daily minimum is a habit on Today');
-    assert.strictEqual($('.small-tasks .label').textContent, 'Small tasks');
+    assert.deepStrictEqual([$('.habits-panel .label').textContent, $('.todos-panel .label').textContent], ['Habits', 'To-dos'], 'two panels, each movable and hideable');
+    assert.ok($('.todos-panel [data-act="habits.planWeek"]') && $('.habits-panel [data-act="habits.planWeek"]'), 'Plan my week from either');
     assert.ok(row.textContent.includes('Daily minimum'), 'its intention shows');
     assert.ok(row.querySelector('.hnext').textContent.startsWith('Job search · '), 'with the linked category\'s next action');
     assert.strictEqual(row.querySelectorAll('.dot').length, 1);
@@ -814,6 +815,62 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => todayNow().next[1] === undefined, 'back to usual');
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog'), 'Done closes it');
+  });
+
+  await step('All habits: active, paused and ended habits grouped with Edit; aspiring ones added with Enter, edited, deleted with Undo, and started', async () => {
+    const group = (g) => $$(`.allhabits[data-group="${g}"] li b`).map((b) => b.textContent);
+    const idea = (name) => $$('.allhabits[data-group="aspiring"] li').find((x) => x.querySelector('b') && x.querySelector('b').textContent === name);
+    const openAll = async () => { click($('.habits-panel [data-act="habits.all"]')); await waitFor(() => $('#ah-body .allhabits'), 'the All habits dialog'); };
+    click(tab('Today'));
+    await waitFor(() => habitRow('Cardio rides'), 'Today');
+    await openAll();
+    assert.deepStrictEqual(group('active'), ['Job search', 'Cardio rides']);
+    assert.strictEqual($$('.allhabits[data-group="active"] [data-act="habits.edit"]').length, 2, 'each with Edit');
+    click($$('.allhabits[data-group="active"] li').find((x) => x.textContent.includes('Cardio rides')).querySelector('[data-act="habits.edit"]'));
+    await waitFor(() => $('[data-act="habits.end"]'), 'its edit dialog');
+    click($('[data-act="habits.end"]'));
+    assert.ok(!habitRow('Cardio rides'), 'ended at once, off Today');
+    await waitFor(() => habitsNow().habits.find((h) => h.name === 'Cardio rides').status === 'ended', 'ended on the server');
+    await openAll();
+    assert.deepStrictEqual([group('active'), group('ended')], [['Job search'], ['Cardio rides']], 'ended ones in their own group');
+    assert.ok(!$('.allhabits[data-group="paused"]'), 'no empty Paused group');
+    assert.ok(!$('.allhabits[data-group="aspiring"]'), 'no aspiring habits yet');
+
+    setVal($('#ah-new'), 'Learn Spanish'); enter($('#ah-new'));
+    assert.deepStrictEqual(group('aspiring'), ['Learn Spanish'], 'an aspiring habit shows at once');
+    assert.strictEqual($('#ah-new').value, '', 'the box is emptied');
+    assert.strictEqual(d.activeElement.id, 'ah-new', 'and keeps focus for the next one');
+    assert.ok($('.dialog'), 'Enter does not close the dialog');
+    await waitFor(() => habitsNow().habits.some((h) => h.name === 'Learn Spanish' && h.status === 'aspiring'), 'saved as aspiring');
+    assert.ok(!habitRow('Learn Spanish'), 'not on Today');
+    setVal($('#ah-new'), 'Juggling'); click($('.ideaadd [data-act="habits.aspire"]'));
+    await waitFor(() => habitsNow().habits.some((h) => h.name === 'Juggling'), 'added with the button');
+
+    click(idea('Learn Spanish').querySelector('[data-act="habits.ideaEdit"]'));
+    setVal($('#ai-name'), 'Spanish'); setVal($('#ai-desc'), 'For the trip next summer');
+    click($('[data-act="habits.ideaSave"]'));
+    assert.ok(idea('Spanish') && idea('Spanish').textContent.includes('For the trip next summer'), 'the edit shows at once');
+    await waitFor(() => habitsNow().habits.some((h) => h.name === 'Spanish' && h.description === 'For the trip next summer'), 'edit saved');
+
+    click(idea('Juggling').querySelector('[data-act="habits.ideaRemove"]'));
+    assert.ok(!idea('Juggling'), 'gone at once');
+    assert.ok(/Habit idea deleted/.test($('#toast').textContent) && $('#toast .toastbtn'), 'with Undo');
+    await waitFor(() => !habitsNow().habits.some((h) => h.name === 'Juggling'), 'deleted');
+    click($('#toast .toastbtn'));
+    await waitFor(() => habitsNow().habits.some((h) => h.name === 'Juggling'), 'Undo brings it back');
+    await waitFor(() => idea('Juggling'), 'in the list too');
+
+    click(idea('Spanish').querySelector('[data-act="habits.ideaStart"]'));
+    await waitFor(() => $('#nh-name'), 'the new-habit steps');
+    assert.deepStrictEqual([$('#nh-name').value, $('#nh-desc').value, $('#dlg-submit').textContent], ['Spanish', 'For the trip next summer', 'Start habit'], 'filled in from the idea');
+    setVal($('#nh-sessions'), '1'); setVal($('#nh-per'), 'day', 'change'); setVal($('#nh-size'), '10 min');
+    click($('#nh-next1')); click($('#nh-next2'));
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && habitRow('Spanish'), 'on Today once started');
+    const sp = habitsNow().habits.find((h) => h.name === 'Spanish');
+    assert.deepStrictEqual([sp.status, sp.per, sp.sessions, sp.started, sp.description], ['active', 'day', 1, TODAY, 'For the trip next summer']);
+    assert.strictEqual(habitsNow().habits.filter((h) => h.name === 'Spanish').length, 1, 'the same row, not a new one');
+    assert.deepStrictEqual(rowsOfTab('Habit log').filter((r) => r.habit_id === sp.id).map((r) => [r.day, r.kind, r.value]), [[TODAY, 'level', '1 a day, 5 min']], 'started low (half the size), with its level row');
   });
 
   await step('the weekly rotation can be edited, with a this-week change and an away day', async () => {
@@ -1376,7 +1433,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.board'), 'work project page');
     click(tab('Today'));
     await waitFor(() => $('.focus-name') && $('.focus-name').textContent === 'Wiz tickets', 'work focus');
-    assert.ok(!$('.small-tasks .habit'), 'work mode has no habits');
+    assert.ok(!$('.habits-panel .habit'), 'work mode has no habits');
     setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name') && $('.focus-name').textContent !== 'Wiz tickets', 'personal back');
     click(tab('Projects'));

@@ -31,6 +31,7 @@ This guide is for any AI assistant (Claude, ChatGPT, Gemini or another) that can
 | One project has to wait for another | Links | from the one that goes first, type blocks, to the one that waits. |
 | Two projects belong together | Links | type relates. |
 | Something to repeat (exercise, practice) | Habits | name, sessions and per, for example 3 and week. Start low. |
+| An idea for a habit you haven't started | Habits | A row with name, description and status aspiring. No sessions or per needed. |
 | A one-off small task (shopping, an appointment) | To-dos | title, and day if it is for a day. |
 | Items that are not a project (books, films, ideas) | Tasks with list | title, list and column (the list's group). A new list is a row in Lists. |
 | A record of a work session | Log | project, where_stopped and minutes. |
@@ -144,22 +145,22 @@ App columns, leave them empty: id, project_id, added.
 
 ### Habits
 
-Things done again and again, n sessions a day or a week.
+Things done again and again, n sessions a day or a week. Also ideas for habits not started yet: a row with name, description and status aspiring (sessions and per can stay empty); the owner starts it in the app, which fills in the rest.
 
 | Column | You fill it | Meaning |
 |---|---|---|
 | name | yes | The habit, for example "Cardio". |
 | intention | if known | Free text: how serious it is, for example "5 cardio sessions a week" or "just trying it out". |
-| sessions | yes | How many sessions, a whole number, 1 or more. Start low. |
-| per | yes | One of: day, week. |
+| sessions | yes | How many sessions, a whole number, 1 or more. Start low. Empty for an aspiring habit. |
+| per | yes | One of: day, week. Empty for an aspiring habit. |
 | size | if known | How big one session is, for example "10 min". |
 | small_version | if known | The smallest version that still counts on a bad day. |
 | goal | if known | Where building up stops, written like "5 a week, 30 min". |
 | step_up_every | if known | How often the app asks to step up, for example "2 weeks". Empty for never. |
 | prompts | if known | on, off or at goal. Empty means off. |
 | category | if known | A category label, if the habit belongs to one. |
-| description | if known | Why, in a sentence. |
-| status | if known | One of: active, paused, ended. Empty means active. |
+| description | if known | Why, in a sentence, or notes for an idea not started yet. |
+| status | if known | One of: active, paused, ended, aspiring. Empty means active. aspiring: an idea for a habit, not started; it is not on Today and not in Insights. |
 | problem | no, the app does | Why the app cannot use this row. Written by the app. |
 
 App columns, leave them empty: id, next_prompt, started, order, updated_at.
