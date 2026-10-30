@@ -45,7 +45,7 @@ Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). The migration
 | Stickies | id, project_id, text, color, opacity, x, y, w, h, created | Placement data, mostly not for people. |
 | Skips | id, project_id, to_project_id, date | |
 | Reminders | id, project_id, due, created, done | |
-| Thumbs | whiteboard_id, image, updated | Small WebP previews of whiteboards as data URLs (under 45 000 characters). |
+| Thumbs | id, image, updated | Small WebP (or JPEG) previews of whiteboards as data URLs (under 45 000 characters). `id` is the whiteboard's id (see As built). |
 | Settings | key, value | Per-mode settings that live in user properties today and must move for the standalone app: weekly rotation, this week's changes, layouts. One readable row per setting, for example `rotation.monday = coding`. Session and pomodoro state stay in user properties (they change every few seconds). |
 | Undo | id, created, action, changes, kind | Cleared by the migration: old entries use old column names. |
 
@@ -72,7 +72,7 @@ Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). The migration
 
 - Settings tab: move rotation and layouts now (needed for the standalone app), or later? Done now, with the migration.
 - Hide the grey tabs entirely (an assistant can still read hidden tabs), or only colour them? Only coloured for now.
-- Thumbnails in the sheet (simple, about 20 KB a board) or as PNG files next to the `.excalidraw` files (cleaner, but the page cannot show a private Drive image without an extra call)?
+- Thumbnails in the sheet (simple, about 20 KB a board) or as PNG files next to the `.excalidraw` files (cleaner, but the page cannot show a private Drive image without an extra call)? In the sheet (2026-10-30).
 
 ## As built (2026-10-29)
 
@@ -88,10 +88,12 @@ The migration, the tab styles, the Settings tab and the completing of typed rows
 - **Backup.** Named with the mode's label: `Focus Tracker - Personal - backup before v2 - 2026-10-29`. Its file id is kept in `SCHEMA_BACKUP.v2.<mode>`, so a retry after a failure does not copy the half-migrated sheet again.
 - **Tab rewrite.** The new tab is written as `<tab> (updating)`. A leftover one from a stopped run is deleted, or renamed into place if the old tab was already gone. Blank rows are dropped. Columns and tabs the app does not know are kept: own columns after the v2 columns, own tabs between the people tabs and the app tabs.
 - **Grey tabs** are coloured, not hidden. The "Used by the app" text is a cell note on A1.
-- **Tabs not made by the migration.** Habits, To-dos, Links, Habit log and Thumbs are made by their modules when they exist; `TAB_STYLE` gives them their colour, filter and place when `Table.ensure` creates them. Thumbs has no `id` column, so its module cannot use `Table.all()` as it stands.
+- **Tabs not made by the migration.** Habits, To-dos, Links, Habit log and Thumbs are made by their modules when they exist; `TAB_STYLE` gives them their colour, filter and place when `Table.ensure` creates them. Thumbs uses the whiteboard id as its `id` (below).
 - **Names next to ids.** Kept in step by `Table`: an insert or update that sets an id fills its name, and renaming a project, list or column rewrites the name in every tab that shows it (one write per tab). These name writes are not recorded for undo; undoing a rename rewrites them again.
 - **The browser.** Kanban columns and cards carry `owner` (their project or list id) so pages filter on one field; calls still send the owner id as `projectId` and the server works out `project_id` or `list_id`. Resources keep taking `url` in `add`. Rows that are not links (phone, email, text, typed in the sheet) show as text. The saved copy is dropped (`SCHEMA` 2); the offline queue is kept (`QUEUE_SCHEMA` 1).
-- **Lists `project`, Whiteboards `show_today`, Resources `group`** are stored and kept in step but no page uses them yet; the features that do come later.
+- **Lists `project`, Whiteboards `show_today`, Resources `group`** are stored and kept in step. Lists `project` and Whiteboards `show_today` are used since 2026-10-30 (a linked list shows on its project's page; a board can be shown on Today); Resources `group` comes later.
+- **Thumbs** (2026-10-30) has `id, image, updated`, not `whiteboard_id`: `Table` needs an `id` column, and the row's id is the whiteboard's id, so there is one row per board and no second copy of the id to drift. `updated` is the board's `updated` when the preview was made. The whiteboard module makes the tab. The previews are not sent with the first load; the browser asks for the ones it shows (`whiteboard.thumbs`). The open question below is settled: in the sheet.
+- **Whiteboards without a project** (2026-10-30): `project_id` and `project` empty; the Drive file is `<name>-<id>.excalidraw`. Deleting a project still takes its boards out of the app (their files stay in Drive), as before.
 - `migrateAllModes()` can be run from the Apps Script editor to migrate every mode that has a spreadsheet before the app is opened.
 
 ### Risks on Google's runtime (what the fakes cannot prove)

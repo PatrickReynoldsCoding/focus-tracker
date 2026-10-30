@@ -626,6 +626,85 @@ test('a project can have several named whiteboards, each its own .excalidraw fil
   assert.ok(fileIds.every((id) => s.drive.files[id]), 'the drawing files stay in Drive');
 });
 
+test('a whiteboard needs no project, can be shown on Today, and keeps a small preview in the Thumbs tab', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'MIDI app', category: 'coding' }).result;
+  const solo = s.call('whiteboard', 'create', { id: 'eeee0001', name: 'Garden ideas' }).result;
+  assert.strictEqual(solo.project_id, '');
+  assert.strictEqual(solo.project, '');
+  const fileOf = (id) => s.drive.getFileById(rowsOf(s.ss.sheets.Whiteboards).find((r) => r.id === id).file_id);
+  assert.strictEqual(s.drive.pathOf(fileOf(solo.id)), 'Focus Tracker/Personal/Whiteboards/garden-ideas-eeee0001.excalidraw', 'no project in the file name');
+  s.call('whiteboard', 'rename', { id: solo.id, name: 'Garden plan' });
+  assert.strictEqual(fileOf(solo.id).name, 'garden-plan-eeee0001.excalidraw');
+  assert.throws(() => s.call('whiteboard', 'create', { projectId: 'nope', name: 'X' }), /Project not found/);
+  const onProject = s.call('whiteboard', 'create', { projectId: p.id, name: 'Signal flow' }).result;
+  assert.strictEqual(onProject.project, 'MIDI app', 'the readable project name is filled in');
+
+  // Shown on Today
+  const today = s.call('whiteboard', 'setShowToday', { id: solo.id, on: true });
+  assert.strictEqual(today.result.show_today, 'yes');
+  assert.strictEqual(today.slices.whiteboard.find((w) => w.id === solo.id).show_today, 'yes');
+  assert.strictEqual(json(s.run('undo')()).undone, 'whiteboard.setShowToday', 'showing on Today can be undone');
+  assert.strictEqual(json(s.run('bootstrap()')).data.whiteboard.find((w) => w.id === solo.id).show_today, '');
+  s.call('whiteboard', 'setShowToday', { id: solo.id, on: true });
+
+  // Previews: a WebP or JPEG data URL under 45,000 characters, checked before the drawing is written
+  const scene = JSON.stringify({ type: 'excalidraw', version: 2, elements: [{ id: 'e1', type: 'rectangle' }], appState: {}, files: {} });
+  const thumb = 'data:image/webp;base64,' + 'A'.repeat(2000);
+  const saved = s.call('whiteboard', 'save', { id: solo.id, json: scene, thumb }).result;
+  assert.deepStrictEqual(rowsOf(s.ss.sheets.Thumbs), [{ id: solo.id, image: thumb, updated: saved.updated }], 'one row per board, keyed by its id');
+  assert.ok(!JSON.stringify(json(s.run('bootstrap()')).data.whiteboard).includes('base64'), 'previews are not in the first load');
+  assert.deepStrictEqual(s.call('whiteboard', 'thumbs', { ids: [solo.id, onProject.id] }).result, [{ id: solo.id, image: thumb, updated: saved.updated }], 'only boards with a preview');
+  const empty = JSON.stringify({ type: 'excalidraw', version: 2, elements: [], appState: {}, files: {} });
+  const tooBig = 'data:image/webp;base64,' + 'A'.repeat(45000);
+  assert.throws(() => s.call('whiteboard', 'save', { id: solo.id, json: empty, thumb: tooBig }), /too large/);
+  assert.throws(() => s.call('whiteboard', 'save', { id: solo.id, json: empty, thumb: 'javascript:alert(1)' }), /not an image/);
+  assert.throws(() => s.call('whiteboard', 'save', { id: solo.id, json: empty, thumb: 'data:text/html;base64,PHNjcmlwdD4=' }), /not an image/);
+  assert.throws(() => s.call('whiteboard', 'save', { id: solo.id, json: empty, thumb: 'data:image/webp;base64,AA"><script>' }), /not an image/);
+  assert.throws(() => s.call('whiteboard', 'save', { id: solo.id, json: empty, thumb: 'data:image/svg+xml;base64,AAAA' }), /not an image/, 'no SVG: it can hold script');
+  assert.strictEqual(JSON.parse(s.call('whiteboard', 'get', { id: solo.id }).result.json).elements.length, 1, 'a refused preview leaves the drawing as it was');
+  const jpeg = 'data:image/jpeg;base64,/9j/' + 'B'.repeat(100) + '==';
+  s.call('whiteboard', 'save', { id: solo.id, json: scene, thumb: jpeg });
+  assert.strictEqual(rowsOf(s.ss.sheets.Thumbs).length, 1, 'a new preview replaces the old one');
+  assert.strictEqual(rowsOf(s.ss.sheets.Thumbs)[0].image, jpeg);
+  s.call('whiteboard', 'save', { id: solo.id, json: JSON.stringify(JSON.parse(scene)) + ' ' });
+  assert.strictEqual(rowsOf(s.ss.sheets.Thumbs)[0].image, jpeg, 'a save without a preview keeps the old one');
+  s.call('whiteboard', 'save', { id: solo.id, json: empty, thumb: '' });
+  assert.deepStrictEqual(rowsOf(s.ss.sheets.Thumbs), [], 'an empty board has no preview');
+  s.call('whiteboard', 'save', { id: onProject.id, json: scene, thumb });
+  s.call('whiteboard', 'remove', { id: onProject.id });
+  assert.deepStrictEqual(rowsOf(s.ss.sheets.Thumbs), [], 'removing a board removes its preview');
+  json(s.run('undo')());
+  assert.strictEqual(rowsOf(s.ss.sheets.Thumbs).length, 1, 'undo brings the board and its preview back');
+  s.call('projects', 'remove', { id: p.id });
+  const left = json(s.run('bootstrap()')).data.whiteboard;
+  assert.deepStrictEqual(left.map((w) => w.id), [solo.id], 'a board without a project stays when a project is deleted');
+  assert.deepStrictEqual(rowsOf(s.ss.sheets.Thumbs), [], 'the project\'s boards take their previews with them');
+  assert.ok(s.ss.sheets.Thumbs, 'the Thumbs tab exists');
+});
+
+test('a list can be linked to a project, unlinked, and survives the project being deleted', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'House move', category: 'house' }).result;
+  const l = s.call('lists', 'create', { name: 'Boxes' }).result;
+  assert.throws(() => s.call('lists', 'setProject', { id: l.id, projectId: 'nope' }), /Project not found/);
+  const linked = s.call('lists', 'setProject', { id: l.id, projectId: p.id });
+  assert.deepStrictEqual([linked.result.project_id, linked.result.project], [p.id, 'House move'], 'the readable name is filled in');
+  assert.strictEqual(linked.slices.lists[0].project_id, p.id);
+  s.call('projects', 'update', { id: p.id, name: 'House move 2027' });
+  assert.strictEqual(rowsOf(s.ss.sheets.Lists)[0].project, 'House move 2027', 'a rename is kept in step');
+  const unlinked = s.call('lists', 'setProject', { id: l.id, projectId: '' }).result;
+  assert.deepStrictEqual([unlinked.project_id, unlinked.project], ['', '']);
+  s.call('lists', 'setProject', { id: l.id, projectId: p.id });
+  const item = s.call('kanban', 'addTask', { projectId: l.id, columnId: json(s.run('bootstrap()')).data.kanban.columns.find((c) => c.list_id === l.id).id, title: 'Kitchen' }).result;
+  const after = s.call('projects', 'remove', { id: p.id }).slices;
+  assert.deepStrictEqual(after.lists.map((x) => [x.name, x.project_id]), [['Boxes', '']], 'the list stays, unlinked');
+  assert.ok(after.kanban.tasks.some((t) => t.id === item.id), 'with its items');
+  assert.strictEqual(rowsOf(s.ss.sheets.Lists)[0].project, '');
+  json(s.run('undo')());
+  assert.strictEqual(json(s.run('bootstrap()')).data.lists[0].project_id, p.id, 'undoing the delete links it again');
+});
+
 test('undo puts back the newest change: a deleted project with its board, an edit, an add', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Measure' }).result;

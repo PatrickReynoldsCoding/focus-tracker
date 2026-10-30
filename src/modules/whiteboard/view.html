@@ -1,10 +1,26 @@
 <style>
-.wblist { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 2px; }
-.wblist li { display: flex; gap: 8px; align-items: center; padding: 6px 4px; border-radius: 6px; flex-wrap: wrap; }
-.wblist li:hover { background: var(--surface-2); }
-.wblist .wbname { flex: 1 1 140px; min-width: 0; font-weight: 600; text-align: left; border: 0; background: transparent; padding: 0; cursor: pointer; color: inherit; font: inherit; font-weight: 600; overflow-wrap: anywhere; }
+/* Boards as small cards: the thumbnail (it opens the board), the name, and the board's controls under it. */
+.wblist { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); }
+.wblist li { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wbthumb { display: block; width: 100%; aspect-ratio: 4 / 3; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer;
+  background: #fff; position: relative; }
+.wbthumb:hover { border-color: var(--line-strong); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+.wbthumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wbthumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* No thumbnail yet (a new or empty board, or still loading): a quiet sketch mark on the canvas colour. */
+.wbthumb .wbph { position: absolute; inset: 0; display: grid; place-items: center; color: #9e9e9e; font-size: 28px;
+  background: repeating-linear-gradient(45deg, #fafafa 0 10px, #f2f2f2 10px 20px); }
+.wblist .wbrow { display: flex; gap: 4px; align-items: center; min-width: 0; }
+.wblist .wbname { flex: 1 1 auto; min-width: 0; text-align: left; border: 0; background: transparent; padding: 0; cursor: pointer; color: inherit; font: inherit; font-weight: 600; overflow-wrap: anywhere; }
 .wblist .wbname:hover { text-decoration: underline; text-underline-offset: 3px; }
-.wblist .wbmeta { font-size: 13px; color: var(--muted); }
+.wblist .wbmeta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.wblist .wbmeta a { color: inherit; }
+.wbchip { border: 1px solid var(--line-strong); background: transparent; color: var(--muted); border-radius: 99px; padding: 2px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.wbchip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.wbtools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.wbtools label { font-size: 14px; color: var(--muted); margin: 0; }
+.wbtools select { width: auto; max-width: min(100%, 320px); }
+.wbtodaypanel .wbthumb { aspect-ratio: 16 / 10; }
 .wbfoot { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 13px; color: var(--muted); }
 /* No pull-to-refresh or browser pinch-zoom while drawing: the canvas handles its own touch gestures. */
 .wbshell { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; overscroll-behavior: none; touch-action: none; }
@@ -26,18 +42,21 @@ body.wb-open .scrim { z-index: 55; }
 </style>
 <script>
 /**
- * Whiteboards: any number of named Excalidraw canvases per project, opened full screen (also on a phone, where
+ * Whiteboards: named Excalidraw canvases, on a project or on their own, opened full screen (also on a phone, where
  * Excalidraw uses its own touch layout: finger drawing, pinch zoom, bottom menu). React and
  * Excalidraw (about 1.3 MB) load from the CDN the first time a whiteboard opens, not with the page. Changes save to
  * Drive two seconds after you stop drawing, and again when you close it. The canvas is always Excalidraw's white one.
  * "Close without saving" puts back the drawing as it was when the board opened. Settings has a favourite tool per device,
  * selected each time a board opens.
+ * Boards show on their project's page, on the Whiteboards tab (all of them, filtered by project) and, when "On Today" is
+ * set, as a panel on Today. Each shows a thumbnail, made here when the board is saved (see makeThumb).
  */
 (function () {
   var CDN = 'https://cdn.jsdelivr.net/npm/';
   var SCRIPTS = [CDN + 'react@18.2.0/umd/react.production.min.js', CDN + 'react-dom@18.2.0/umd/react-dom.production.min.js',
     CDN + '@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js'];
   var SAVE_DELAY_MS = 2000;
+  var THUMB_WIDTH = 320, THUMB_HEIGHT = 240, THUMB_MAX = 45000; // the server refuses a preview over THUMB_MAX characters
   var libraryLoading = null, open = null; // open: { boardId, root, api, lastJson, timer, ready, openingJson, saved, saving, discarded }
   var TOOL_KEY = 'ft.whiteboard.tool';
   // Excalidraw tool types, with the key that picks each one (used if setActiveTool is missing).
@@ -45,28 +64,170 @@ body.wb-open .scrim { z-index: 55; }
     ['ellipse', 'Ellipse', '4'], ['arrow', 'Arrow', '5'], ['line', 'Line', '6'], ['freedraw', 'Draw', '7'], ['text', 'Text', '8'],
     ['eraser', 'Eraser', '0'], ['hand', 'Hand', 'h']];
 
-  function boardsOf(projectId) {
-    return (FT.store.whiteboard || []).filter(function (w) { return w.project_id === projectId; })
-      .sort(function (a, b) { return (a.created || a.updated) < (b.created || b.updated) ? -1 : 1; });
-  }
-  function boardById(id) { return (FT.store.whiteboard || []).filter(function (w) { return w.id === id; })[0] || null; }
+  function boards() { return FT.store.whiteboard || []; }
+  function byCreated(a, b) { return (a.created || a.updated) < (b.created || b.updated) ? -1 : 1; }
+  function boardsOf(projectId) { return boards().filter(function (w) { return w.project_id === projectId; }).sort(byCreated); }
+  function boardById(id) { return boards().filter(function (w) { return w.id === id; })[0] || null; }
 
-  function boardRow(w) {
-    var id = FT.esc(w.id);
-    return '<li><button class="wbname" data-act="whiteboard.open" data-id="' + id + '" title="Open whiteboard">' + FT.esc(w.name) + '</button>' +
-      '<span class="wbmeta">Saved ' + FT.fmtDate(w.updated) + '</span>' +
-      '<a class="wbmeta" href="' + FT.esc(w.url) + '" target="_blank" rel="noopener noreferrer">Drive</a>' +
-      '<button class="mvb" data-act="whiteboard.rename" data-id="' + id + '" aria-label="Rename ' + FT.esc(w.name) + '" title="Rename">✎</button>' +
-      '<button class="mvb" data-act="whiteboard.remove" data-id="' + id + '" aria-label="Remove ' + FT.esc(w.name) + '" title="Remove">×</button></li>';
+  // ---------- thumbnails ----------
+  // Thumbnails are not part of the page's first load (bootstrap). Each is up to 45,000 characters, so twenty boards
+  // would add almost 1 MB to every load and to the copy the page keeps for offline use, and reading the Thumbs tab
+  // would hold up the first screen for boards that may not even be on it. Instead a panel that shows boards draws a
+  // placeholder, and once the page is drawn one parallel call (it does not wait behind saves) fetches the previews of
+  // just the boards on screen. They are kept here in memory per board and its saved time, so they are fetched once,
+  // and a board saved on this device keeps the preview it just made without asking the server.
+  var thumbs = {}, thumbsLoading = {}, thumbsRetryAt = 0; // thumbs: mode:id -> { updated, image ('' for none) }
+
+  function thumbKey(id) { return FT.state.mode + ':' + id; }
+  /** The board's preview: a data URL, '' when it has none, or undefined when not fetched yet (or the board changed since). */
+  function thumbOf(w) {
+    var t = thumbs[thumbKey(w.id)];
+    return t && t.updated === w.updated ? t.image : undefined;
+  }
+
+  function thumbHtml(w) {
+    var image = thumbOf(w);
+    return '<button class="wbthumb" data-act="whiteboard.open" data-id="' + FT.esc(w.id) + '" data-thumb="' + FT.esc(w.id) + '" aria-label="Open whiteboard ' + FT.esc(w.name) + '" title="Open whiteboard">' +
+      (image ? '<img src="' + FT.esc(image) + '" alt="">' : '<span class="wbph" aria-hidden="true">✎</span>') + '</button>';
+  }
+
+  /** Put fetched previews into the placeholders on screen, without drawing the page again. The box keeps its size. */
+  function paintThumbs() {
+    Array.prototype.forEach.call(document.querySelectorAll('#app [data-thumb]'), function (el) {
+      var w = boardById(el.dataset.thumb), image = w && thumbOf(w);
+      if (!image || el.querySelector('img')) return;
+      var img = document.createElement('img');
+      img.src = image; img.alt = '';
+      el.innerHTML = '';
+      el.appendChild(img);
+    });
+  }
+
+  function loadThumbs() {
+    if (Date.now() < thumbsRetryAt) return;
+    var mode = FT.state.mode, stamps = {};
+    Array.prototype.forEach.call(document.querySelectorAll('#app [data-thumb]'), function (el) {
+      var w = boardById(el.dataset.thumb);
+      if (w && thumbOf(w) === undefined && !thumbsLoading[thumbKey(w.id)]) stamps[w.id] = w.updated;
+    });
+    var ids = Object.keys(stamps);
+    if (!ids.length) return;
+    ids.forEach(function (id) { thumbsLoading[mode + ':' + id] = true; });
+    FT.rpc('whiteboard', 'thumbs', { ids: ids }, { parallel: true, render: false, quiet: true, noMerge: true })
+      .then(function (rows) {
+        var found = {};
+        (rows || []).forEach(function (r) { found[r.id] = r.image; });
+        ids.forEach(function (id) { thumbs[mode + ':' + id] = { updated: stamps[id], image: found[id] || '' }; });
+        if (mode === FT.state.mode) paintThumbs();
+      }, function () { thumbsRetryAt = Date.now() + 30000; }) // offline or failing: placeholders for now, try again later
+      .then(function () { ids.forEach(function (id) { delete thumbsLoading[mode + ':' + id]; }); });
+  }
+  FT.onRender(loadThumbs);
+
+  /** A small preview of a scene: about THUMB_WIDTH wide, WebP (JPEG where the browser cannot make WebP), under THUMB_MAX
+   * characters. Resolves '' for an empty board, or undefined when no preview could be made (the old one is kept). */
+  function makeThumb(scene) {
+    var lib = window.ExcalidrawLib;
+    var elements = (scene.elements || []).filter(function (e) { return !e.isDeleted; });
+    if (!elements.length) return Promise.resolve('');
+    if (!lib || !lib.exportToCanvas) return Promise.resolve(undefined);
+    return Promise.resolve().then(function () {
+      return lib.exportToCanvas({
+        elements: elements, files: scene.files || {}, exportPadding: 12,
+        appState: Object.assign({}, scene.appState, { exportBackground: true, viewBackgroundColor: '#ffffff', exportWithDarkMode: false }),
+        getDimensions: function (w, h) {
+          var scale = Math.min(THUMB_WIDTH / w, THUMB_HEIGHT / h);
+          return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)), scale: scale };
+        }
+      });
+    }).then(encodeThumb).catch(function () { return undefined; });
+  }
+
+  /** The canvas as a data URL that fits: lower the quality first, then the size. */
+  function encodeThumb(canvas) {
+    var tries = [['image/webp', 0.8], ['image/webp', 0.6], ['image/webp', 0.4], ['image/jpeg', 0.7], ['image/jpeg', 0.5], ['image/jpeg', 0.3]];
+    for (var size = canvas; size && size.width >= 40; size = halve(size)) {
+      for (var i = 0; i < tries.length; i++) {
+        var url = size.toDataURL(tries[i][0], tries[i][1]);
+        if (url.indexOf('data:' + tries[i][0] + ';') === 0 && url.length <= THUMB_MAX) return url; // a browser without WebP gives PNG: skip it
+      }
+    }
+    return undefined;
+  }
+
+  function halve(canvas) {
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(canvas.width / 2)); c.height = Math.max(1, Math.round(canvas.height / 2));
+    var g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(canvas, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  // ---------- lists of boards ----------
+  /** One board as a card. opts.project: say which project it belongs to (on the Whiteboards tab). */
+  function boardRow(w, opts) {
+    var id = FT.esc(w.id), name = FT.esc(w.name), project = opts && opts.project ? FT.project(w.project_id) : null;
+    return '<li>' + thumbHtml(w) +
+      '<div class="wbrow"><button class="wbname" data-act="whiteboard.open" data-id="' + id + '" title="Open whiteboard">' + name + '</button>' +
+      '<button class="mvb" data-act="whiteboard.rename" data-id="' + id + '" aria-label="Rename ' + name + '" title="Rename">✎</button>' +
+      '<button class="mvb" data-act="whiteboard.remove" data-id="' + id + '" aria-label="Remove ' + name + '" title="Remove">×</button></div>' +
+      (opts && opts.project ? '<span class="wbmeta">' + (project ? FT.esc(project.name) : 'No project') + '</span>' : '') +
+      '<div class="wbrow"><span class="wbmeta">Saved ' + FT.fmtDate(w.updated) + ' · <a href="' + FT.esc(w.url) + '" target="_blank" rel="noopener noreferrer">Drive</a></span></div>' +
+      '<div class="wbrow">' + todayChip(w) + '</div></li>';
+  }
+
+  function todayChip(w) {
+    var on = !!w.show_today;
+    return '<button class="wbchip" data-act="whiteboard.today" data-id="' + FT.esc(w.id) + '" aria-pressed="' + on + '" title="' + (on ? 'Shown on Today. Click to stop.' : 'Show this board on Today') + '">' +
+      (on ? '✓ On Today' : '+ Today') + '</button>';
   }
 
   function panel(p) {
-    var boards = boardsOf(p.id);
+    var list = boardsOf(p.id);
     return '<section class="panel"><div class="label">Whiteboards</div>' +
-      (boards.length ? '<ul class="wblist">' + boards.map(boardRow).join('') + '</ul>'
-                     : '<p style="margin:0 0 10px;color:var(--muted)">Blank Excalidraw canvases for sketches and diagrams.</p>') +
+      (list.length ? '<ul class="wblist">' + list.map(function (w) { return boardRow(w); }).join('') + '</ul>'
+                   : '<p style="margin:0 0 10px;color:var(--muted)">Blank Excalidraw canvases for sketches and diagrams.</p>') +
       '<div class="wbfoot"><button class="btn sm primary wbopen" data-act="whiteboard.new" data-project="' + FT.esc(p.id) + '">+ New whiteboard</button>' +
       '</div></section>';
+  }
+
+  // The Whiteboards tab's project filter: '' every board, 'none' boards without a project, or a project id. Kept for this page load.
+  var tabFilter = '';
+
+  function filterOptions() {
+    var withBoards = {};
+    boards().forEach(function (w) { if (w.project_id) withBoards[w.project_id] = true; });
+    var projects = (FT.store.projects || []).filter(function (p) { return withBoards[p.id] || p.id === tabFilter; })
+      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return [['', 'All projects'], ['none', 'No project']].concat(projects.map(function (p) { return [p.id, p.name]; }));
+  }
+
+  function tabHtml() {
+    var all = boards().filter(function (w) { return !tabFilter || (tabFilter === 'none' ? !FT.project(w.project_id) : w.project_id === tabFilter); })
+      .sort(function (a, b) { return (b.updated || '') < (a.updated || '') ? -1 : 1; }); // most recently saved first
+    var html = '<section class="panel"><div class="tophead"><div class="label">Whiteboards</div>' +
+      '<button class="btn sm primary" data-act="whiteboard.new" data-project="' + (tabFilter && tabFilter !== 'none' ? FT.esc(tabFilter) : '') + '" data-pick="1">+ New whiteboard</button></div>' +
+      '<div class="wbtools"><label for="wb-filter">Project</label><select id="wb-filter" data-change="whiteboard.filter">' + filterOptions().map(function (o) {
+        return '<option value="' + FT.esc(o[0]) + '"' + (o[0] === tabFilter ? ' selected' : '') + '>' + FT.esc(o[1]) + '</option>';
+      }).join('') + '</select></div>' +
+      (all.length ? '<ul class="wblist">' + all.map(function (w) { return boardRow(w, { project: true }); }).join('') + '</ul>'
+        : '<p class="empty">' + (boards().length ? 'No whiteboards here. Pick another project, or make one.' : 'No whiteboards yet. A whiteboard is a blank Excalidraw canvas, on a project or on its own.') + '</p>') +
+      '</section>';
+    return FT.layout('whiteboards', [{ id: 'boards', title: 'Whiteboards', html: html, w: 12 }]);
+  }
+
+  /** Boards marked "On Today": one panel each, with its thumbnail. A click opens the board. */
+  function todayPanels() {
+    return boards().filter(function (w) { return w.show_today; }).sort(byCreated).map(function (w) {
+      var project = FT.project(w.project_id);
+      return {
+        id: 'whiteboard-' + w.id, title: w.name, w: 4,
+        html: '<section class="panel wbtodaypanel"><div class="tophead"><div class="label">Whiteboard: ' + FT.esc(w.name) + '</div>' + todayChip(w) + '</div>' +
+          '<ul class="wblist" style="grid-template-columns:1fr"><li>' + thumbHtml(w) +
+          '<span class="wbmeta">' + (project ? FT.esc(project.name) + ' · ' : '') + 'Saved ' + FT.fmtDate(w.updated) + '</span></li></ul></section>'
+      };
+    });
   }
 
   function loadScript(src) {
@@ -95,17 +256,38 @@ body.wb-open .scrim { z-index: 55; }
     return lib.serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), 'local');
   }
 
-  /** Save if the drawing changed since the last save. Resolves when done. Never after "Close without saving". */
-  function save() {
+  /** Save the drawing with its preview. The preview made here is kept, so the lists show it without asking the server. */
+  function sendSave(boardId, json, thumb) {
+    return FT.rpc('whiteboard', 'save', { id: boardId, json: json, thumb: thumb }, { render: false, quiet: true }).then(function (res) {
+      var w = boardById(boardId);
+      if (res && res.updated) {
+        if (w) w.updated = res.updated;
+        if (thumb !== undefined) thumbs[thumbKey(boardId)] = { updated: res.updated, image: thumb };
+      }
+      return res;
+    });
+  }
+
+  /**
+   * Save if the drawing changed since the last save. Resolves when done. Never after "Close without saving".
+   * quick: send it now, without a new preview (the page is going away and cannot wait for one).
+   * Making the preview takes a moment, so a save that a newer one overtook in that time is not sent: the newer one has newer drawing.
+   */
+  function save(quick) {
     if (!open || !open.api || open.discarded) return Promise.resolve();
     clearTimeout(open.timer);
-    var current = open, json = sceneJson();
+    var current = open, json = sceneJson(), api = open.api;
     if (json === current.lastJson) return Promise.resolve();
     status('Saving…');
     current.saved = true; // from here Drive may hold changes, so closing without saving has to put the old version back
-    current.saving = FT.rpc('whiteboard', 'save', { id: current.boardId, json: json }, { render: false, quiet: true })
-      .then(function () { current.lastJson = json; if (open === current && !current.discarded) status('Saved'); })
-      .catch(function (e) { if (open === current && !current.discarded) status('Not saved: ' + e.message); throw e; });
+    var seq = current.seq = (current.seq || 0) + 1;
+    var thumb = quick ? Promise.resolve(undefined) : makeThumb({ elements: api.getSceneElements(), appState: api.getAppState(), files: api.getFiles() });
+    current.saving = thumb.then(function (image) {
+      if (current.seq !== seq || current.discarded) return;
+      return sendSave(current.boardId, json, image)
+        .then(function () { current.lastJson = json; if (open === current && !current.discarded) status('Saved'); })
+        .catch(function (e) { if (open === current && !current.discarded) status('Not saved: ' + e.message); throw e; });
+    });
     return current.saving;
   }
 
@@ -208,19 +390,47 @@ body.wb-open .scrim { z-index: 55; }
       });
   }
 
-  FT.module({ id: 'whiteboard', slots: { 'project.page': [{ id: 'whiteboard', title: 'Whiteboards', order: 25, span: 'half', render: panel }] } });
+  FT.module({
+    id: 'whiteboard',
+    tab: { title: 'Whiteboards', order: 30, render: tabHtml },
+    slots: {
+      'project.page': [{ id: 'whiteboard', title: 'Whiteboards', order: 25, span: 'half', render: panel }],
+      'today.panels': [{ order: 20, render: todayPanels }]
+    }
+  });
+
+  FT.on('change', 'whiteboard.filter', function (el) { tabFilter = el.value; FT.render(); });
+
+  /** On Today or not: shown at once, saved in the background, put back if the save is refused. */
+  FT.action('whiteboard.today', function (el) {
+    var w = boardById(el.dataset.id);
+    if (!w) return;
+    var before = w.show_today, on = !before;
+    FT.optimistic(function () {
+      w.show_today = on ? 'yes' : '';
+      return function () { w.show_today = before; };
+    }, function () { return FT.rpc('whiteboard', 'setShowToday', { id: w.id, on: on }, { render: false }); }).catch(function () {});
+  });
 
   FT.action('whiteboard.open', function (el) { openBoard(boardById(el.dataset.id)); });
 
+  /** data-project: the board's project (empty for none). data-pick: let the person choose the project (the Whiteboards tab). */
   FT.action('whiteboard.new', function (el) {
-    var projectId = el.dataset.project, count = boardsOf(projectId).length;
+    var projectId = el.dataset.project || '', pick = !!el.dataset.pick, count = projectId ? boardsOf(projectId).length : boards().length;
+    var fields = [{ id: 'boardname', label: 'Name', value: count ? '' : 'Whiteboard', placeholder: 'e.g. Wiring plan' }];
+    if (pick) {
+      var projects = (FT.store.projects || []).filter(function (p) { return p.status !== 'archived'; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+      fields.push({ id: 'boardproject', label: 'Project (optional)', type: 'select', value: projectId,
+        options: [{ value: '', label: 'No project' }].concat(projects.map(function (p) { return { value: p.id, label: p.name }; })) });
+    }
     FT.dialog({
       title: 'New whiteboard',
       submit: 'Create and open',
-      fields: [{ id: 'boardname', label: 'Name', value: count ? '' : 'Whiteboard', placeholder: 'e.g. Wiring plan' }],
+      fields: fields,
       onSubmit: function (v) {
         if (!v.boardname) throw new Error('A whiteboard needs a name.');
-        return FT.rpc('whiteboard', 'create', { id: FT.newId(), projectId: projectId, name: v.boardname }, { quiet: true }).then(function (row) {
+        var project = pick ? v.boardproject : projectId;
+        return FT.rpc('whiteboard', 'create', { id: FT.newId(), projectId: project, name: v.boardname }, { quiet: true }).then(function (row) {
           setTimeout(function () { openBoard(boardById(row.id)); }, 0);
         });
       }
@@ -271,7 +481,7 @@ body.wb-open .scrim { z-index: 55; }
     var writing = Promise.resolve(current.saving).catch(function () {}).then(function () {
       if (!current.saved) return;
       status('Putting back the old version…');
-      return FT.rpc('whiteboard', 'save', { id: current.boardId, json: current.openingJson }, { render: false, quiet: true });
+      return makeThumb(JSON.parse(current.openingJson)).then(function (image) { return sendSave(current.boardId, current.openingJson, image); });
     });
     return writing.then(function () { if (open === current) closeShell(); }, function (e) {
       current.discarded = false;
@@ -294,6 +504,6 @@ body.wb-open .scrim { z-index: 55; }
   });
 
   // A closed or reloaded tab still saves what it can.
-  window.addEventListener('pagehide', function () { if (open && open.ready) save().catch(function () {}); });
+  window.addEventListener('pagehide', function () { if (open && open.ready) save(true).catch(function () {}); });
 })();
 </script>

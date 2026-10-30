@@ -66,7 +66,7 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('loads and shows tabs and today\'s focus', async () => {
     await waitFor(() => $('.focus-name'), 'focus name');
-    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Lists', 'Log']);
+    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Lists', 'Whiteboards', 'Log']);
     assert.strictEqual($('.focus-name').textContent, 'CV and portfolio', 'Wednesday leads with job, longest untouched first');
     assert.ok($('.timer') === null);
   });
@@ -831,6 +831,85 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#toast .toastbtn'), 'undo offer');
     click($('#toast .toastbtn'));
     await waitFor(() => $$('.wblist .wbname').map((b) => b.textContent).join('|') === 'Duct route|Wiring diagram', 'back after undo');
+  });
+
+  await step('a list linked to a project shows on that project\'s page, and the Lists tab says so', async () => {
+    const bathroom = w.FT.store.projects.find((p) => p.name === 'Bathroom extractor fan');
+    click(tab('Lists'));
+    click(await waitFor(() => $('.listpanel [data-act="lists.settings"]'), 'settings button'));
+    const select = await waitFor(() => $('#dlg-listproject'), 'linked project field');
+    assert.strictEqual(select.value, '', 'not linked yet');
+    assert.strictEqual(select.options[0].textContent, 'No project');
+    setVal(select, bathroom.id, 'change');
+    click($('#dlg-submit'));
+    const badge = await waitFor(() => !$('.dialog') && $('.listpanel [data-act="lists.openProject"]'), 'linked badge at once');
+    assert.strictEqual(badge.textContent, 'Bathroom extractor fan');
+    const listName = $('.listpanel .listname').value;
+    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).some((l) => l.project_id === bathroom.id), 'link saved');
+    click(badge);
+    await waitFor(() => w.FT.state.view === 'project' && $$('#app .listpanel .label').some((l) => l.textContent === listName), 'list panel on the project page');
+    assert.ok($('#app .listpanel .board[data-owner]'), 'with its items');
+    assert.ok($$('#app .lcell .label').some((l) => l.textContent === 'Whiteboards'), 'next to the project\'s own panels');
+  });
+
+  await step('Whiteboards tab: every board, filter by project, a board without a project, shown on Today with its thumbnail', async () => {
+    click(tab('Whiteboards'));
+    await waitFor(() => $('[data-act="whiteboard.new"][data-pick]'), 'whiteboards tab');
+    const names = () => $$('.wblist .wbname').map((b) => b.textContent).sort();
+    assert.deepStrictEqual(names(), ['Duct route', 'Wiring diagram'], 'the boards made on the project page');
+    assert.ok($$('.wblist .wbmeta').some((m) => m.textContent === 'Bathroom extractor fan'), 'each says its project');
+    assert.ok($$('.wblist .wbthumb .wbph').length === 2, 'boards without a thumbnail show a placeholder');
+    click($('[data-act="whiteboard.new"][data-pick]'));
+    const project = await waitFor(() => $('#dlg-boardproject'), 'project field');
+    assert.strictEqual(project.value, '', 'no project by default');
+    setVal($('#dlg-boardname'), 'Ideas');
+    click($('#dlg-submit'));
+    const shell = await waitFor(() => $('#wb-shell'), 'opened');
+    assert.ok(shell.querySelector('h2').textContent === 'Ideas', 'no project in the title');
+    click(shell.querySelector('[data-act="whiteboard.discard"]'));
+    await waitFor(() => !$('#wb-shell'), 'closed');
+    const boards = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.whiteboard));
+    const ideas = boards().find((b) => b.name === 'Ideas');
+    assert.strictEqual(ideas.project_id, '');
+    assert.deepStrictEqual(names(), ['Duct route', 'Ideas', 'Wiring diagram']);
+    assert.ok($$('.wblist li').find((li) => li.textContent.includes('Ideas')).textContent.includes('No project'));
+
+    setVal($('#wb-filter'), 'none', 'change');
+    assert.deepStrictEqual(names(), ['Ideas']);
+    const bathroom = w.FT.store.projects.find((p) => p.name === 'Bathroom extractor fan');
+    setVal($('#wb-filter'), bathroom.id, 'change');
+    assert.deepStrictEqual(names(), ['Duct route', 'Wiring diagram']);
+    assert.strictEqual($('[data-act="whiteboard.new"][data-pick]').dataset.project, bathroom.id, 'a new board starts on the filtered project');
+    setVal($('#wb-filter'), '', 'change');
+    assert.strictEqual(names().length, 3);
+
+    const chip = () => $$('.wblist li').find((li) => li.textContent.includes('Ideas')).querySelector('[data-act="whiteboard.today"]');
+    assert.strictEqual(chip().getAttribute('aria-pressed'), 'false');
+    click(chip());
+    assert.strictEqual(chip().getAttribute('aria-pressed'), 'true', 'shown at once');
+    await waitFor(() => boards().find((b) => b.id === ideas.id).show_today === 'yes', 'saved');
+
+    click(tab('Today'));
+    const panel = await waitFor(() => $$('#app .wbtodaypanel').find((p) => p.textContent.includes('Whiteboard: Ideas')), 'Today panel');
+    assert.ok(panel.querySelector('.wbthumb .wbph'), 'a placeholder while it has no thumbnail');
+    click(panel.querySelector('.wbthumb'));
+    await waitFor(() => $('#wb-shell'), 'a click opens the board');
+    click($('#wb-shell [data-act="whiteboard.discard"]'));
+    await waitFor(() => !$('#wb-shell'), 'closed');
+
+    // A thumbnail saved elsewhere (another device) comes in after the page is drawn, through its own call.
+    const thumb = 'data:image/webp;base64,UklGRhYAAABXRUJQVlA4TAoAAAAvAAAAAEX/I/of';
+    const scene = JSON.stringify({ type: 'excalidraw', version: 2, elements: [{ id: 'r1', type: 'rectangle' }], appState: {}, files: {} });
+    server.run('rpc')('whiteboard', 'save', { id: ideas.id, json: scene, thumb }, 'personal');
+    await w.FT.reload();
+    const img = await waitFor(() => $('#app .wbtodaypanel .wbthumb img'), 'thumbnail on Today');
+    assert.strictEqual(img.getAttribute('src'), thumb);
+    click(tab('Whiteboards'));
+    await waitFor(() => $$('.wblist li').find((li) => li.textContent.includes('Ideas')).querySelector('.wbthumb img'), 'and on the Whiteboards tab, from memory');
+    click(chip());
+    click(tab('Today'));
+    assert.ok(!$$('#app .wbtodaypanel').some((p) => p.textContent.includes('Ideas')), 'off Today at once');
+    await waitFor(() => boards().find((b) => b.id === ideas.id).show_today === '', 'saved');
   });
 
   await step('switching to Work shows separate data, a blue accent and its own Drive folder', async () => {

@@ -5,7 +5,7 @@
  *   FT.module({
  *     id: 'log',
  *     tab:   { title: 'Log', order: 40, render: function (FT) { return '<html string>'; } },   // optional top-level tab
- *     slots: { 'project.page': [{ order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],
+ *     slots: { 'project.page': [{ order: 10, span: 'full' | 'half', render: function (project, FT) { return html; } }],   // or return [{ id, title, html, w }]
  *              'projects.tab': [{ order: 10, render: function (FT) { return html; } }],
               'today.panels': [{ order: 10, render: function (FT) { return html; } }] },        // optional extension points
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
@@ -188,6 +188,7 @@ var FT = (function () {
     'categories.add': 'Category added', 'categories.update': 'Category edit', 'categories.remove': 'Category deleted',
     'stickies.add': 'Sticky note added', 'stickies.update': 'Sticky note change', 'stickies.remove': 'Sticky note deleted',
     'whiteboard.create': 'Whiteboard added', 'whiteboard.rename': 'Whiteboard rename', 'whiteboard.remove': 'Whiteboard removed',
+    'whiteboard.setShowToday': 'Whiteboard on Today', 'lists.setProject': 'List link', 'lists.showToday': 'List on Today',
     'resources.add': 'Link added', 'resources.remove': 'Link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
@@ -495,9 +496,12 @@ var FT = (function () {
     var project = FT.project(id);
     if (!project) return '<p class="empty">That project no longer exists.</p><button class="btn" data-act="core.tab" data-view="projects">Back to projects</button>';
     var locked = FT.lockedUntil(project);
-    var panels = FT.slots('project.page').filter(function (s) { return !locked || s.id === 'header'; }).map(function (s) {
-      return { id: s.id || 'slot' + s.order, title: s.title, html: s.render(project, FT), w: s.span === 'full' ? 12 : 6 };
-    });
+    // A slot draws one panel (html), or several with their own stable ids ([{ id, title, html, w }], such as linked lists).
+    var panels = FT.slots('project.page').filter(function (s) { return !locked || s.id === 'header'; }).reduce(function (all, s) {
+      var out = s.render(project, FT);
+      if (Array.isArray(out)) return all.concat(out);
+      return all.concat([{ id: s.id || 'slot' + s.order, title: s.title, html: out, w: s.span === 'full' ? 12 : 6 }]);
+    }, []);
     return '<div><button class="btn sm back" data-act="core.tab" data-view="projects">‹ All projects</button></div>' + FT.layout('project', panels);
   }
 
