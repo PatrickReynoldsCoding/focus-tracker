@@ -3,34 +3,128 @@
 .reslist li { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .reslist li:last-child { border-bottom: 0; }
 .reslist a { font-weight: 500; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.reslist .rmain { min-width: 0; overflow-wrap: anywhere; }
+.reslist .rval { display: block; margin-top: 2px; }
+.reslist .rtext { white-space: pre-wrap; }
 .reslist .rnote { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.rkind { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.racts { display: flex; gap: 2px; flex: none; }
 .rrm { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; flex: none; }
-.rrm:hover { background: var(--surface-2); color: var(--bad); }
+.rrm:hover { background: var(--surface-2); color: var(--text); }
+.rrm.del:hover { color: var(--bad); }
+.rgroup { font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); margin: 14px 0 2px; }
+.rgroup:first-child { margin-top: 0; }
 .resfoot { margin-top: 10px; }
 .cats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.cats-foot { margin-top: 12px; }
+.rdrive { margin-top: 12px; }
+.rdrive-row { display: flex; gap: 8px; }
+.rdrive-row input { flex: 1 1 auto; min-width: 0; }
+.rdrive-row .btn { flex: none; }
+.rdrive-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 220px; overflow: auto; }
+.rdrive-list button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; padding: 8px 4px; cursor: pointer; font: inherit; }
+.rdrive-list button:hover, .rdrive-list button:focus-visible { background: var(--surface-2); }
+.rdrive-list small { display: block; color: var(--muted); }
+.rdrive-msg { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 </style>
 <script>
 (function () {
   var HINT = 'Only link files you have checked. Leave out anything with bank or card details, passwords, ID numbers or health records.';
 
-  function list(category, projectId) {
-    var items = (FT.store.resources || []).filter(function (r) {
+  // What each type's value field asks for. The server checks the same rules (resources/server.js).
+  var TYPES = [
+    { id: 'link', label: 'Web link', field: 'Link', input: 'url', placeholder: 'https://...' },
+    { id: 'drive', label: 'Google Drive file', field: 'Drive link', input: 'url', placeholder: 'https://docs.google.com/...' },
+    { id: 'phone', label: 'Phone number', field: 'Phone number', input: 'tel', placeholder: 'e.g. +44 20 7946 0000' },
+    { id: 'email', label: 'Email address', field: 'Email address', input: 'email', placeholder: 'name@example.com' },
+    { id: 'text', label: 'Text', field: 'Text (up to 500 characters)', input: 'text', placeholder: 'e.g. a reference number or opening hours' }
+  ];
+  function typeOf(id) { return TYPES.filter(function (t) { return t.id === id; })[0] || TYPES[0]; }
+
+  function isDrive(value) { return /^https:\/\/(docs|drive)\.google\.com\//i.test(value); }
+
+  /** The reason a value is not right for its type, or ''. */
+  function problem(type, value) {
+    if (type === 'link' || type === 'drive') {
+      if (!/^https:\/\/\S+$/i.test(value)) return 'Use a full link that starts with https://';
+      if (type === 'drive' && !isDrive(value)) return 'A Drive file\'s link starts with https://docs.google.com/ or https://drive.google.com/';
+      return '';
+    }
+    if (type === 'phone') {
+      var digits = value.replace(/\D/g, '').length;
+      return /^\+?[0-9 ()\-.]+$/.test(value) && digits >= 3 && digits <= 20 && value.length <= 40 ? '' : 'Use a phone number: digits, spaces and an optional + at the start.';
+    }
+    if (type === 'email') return value.length <= 254 && /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;.]+$/.test(value) ? '' : 'Use an email address like name@example.com';
+    return value ? '' : 'Add the text to keep.';
+  }
+
+  /** Every group used in this mode, for the group field's suggestions. */
+  function groups() {
+    var seen = {};
+    (FT.store.resources || []).forEach(function (r) { if (r.group) seen[r.group] = 1; });
+    return Object.keys(seen).sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+  }
+
+  function find(id) { return (FT.store.resources || []).filter(function (r) { return r.id === id; })[0] || null; }
+
+  // A link only gets an href when it is https; a row typed into the sheet could hold anything.
+  function item(r) {
+    var v = r.value || '', type = r.type || (/^https:\/\//i.test(v) ? 'link' : 'text'), head, copy = false;
+    if ((type === 'link' || type === 'drive') && /^https:\/\//i.test(v)) {
+      head = '<a href="' + FT.esc(v) + '" target="_blank" rel="noopener noreferrer">' + FT.esc(r.title) + '</a>' + (type === 'drive' ? '<span class="rkind">Drive</span>' : '');
+    } else if (type === 'phone') {
+      head = '<b>' + FT.esc(r.title) + '</b><a class="rval" href="tel:' + FT.esc(v.replace(/[^0-9+]/g, '')) + '">' + FT.esc(v) + '</a>';
+    } else if (type === 'email') {
+      head = '<b>' + FT.esc(r.title) + '</b><a class="rval" href="mailto:' + FT.esc(v) + '">' + FT.esc(v) + '</a>';
+      copy = true;
+    } else {
+      head = '<b>' + FT.esc(r.title) + '</b><span class="rval rtext">' + FT.linkify(v) + '</span>';
+      copy = true;
+    }
+    var name = FT.esc(r.title);
+    return '<li data-resid="' + FT.esc(r.id) + '"><span class="rmain">' + head +
+      (r.note ? '<span class="rnote">' + FT.linkify(r.note) + '</span>' : '') + '</span><span class="racts">' +
+      (copy ? '<button class="rrm" data-act="resources.copy" data-id="' + FT.esc(r.id) + '" aria-label="Copy ' + name + '">Copy</button>' : '') +
+      '<button class="rrm" data-act="resources.edit" data-id="' + FT.esc(r.id) + '" aria-label="Edit ' + name + '">Edit</button>' +
+      '<button class="rrm del" data-act="resources.remove" data-id="' + FT.esc(r.id) + '" aria-label="Remove ' + name + '">Remove</button></span></li>';
+  }
+
+  function itemsFor(category, projectId) {
+    return (FT.store.resources || []).filter(function (r) {
       return r.category === category && (projectId ? r.project_id === projectId : !r.project_id);
     });
-    if (!items.length) return '<p class="empty">No links yet.</p>';
-    return '<ul class="reslist">' + items.map(function (r) {
-      // A phone number, email address or text (typed into the sheet) shows as text; only a web address is a link.
-      var head = /^https:\/\//i.test(r.value || '') ? '<a href="' + FT.esc(r.value) + '" target="_blank" rel="noopener noreferrer">' + FT.esc(r.title) + '</a>'
-        : '<b>' + FT.esc(r.title) + '</b> ' + FT.esc(r.value || '');
-      return '<li><span>' + head +
-        (r.note ? '<span class="rnote">' + FT.linkify(r.note) + '</span>' : '') + '</span>' +
-        '<button class="rrm" data-act="resources.remove" data-id="' + FT.esc(r.id) + '" aria-label="Remove link to ' + FT.esc(r.title) + '">Remove</button></li>';
-    }).join('') + '</ul>';
+  }
+
+  /** Ungrouped resources first, then each group under a small heading, groups in alphabetical order. */
+  function list(category, projectId) {
+    var items = itemsFor(category, projectId);
+    if (!items.length) return '<p class="empty">Nothing here yet.</p>';
+    var byGroup = {}, names = [];
+    items.forEach(function (r) {
+      var g = r.group || '';
+      if (!byGroup[g]) { byGroup[g] = []; if (g) names.push(g); }
+      byGroup[g].push(r);
+    });
+    names.sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+    function ul(rows) { return '<ul class="reslist">' + rows.map(item).join('') + '</ul>'; }
+    return (byGroup[''] ? ul(byGroup['']) : '') + names.map(function (g) {
+      return '<h3 class="rgroup">' + FT.esc(g) + '</h3>' + ul(byGroup[g]);
+    }).join('');
   }
 
   function section(label, category, projectId) {
     return '<section class="panel"><div class="label">' + FT.esc(label) + '</div>' + list(category, projectId) +
-      '<div class="resfoot"><button class="btn sm" data-act="resources.add" data-category="' + FT.esc(category) + '"' + (projectId ? ' data-project="' + FT.esc(projectId) + '"' : '') + '>+ Add link</button></div></section>';
+      '<div class="resfoot"><button class="btn sm" data-act="resources.add" data-category="' + FT.esc(category) + '"' + (projectId ? ' data-project="' + FT.esc(projectId) + '"' : '') + '>+ Add resource</button></div></section>';
+  }
+
+  /** The Projects tab: a panel only for categories that have shared resources, and one button to add one. */
+  function sharedPanels() {
+    var withItems = FT.categories().filter(function (c) { return itemsFor(c.id, null).length; });
+    var add = '<button class="btn sm" data-act="resources.add" data-shared="1">+ Add shared resource</button>';
+    if (!withItems.length) return '<section class="panel"><div class="label">Shared resources</div>' +
+      '<p class="empty">None yet. A shared resource shows on every project in its category.</p><div class="resfoot">' + add + '</div></section>';
+    return '<div class="cats">' + withItems.map(function (c) { return section('Resources: ' + c.label, c.id, null); }).join('') + '</div>' +
+      '<div class="cats-foot">' + add + '</div>';
   }
 
   FT.module({
@@ -41,33 +135,167 @@
         { id: 'links-shared', title: 'Resources: shared', order: 31, span: 'half', render: function (p) { return section('Resources: ' + FT.category(p.category).label + ' (shared)', p.category, null); } }
       ],
       'projects.tab': [
-        { id: 'links', title: 'Resources', order: 10, render: function () {
-          return '<div class="cats">' + FT.categories().map(function (c) { return section('Resources: ' + c.label, c.id, null); }).join('') + '</div>';
-        } }
+        { id: 'links', title: 'Resources', order: 10, render: sharedPanels }
       ]
     }
   });
 
+  // ---------- the add and edit dialog ----------
+
+  /** The value field's label, keyboard and length follow the chosen type. */
+  function fitValueField() {
+    var t = typeOf(document.getElementById('dlg-type').value), input = document.getElementById('dlg-value');
+    document.querySelector('label[for="dlg-value"]').textContent = t.field;
+    input.type = t.input;
+    input.placeholder = t.placeholder;
+    input.maxLength = t.id === 'phone' ? 40 : t.id === 'email' ? 254 : 500;
+  }
+
+  /** "Choose from Drive": searches file names in the owner's Drive. Picking a file fills in the title and link. */
+  var DRIVE_SEARCH = '<div class="rdrive"><button type="button" class="btn sm" id="res-drive-open">Choose from Drive</button>' +
+    '<div id="res-drive" hidden><label for="res-drive-q">Search your Drive by file name</label>' +
+    '<div class="rdrive-row"><input type="search" id="res-drive-q" placeholder="Part of the file name" autocomplete="off">' +
+    '<button type="button" class="btn sm" id="res-drive-go">Search</button></div>' +
+    '<p class="rdrive-msg" id="res-drive-msg" role="status"></p><ul class="rdrive-list" id="res-drive-list"></ul></div></div>';
+
+  function wireDriveSearch() {
+    var $ = function (id) { return document.getElementById(id); }, found = [], asked = 0;
+    $('res-drive-open').onclick = function () {
+      $('res-drive').hidden = false; $('res-drive-open').hidden = true; $('res-drive-q').focus();
+    };
+    function search() {
+      var q = $('res-drive-q').value.trim();
+      if (!q) { $('res-drive-msg').textContent = 'Type part of the file name.'; return; }
+      var mine = ++asked; // only the newest search's answer is shown
+      $('res-drive-msg').textContent = 'Searching…'; $('res-drive-list').innerHTML = '';
+      FT.rpc('resources', 'searchDrive', { q: q }, { parallel: true, quiet: true, noMerge: true }).then(function (files) {
+        if (mine !== asked || !$('res-drive-list')) return;
+        found = files || [];
+        $('res-drive-msg').textContent = found.length ? 'Pick a file. Check it holds nothing sensitive first.' : 'No files with that in their name.';
+        $('res-drive-list').innerHTML = found.map(function (f, i) {
+          return '<li><button type="button" data-i="' + i + '">' + FT.esc(f.name) + '<small>' + FT.esc(kind(f.mimeType)) + (f.modified ? ' · changed ' + FT.esc(f.modified.slice(0, 10)) : '') + '</small></button></li>';
+        }).join('');
+      }, function (e) { if (mine === asked && $('res-drive-msg')) $('res-drive-msg').textContent = FT.errorText(e); });
+    }
+    $('res-drive-go').onclick = search;
+    // Enter here searches; it must not reach the dialog, where it would submit
+    $('res-drive-q').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); search(); } };
+    $('res-drive-list').onclick = function (e) {
+      var b = e.target.closest('button[data-i]'), f = b && found[Number(b.dataset.i)];
+      if (!f) return;
+      $('dlg-type').value = 'drive'; fitValueField();
+      $('dlg-value').value = f.url;
+      $('dlg-title').value = f.name.slice(0, 120);
+      $('res-drive-msg').textContent = 'Chosen: ' + f.name;
+      $('dlg-title').focus();
+    };
+  }
+
+  function kind(mime) {
+    var m = String(mime || '');
+    if (/document$/.test(m)) return 'Google Doc';
+    if (/spreadsheet$/.test(m)) return 'Google Sheet';
+    if (/presentation$/.test(m)) return 'Google Slides';
+    if (/folder$/.test(m)) return 'Folder';
+    if (m === 'application/pdf') return 'PDF';
+    if (/^image\//.test(m)) return 'Image';
+    return 'File';
+  }
+
+  /** The dialog's values checked here first, so a mistake is shown at once; the server checks them again. */
+  function fromDialog(v) {
+    var out = { title: v.title.slice(0, 120), type: v.type, value: v.value, group: v.group.slice(0, 60), note: v.note.slice(0, 300) };
+    if (!out.title) throw new Error('Add a title.');
+    var why = problem(out.type, out.value);
+    if (why) throw new Error(why);
+    return out;
+  }
+
+  function fields(r) {
+    r = r || {};
+    return [
+      { id: 'title', label: 'Title', value: r.title, placeholder: 'e.g. Heat pump research', maxlength: 120 },
+      { id: 'type', label: 'Type', type: 'select', value: r.type || 'link', options: TYPES.map(function (t) { return { value: t.id, label: t.label }; }) },
+      { id: 'value', label: typeOf(r.type).field, value: r.value, placeholder: typeOf(r.type).placeholder },
+      { id: 'group', label: 'Group (optional)', value: r.group, placeholder: 'e.g. Suppliers', maxlength: 60, suggestions: groups() },
+      { id: 'note', label: 'Short note (optional)', value: r.note, placeholder: 'What it is for', maxlength: 300 }
+    ];
+  }
+
+  // Adding and editing close the dialog and show the change at once; a refusal puts the screen back with the reason.
   FT.action('resources.add', function (el) {
-    var category = el.dataset.category, projectId = el.dataset.project || '';
+    var shared = !!el.dataset.shared, category = el.dataset.category || '', projectId = el.dataset.project || '';
     var p = projectId ? FT.project(projectId) : null;
+    var list = fields();
+    if (shared) list.unshift({ id: 'category', label: 'Shared by every project in', type: 'select', value: (FT.categories()[0] || {}).id,
+      options: FT.categories().map(function (c) { return { value: c.id, label: c.label }; }) });
     FT.dialog({
       title: 'Add resource',
-      subtitle: p ? 'Project: ' + p.name : 'Category: ' + FT.category(category).label,
-      submit: 'Add link',
+      subtitle: p ? 'Project: ' + p.name : shared ? '' : 'Category: ' + FT.category(category).label,
+      submit: 'Add',
       hint: HINT,
-      fields: [
-        { id: 'title', label: 'Title', placeholder: 'e.g. Heat pump research' },
-        { id: 'url', label: 'Link (Drive or web)', placeholder: 'https://docs.google.com/...' },
-        { id: 'note', label: 'Short note (optional)', placeholder: 'What it is for' }
-      ],
+      fields: list,
+      after: DRIVE_SEARCH,
+      onOpen: function () {
+        document.getElementById('dlg-type').onchange = fitValueField;
+        fitValueField();
+        wireDriveSearch();
+      },
       onSubmit: function (v) {
-        return FT.rpc('resources', 'add', { category: category, projectId: projectId, title: v.title, url: v.url, note: v.note }, { quiet: true });
+        var row = fromDialog(v), before = FT.store.resources || [];
+        row.id = FT.newId(); row.category = shared ? v.category : category; row.project_id = projectId; row.added = new Date().toISOString();
+        FT.optimistic(function () {
+          FT.store.resources = before.concat([row]);
+          return function () { FT.store.resources = (FT.store.resources || []).filter(function (r) { return r.id !== row.id; }); };
+        }, function () {
+          return FT.rpc('resources', 'add', { id: row.id, category: row.category, projectId: projectId, title: row.title, type: row.type, value: row.value, group: row.group, note: row.note }, { render: false });
+        }).catch(function () {});
       }
     });
   });
 
-  /** Removing a link is immediate; the message offers Undo. */
+  FT.action('resources.edit', function (el) {
+    var r = find(el.dataset.id);
+    if (!r) return;
+    FT.dialog({
+      title: 'Edit resource',
+      submit: 'Save',
+      hint: HINT,
+      fields: fields(r),
+      onOpen: function () {
+        document.getElementById('dlg-type').onchange = fitValueField;
+        fitValueField();
+      },
+      onSubmit: function (v) {
+        var patch = fromDialog(v), id = r.id;
+        FT.optimistic(function () {
+          var was = find(id);
+          if (was) Object.assign(was, patch);
+          return function () { var now = find(id); if (now) Object.assign(now, { title: r.title, type: r.type, value: r.value, group: r.group, note: r.note }); };
+        }, function () {
+          return FT.rpc('resources', 'update', Object.assign({ id: id }, patch), { render: false });
+        }).catch(function () {});
+      }
+    });
+  });
+
+  /** Copy an email address or a text, for pasting elsewhere. */
+  FT.action('resources.copy', function (el) {
+    var r = find(el.dataset.id);
+    if (!r) return;
+    var copied = false;
+    try {
+      var ta = document.createElement('textarea'); ta.value = r.value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); copied = document.execCommand('copy'); document.body.removeChild(ta);
+    } catch (e) { copied = false; }
+    if (copied) { FT.toast('Copied.'); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      FT.toast('Copying…');
+      navigator.clipboard.writeText(r.value).then(function () { FT.toast('Copied.'); }, function () { FT.toast('Could not copy. Select the text and copy it instead.', 'error'); });
+    } else FT.toast('Could not copy. Select the text and copy it instead.', 'error');
+  });
+
+  /** Removing a resource is immediate; the message offers Undo. */
   FT.action('resources.remove', function (el) {
     var id = el.dataset.id, before = FT.store.resources || [];
     if (!before.some(function (r) { return r.id === id; })) return;
@@ -75,7 +303,7 @@
       FT.store.resources = before.filter(function (r) { return r.id !== id; });
       return function () { FT.store.resources = before; };
     }, function () { return FT.rpc('resources', 'remove', { id: id }, { render: false }); }).catch(function () {});
-    FT.deleted('Link');
+    FT.deleted('Resource');
   });
 })();
 </script>

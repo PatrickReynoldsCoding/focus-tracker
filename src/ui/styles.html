@@ -151,7 +151,7 @@ a.iconbtn[hidden] { display: none; }
 /* Phone: comfortable targets (44 px), 16 px fields (iOS zooms the page on anything smaller), room for the sticky-note buttons. */
 @media (max-width: 760px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
-  select, input[type="text"], input[type="date"], input[type="time"], input[type="number"] { min-height: 44px; }
+  select, input[type="text"], input[type="url"], input[type="tel"], input[type="email"], input[type="search"], input[type="date"], input[type="time"], input[type="number"] { min-height: 44px; }
   .btn, .btn.sm { min-height: 44px; }
   .btn.sm { padding: 8px 14px; font-size: 14px; }
   .sortbtn, .ptable thead .sortbtn, .pager .pg-side, .rtbar button { min-height: 44px; }
@@ -224,7 +224,7 @@ tbody tr.row:hover td { background: var(--surface-2); }
 .scroll table { min-width: 620px; }
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-select, input[type="text"], input[type="date"], input[type="time"], input[type="number"], textarea { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+select, input[type="text"], input[type="url"], input[type="tel"], input[type="email"], input[type="search"], input[type="date"], input[type="time"], input[type="number"], textarea { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
 select.auto { width: auto; max-width: 100%; }
 textarea { min-height: 150px; resize: vertical; }
 
@@ -425,7 +425,7 @@ textarea { min-height: 150px; resize: vertical; }
 :root[data-theme="dark"] { --line-strong: #73918b; --on-bad: #2a0907; }
 :root[data-theme="eink"] { --line-strong: #000; --placeholder: #333; --on-bad: #fff; }
 /* Control edges you can see: buttons, fields, editors, choices and small buttons. The chosen state keeps its own colour. */
-:root .btn:not(.primary):not(.danger):not(.done):not([disabled]), :root .iconbtn, :root select:not(.modeselect), :root input[type="text"], :root input[type="date"], :root input[type="time"],
+:root .btn:not(.primary):not(.danger):not(.done):not([disabled]), :root .iconbtn, :root select:not(.modeselect), :root input[type="text"], :root input[type="url"], :root input[type="tel"], :root input[type="email"], :root input[type="search"], :root input[type="date"], :root input[type="time"],
 :root textarea, :root .rtbar button, :root .rtedit, :root .mvb, :root .coladd input, :root .addcol, :root .toastbtn, :root .modebadge, :root .dialog,
 :root .dialog .choice label:not(:has(input:checked)), :root .dialog .seg label:not(:has(input:checked)) { border-color: var(--line-strong); }
 :root .tab[aria-current="page"] { border-color: transparent; }

@@ -150,15 +150,30 @@ async function run(browser, size) {
   await quick('Resources: add a link dialog', pg.locator('[data-act="resources.add"]').first()); await closeDialog();
   await quick('Sticky: + Note', pg.locator('[data-act="stickies.add"]'));
   await settle();
+  // adding and editing a resource close the dialog and show the change before the slow server answers
+  const spec = () => env.server.run('bootstrap()').data.resources.find((r) => r.title === 'Spec sheet');
   await quickly(async () => {
     await pg.locator('[data-act="resources.add"]').first().click();
-    await pg.fill('#dlg-title', 'Spec sheet'); await pg.fill('#dlg-url', 'https://example.com/spec'); await pg.click('#dlg-submit');
-    await pg.waitForSelector('.reslist a:text("Spec sheet")');
+    await pg.fill('#dlg-title', 'Spec sheet'); await pg.fill('#dlg-value', 'https://example.com/spec');
   });
+  await quick('Resources: Add', pg.locator('#dlg-submit'));
+  assert.ok(await pg.isVisible('.reslist a:text("Spec sheet")'), 'the new resource shows at once');
+  assert.ok(!spec(), 'before the slow server has saved it');
+  await settle();
+  assert.strictEqual(spec().value, 'https://example.com/spec', 'the add reached the server');
+  await quickly(async () => {
+    await pg.click('.reslist li:has-text("Spec sheet") [data-act="resources.edit"]');
+    await pg.fill('#dlg-group', 'Docs'); await pg.fill('#dlg-value', 'https://example.com/spec-v2');
+  });
+  await quick('Resources: Save an edit', pg.locator('#dlg-submit'));
+  assert.ok(await pg.isVisible('.rgroup:text("Docs")'), 'the edit shows at once, under its new group');
+  await settle();
+  assert.deepStrictEqual([spec().group, spec().value], ['Docs', 'https://example.com/spec-v2'], 'the edit reached the server');
+  log('Resources: Add and an edit show at once and reach the server');
   const links = () => env.server.run('bootstrap()').data.resources.filter((r) => r.title === 'Spec sheet').length;
   await quick('Resources: remove a link', pg.locator('.reslist li:has-text("Spec sheet") [data-act="resources.remove"]'));
   assert.ok(!(await pg.isVisible('.reslist a:text("Spec sheet")')), 'the link goes at once');
-  assert.ok(/Link deleted/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'and the Undo message shows at once');
+  assert.ok(/Resource deleted/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'and the Undo message shows at once');
   await settle();
   assert.strictEqual(links(), 0, 'the remove reached the server');
   log('Project: dialogs and panels open at once, and a removed link goes at once with an Undo message');

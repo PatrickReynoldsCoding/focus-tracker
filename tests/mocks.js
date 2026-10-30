@@ -130,6 +130,8 @@ function makeDrive() {
   function addFile(fid, nm, extra) {
     const file = Object.assign({ id: fid, name: nm, getId: () => fid, getUrl: () => 'https://docs.google.com/file/' + fid,
       getName: () => file.name,
+      getMimeType: () => file.mime || 'application/octet-stream',
+      getLastUpdated: () => file.updated || new Date('2026-10-01T09:00:00Z'),
       moveTo: (dest) => { place(file, dest); return file; },
       // drive.failCopy = true makes copies fail, like a Drive quota or service error
       makeCopy: (copyName, dest) => {
@@ -168,7 +170,29 @@ function makeDrive() {
     createFolder: (nm) => { const f = folder(nm); place(f, myDrive); return f; },
     getFoldersByName: (nm) => { const hit = Object.values(myDrive.children).filter((c) => c.name === nm && c.children); let i = 0; return { hasNext: () => i < hit.length, next: () => hit[i++] }; },
     getFolderById: (id) => folders[id],
-    getFileById: (id) => { if (!files[id]) throw new Error('No item with the given ID could be found: ' + id); return files[id]; }
+    getFileById: (id) => { if (!files[id]) throw new Error('No item with the given ID could be found: ' + id); return files[id]; },
+    /**
+     * A file in My Drive for search tests: { mime, updated, trashed, content }. Reading its contents (getBlob, getAs)
+     * counts in drive.contentReads, so a test can prove a search never opens a file.
+     */
+    addDriveFile: (nm, extra = {}) => {
+      const file = addFile('file-' + ++n, nm, extra);
+      file.getBlob = file.getAs = () => { api.contentReads++; return { getDataAsString: () => file.content || '' }; };
+      place(file, myDrive);
+      return file;
+    },
+    contentReads: 0,
+    queries: [],
+    // Understands the query the resources module sends: title contains '<words>' and trashed = false. Case-insensitive, like Drive.
+    searchFiles: (q) => {
+      api.queries.push(q);
+      const m = /^title contains '((?:[^'\\]|\\.)*)' and trashed = false$/.exec(q);
+      if (!m) throw new Error('Invalid argument: q');
+      const words = m[1].replace(/\\(.)/g, '$1').toLowerCase();
+      const hit = Object.values(files).filter((f) => !f.trashed && String(f.name).toLowerCase().includes(words));
+      let i = 0;
+      return { hasNext: () => i < hit.length, next: () => hit[i++] };
+    }
   };
   return api;
 }
