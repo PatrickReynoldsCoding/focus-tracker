@@ -222,7 +222,7 @@ body.wb-open .scrim { z-index: 55; }
     return boards().filter(function (w) { return w.show_today; }).sort(byCreated).map(function (w) {
       var project = FT.project(w.project_id);
       return {
-        id: 'whiteboard-' + w.id, title: 'Whiteboard: ' + w.name, description: 'A whiteboard\'s picture; click it to open the board.', w: 4,
+        id: 'whiteboard-' + w.id, title: 'Whiteboard: ' + w.name, short: w.name, description: 'A whiteboard\'s picture; click it to open the board.', w: 4,
         html: '<section class="panel wbtodaypanel"><div class="tophead"><div class="label">Whiteboard: ' + FT.esc(w.name) + '</div>' + todayChip(w) + '</div>' +
           '<ul class="wblist" style="grid-template-columns:1fr"><li>' + thumbHtml(w) +
           '<span class="wbmeta">' + (project ? FT.esc(project.name) + ' · ' : '') + 'Saved ' + FT.fmtDate(w.updated) + '</span></li></ul></section>'

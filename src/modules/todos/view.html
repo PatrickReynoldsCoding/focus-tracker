@@ -70,7 +70,8 @@
   }
 
   function todayPanels() {
-    return [{ id: 'todos', title: 'To-dos', description: 'One-off small tasks for today, a day this week or anytime, ticked off as you go.', html: panelHtml(), w: 5, beside: true }];
+    var open = shown().filter(function (t) { return !t.done; }).length;
+    return [{ id: 'todos', title: 'To-dos', description: 'One-off small tasks for today, a day this week or anytime, ticked off as you go.', html: panelHtml(), w: 5, beside: true, count: open || '' }];
   }
 
   FT.module({ id: 'todos', slots: { 'today.panels': [{ order: 5, render: todayPanels }] } });

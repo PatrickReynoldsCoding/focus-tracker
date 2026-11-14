@@ -794,9 +794,21 @@ test('a saved Today layout with the old "Small tasks" panel puts Habits in its p
   s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }, { id: 'smalltasks', x: 7, y: 0, w: 5 }, { id: 'rotation', x: 0, y: 30, w: 7 }] });
   let today = json(s.run('bootstrap()')).data.layout.today;
   assert.deepStrictEqual(today, { focus: { x: 0, y: 0, w: 7 }, rotation: { x: 0, y: 30, w: 7 }, habits: { x: 7, y: 0, w: 5 }, todos: { x: 7, y: 1, w: 5 } });
-  s.call('layout', 'save', { page: 'today', items: [{ id: 'smalltasks', x: 0, y: 10000, w: 12, hidden: true }] });
-  today = s.call('layout', 'setHidden', { page: 'today', id: 'todos', hidden: false }).slices.layout.today;
-  assert.deepStrictEqual(today, { habits: { x: 0, y: 10000, w: 12, hidden: true }, todos: { x: 0, y: 10000, w: 12 } }, 'hidden stays hidden; a panel shown again keeps its place');
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'smalltasks', x: 0, y: 10000, w: 12, removed: true }] });
+  today = s.call('layout', 'setRemoved', { page: 'today', id: 'todos', removed: false }).slices.layout.today;
+  assert.deepStrictEqual(today, { habits: { x: 0, y: 10000, w: 12, removed: true }, todos: { x: 0, y: 10000, w: 12 } }, 'removed stays removed; a panel added back keeps its place');
+});
+
+test('a layout saved when panels could be hidden reads its hidden panels as removed, and saves them with the new word', () => {
+  const s = fresh();
+  s.run("setSettings_({ 'layout.today': JSON.stringify({ focus: { x: 0, y: 0, w: 7 }, rotation: { x: 7, y: 0, w: 5, hidden: true }, smalltasks: { x: 0, y: 10000, w: 12, hidden: true } }) })");
+  const today = json(s.run('bootstrap()')).data.layout.today;
+  assert.deepStrictEqual(today, { focus: { x: 0, y: 0, w: 7 }, rotation: { x: 7, y: 0, w: 5, removed: true },
+    habits: { x: 0, y: 10000, w: 12, removed: true }, todos: { x: 0, y: 10000, w: 12, removed: true } });
+  s.call('layout', 'setRemoved', { page: 'today', id: 'focus', removed: false });
+  assert.ok(!/hidden/.test(s.run("settingsWithPrefix_('layout.')['layout.today']")), 'the next save writes "removed"');
+  const fromOldPage = s.call('layout', 'setHidden', { page: 'today', id: 'rotation', hidden: false }).slices.layout.today;
+  assert.deepStrictEqual(fromOldPage.rotation, { x: 7, y: 0, w: 5 }, 'a page loaded before the change can still put a panel back');
 });
 
 test('a phone order is saved per page apart from the desktop grid, readable in Settings, and reset with the page', () => {
@@ -1015,7 +1027,7 @@ test('browser-made ids are used, checked and never doubled; cards move to an exa
   assert.strictEqual(col.id, 'bbbb0001');
 });
 
-test('a project can be made with a new category; lists get a colour; panels can be hidden', () => {
+test('a project can be made with a new category; lists get a colour; panels can be removed', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Shed', newCategory: 'Garden' });
   const garden = p.slices.categories.find((c) => c.label === 'Garden');
@@ -1026,13 +1038,13 @@ test('a project can be made with a new category; lists get a colour; panels can 
   assert.strictEqual(s.call('lists', 'setColor', { id: l.id, color: '5' }).result.color, '5');
   assert.throws(() => s.call('lists', 'setColor', { id: l.id, color: 'red' }), /Unknown colour/);
   s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }] });
-  let layout = s.call('layout', 'setHidden', { page: 'today', id: 'rotation', hidden: true }).slices.layout;
-  assert.deepStrictEqual(layout.today.rotation, { x: 0, y: 10000, w: 12, hidden: true });
-  s.call('layout', 'setHidden', { page: 'today', id: 'focus', hidden: true });
-  layout = s.call('layout', 'setHidden', { page: 'today', id: 'focus', hidden: false }).slices.layout;
-  assert.deepStrictEqual(layout.today.focus, { x: 0, y: 0, w: 7 }, 'showing keeps its old place');
-  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }, { id: 'rotation', x: 0, y: 0, w: 5, hidden: true }] });
-  assert.strictEqual(json(s.run('bootstrap()')).data.layout.today.rotation.hidden, true);
+  let layout = s.call('layout', 'setRemoved', { page: 'today', id: 'rotation', removed: true }).slices.layout;
+  assert.deepStrictEqual(layout.today.rotation, { x: 0, y: 10000, w: 12, removed: true });
+  s.call('layout', 'setRemoved', { page: 'today', id: 'focus', removed: true });
+  layout = s.call('layout', 'setRemoved', { page: 'today', id: 'focus', removed: false }).slices.layout;
+  assert.deepStrictEqual(layout.today.focus, { x: 0, y: 0, w: 7 }, 'adding it back keeps its old place');
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }, { id: 'rotation', x: 0, y: 0, w: 5, removed: true }] });
+  assert.strictEqual(json(s.run('bootstrap()')).data.layout.today.rotation.removed, true);
 });
 
 test('acceptance criteria: add, tick, edit, reorder, delete, undo, and they go with the project', () => {

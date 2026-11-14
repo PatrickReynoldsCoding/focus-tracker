@@ -1554,13 +1554,30 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('#nt-text').querySelector('h1') && $('#nt-text').querySelector('li'), 'with their heading and list');
   });
 
-  // ---------- Edit layout: Hide, Add feature, the phone's order ----------
+  // ---------- Edit layout: Remove, Add feature, the phone's order, the phone's Today pager ----------
   const serverData = () => JSON.parse(JSON.stringify(server.run('bootstrap')(w.FT.state.mode))).data;
+  const LONG_PRESS_WAIT = 450;
   const panelIds = () => $$('#app .lcell').map((c) => c.dataset.panel);
   const featureRow = (title) => $$('#dlg-features li').find((li) => li.querySelector('b').textContent === title);
   const addButton = (title) => featureRow(title).querySelector('[data-act="core.addFeatureItem"]');
+  const onPage = (title) => featureRow(title).classList.contains('on') && !addButton(title) && /On page/.test(featureRow(title).textContent);
+  /** A touch on el, as a phone sends it: touches for start and move, changedTouches for every kind. */
+  const touch = (el, type, x, y) => {
+    const e = new w.Event(type, { bubbles: true, cancelable: true });
+    e.touches = type === 'touchend' || type === 'touchcancel' ? [] : [{ clientX: x, clientY: y }];
+    e.changedTouches = [{ clientX: x, clientY: y }];
+    el.dispatchEvent(e);
+    return e;
+  };
+  /** Makes one active project other than the focus a week untouched (on this page only), so "Not touched for a while" shows. */
+  const makeOneStale = () => {
+    const p = w.FT.store.projects.find((x) => x.status === 'active' && x.id !== w.FT.store.today.focusId);
+    p.last_touched = new Date(Date.now() - 8 * 86400000).toISOString();
+    w.FT.render();
+    return p;
+  };
 
-  await step('Edit layout is a text button; Hide takes a panel off and Add feature brings it back, with a line about it', async () => {
+  await step('Edit layout is a text button; Remove takes a panel off, and Add feature is one list that puts it back', async () => {
     click(tab('Today'));
     await waitFor(() => $('.focus-name'), 'Today');
     const btn = $('#layoutBtn');
@@ -1570,18 +1587,23 @@ async function waitFor(fn, label, ms = 3000) {
     click(btn);
     assert.strictEqual(btn.getAttribute('aria-pressed'), 'true');
     assert.ok($('.editbar [data-act="core.addFeature"]'), 'Add feature is in the bar');
-    assert.ok($('.lcell[data-panel="rotation"] .pedit [data-act="core.hidePanel"]'), 'each panel has Hide');
-    click($('.lcell[data-panel="rotation"] [data-act="core.hidePanel"]'));
+    assert.ok(!$('[data-act="core.hidePanel"]') && !/Hide/.test($('.editbar').textContent), 'no Hide any more');
+    assert.ok($('.lcell[data-panel="rotation"] .pedit [data-act="core.removePanel"]'), 'each panel has Remove');
+    click($('.lcell[data-panel="rotation"] [data-act="core.removePanel"]'));
     assert.ok(!panelIds().includes('rotation'), 'gone at once');
-    await waitFor(() => (serverData().layout.today || {}).rotation && serverData().layout.today.rotation.hidden, 'the hide reached the server');
+    await waitFor(() => (serverData().layout.today || {}).rotation && serverData().layout.today.rotation.removed, 'the remove reached the server');
     click($('.editbar [data-act="core.addFeature"]'));
     assert.strictEqual($('#dlg-heading').textContent, 'Add feature');
-    assert.ok(/Hidden on this page/.test($('#dlg-features').textContent));
-    assert.ok(/Which category leads/.test(featureRow('Weekly rotation').textContent), 'with its description');
+    assert.strictEqual($$('#dlg-features .featlist').length, 1, 'one list');
+    assert.strictEqual($$('#dlg-features .feathead').length, 0, 'with no headings splitting it');
+    assert.ok(/Which category leads/.test(featureRow('Weekly rotation').textContent), 'a removed panel, with its description');
+    assert.ok(onPage('Today\'s focus') && onPage('Habits'), 'panels on the page are in the list too, ticked and without Add');
+    const rows = $$('#dlg-features li');
+    assert.ok(rows.findIndex((li) => li.classList.contains('on')) > rows.indexOf(featureRow('Weekly rotation')), 'what can be added comes first');
     click(addButton('Weekly rotation'));
     assert.ok(panelIds().includes('rotation'), 'back on the page at once');
-    assert.ok(!featureRow('Weekly rotation'), 'and gone from the list');
-    await waitFor(() => !serverData().layout.today.rotation.hidden, 'the show reached the server');
+    assert.ok(onPage('Weekly rotation'), 'and ticked in the list');
+    await waitFor(() => !serverData().layout.today.rotation.removed, 'the add reached the server');
     click($('#dlg-submit'));
   });
 
@@ -1589,7 +1611,6 @@ async function waitFor(fn, label, ms = 3000) {
     const list = await w.FT.rpc('lists', 'create', { name: 'Someday ideas' });
     const board = await w.FT.rpc('whiteboard', 'create', { name: 'Garden plan' });
     click($('.editbar [data-act="core.addFeature"]'));
-    assert.ok(/Can be added here/.test($('#dlg-features').textContent));
     assert.ok(/shown on Today/.test(featureRow('Someday ideas').textContent), 'a list not on Today, described');
     assert.ok(featureRow('Whiteboard: Garden plan'), 'a whiteboard not on Today');
     click(addButton('Someday ideas'));
@@ -1598,7 +1619,21 @@ async function waitFor(fn, label, ms = 3000) {
     click(addButton('Whiteboard: Garden plan'));
     assert.ok(panelIds().includes('whiteboard-' + board.id), 'the board is on Today at once');
     await waitFor(() => serverData().whiteboard.find((b) => b.id === board.id).show_today === 'yes', 'the board reached the server');
-    assert.ok(!featureRow('Someday ideas') && !featureRow('Whiteboard: Garden plan'), 'neither is offered again');
+    assert.ok(onPage('Someday ideas') && onPage('Whiteboard: Garden plan'), 'both are now ticked as on the page');
+    click($('#dlg-submit'));
+  });
+
+  await step('"Not touched for a while" is a panel: removed and added back like any other', async () => {
+    const stale = makeOneStale();
+    assert.ok(new RegExp('Not touched for a while:.*' + stale.name).test($('.lcell[data-panel="stale"]').textContent), 'it is a panel on Today');
+    click($('.lcell[data-panel="stale"] [data-act="core.removePanel"]'));
+    assert.ok(!$('[data-panel="stale"]') && !/Not touched for a while:/.test($('#app').textContent), 'gone at once');
+    await waitFor(() => serverData().layout.today.stale && serverData().layout.today.stale.removed, 'the remove reached the server');
+    click($('.editbar [data-act="core.addFeature"]'));
+    assert.ok(/Shows only when there are some/.test(featureRow('Not touched for a while').textContent));
+    click(addButton('Not touched for a while'));
+    assert.ok($('.lcell[data-panel="stale"]'), 'back at once');
+    await waitFor(() => !serverData().layout.today.stale.removed, 'the add reached the server');
     click($('#dlg-submit'));
   });
 
@@ -1617,43 +1652,193 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!$('.editbar') && !$('.pedit'), 'Done leaves Edit layout');
   });
 
-  await step('phone: Edit layout has ▲ ▼ and Hide; the phone order is saved apart from the desktop and used when drawn', async () => {
+  await step('desktop: a panel is dragged by its title at any time; Edit layout drags by any part and resizes', async () => {
+    const grids = [];
+    w.GridStack = { init(opts, el) {
+      const handlers = {};
+      const grid = { opts, el, handlers, destroy() {}, update(item, place) { grid.updated.push([item.getAttribute('gs-id'), place]); }, updated: [], on(names, fn) { names.split(' ').forEach((n) => { handlers[n] = fn; }); },
+        engine: { nodes: $$('#app .grid-stack-item').map((it, i) => ({ id: it.getAttribute('gs-id'), x: 0, y: i * 10, w: 12 })) } };
+      grids.push(grid);
+      return grid;
+    } };
+    try {
+      click(tab('Today'));
+      makeOneStale();
+      const grid = grids[grids.length - 1];
+      assert.strictEqual(grid.opts.handle, '.panel-handle', 'only the title starts a drag');
+      assert.strictEqual(grid.opts.disableResize, true, 'no resizing outside Edit layout');
+      assert.ok(!grid.opts.staticGrid, 'but the panels can move');
+      const items = $$('#app .grid-stack-item');
+      assert.ok(items.length >= 4 && items.every((it) => it.querySelectorAll('.panel-handle').length === 1), 'every panel has one handle');
+      assert.strictEqual($('.grid-stack-item[gs-id="focus"] .panel-handle').textContent, 'Today\'s focus', 'the focus moves by its title');
+      assert.strictEqual($('.grid-stack-item[gs-id="stale"] .panel-handle').textContent, 'Not touched for a while:', 'the stale banner by its words');
+      assert.ok(!$('.grid-stack-item[gs-id="focus"] [data-act="today.start"]').classList.contains('panel-handle'), 'buttons are not handles');
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(grid.updated)), [['stale', { x: 0, y: 0 }]], 'a new "Not touched" panel is moved above the rest');
+      grid.engine.nodes.find((n) => n.id === 'rotation').y = 0;
+      grid.engine.nodes.find((n) => n.id === 'focus').y = 40;
+      grid.handlers.dragstart();
+      grid.handlers.dragstop();
+      await waitFor(() => serverData().layout.today.rotation.y === 0 && serverData().layout.today.focus.y === 40, 'the drag by the title is saved');
+      click($('#layoutBtn'));
+      const editGrid = grids[grids.length - 1];
+      assert.strictEqual(editGrid.opts.handle, '.grid-stack-item-content', 'in Edit layout any part of a panel drags it');
+      assert.ok(!editGrid.opts.disableResize, 'and its edges resize it');
+      assert.ok($('.grid-stack-item[gs-id="rotation"] .removebtn'), 'with Remove on each panel');
+      click($('#layoutBtn'));
+    } finally {
+      delete w.GridStack;
+      w.FT.render();
+    }
+  });
+
+  await step('phone: Edit layout has ▲ ▼ and Remove, the focus stays pinned; the phone order is saved apart from the desktop', async () => {
     click(tab('Today'));
+    const desktop = panelIds();
     w.__narrow = true;
     click($('#menuLayoutBtn'));
     assert.strictEqual($('#menuLayoutBtn').textContent, 'Done editing layout');
     const before = panelIds();
-    assert.ok(before.length >= 3 && before[0] === 'focus', 'the desktop order to start with: ' + before.join(','));
-    assert.ok($('.lcell[data-panel="focus"] [data-act="core.movePanel"][data-d="-1"]').disabled, 'the first cannot go up');
-    click($('.lcell[data-panel="focus"] [data-act="core.movePanel"][data-d="1"]'));
-    const after = [before[1], before[0]].concat(before.slice(2));
-    assert.deepStrictEqual(panelIds(), after, 'moved down at once');
-    click($('.lcell[data-panel="' + before[2] + '"] [data-act="core.movePanel"][data-d="-1"]'));
-    const want = [before[1], before[2], before[0]].concat(before.slice(3));
-    assert.deepStrictEqual(panelIds(), want);
-    await waitFor(() => JSON.stringify((serverData().layout['today.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the phone order reached the server');
+    assert.strictEqual(before[0], 'focus', 'the pinned focus comes first');
+    assert.ok(!$('.lcell[data-panel="focus"] [data-act="core.movePanel"]') && /Pinned at the top/.test($('.lcell[data-panel="focus"] .pedit').textContent), 'and has no ▲ ▼');
+    const rest = before.slice(1);
+    assert.ok(rest.length >= 3, 'others to move: ' + rest.join(','));
+    assert.ok($('.lcell[data-panel="' + rest[0] + '"] [data-act="core.movePanel"][data-d="-1"]').disabled, 'the first cannot go up');
+    click($('.lcell[data-panel="' + rest[0] + '"] [data-act="core.movePanel"][data-d="1"]'));
+    const want = ['focus', rest[1], rest[0]].concat(rest.slice(2));
+    assert.deepStrictEqual(panelIds(), want, 'moved down at once');
+    await waitFor(() => JSON.stringify((serverData().layout['today.phone'] || []).filter((id) => want.includes(id) && id !== 'focus')) === JSON.stringify(want.slice(1)), 'the phone order reached the server');
     click($('#menuLayoutBtn'));
     assert.ok(!$('.pedit'), 'leaving Edit layout');
-    w.FT.store.layout = null;
-    await w.FT.reload();
-    assert.deepStrictEqual(panelIds(), want, 'the saved phone order is used on a phone');
     w.__narrow = false;
     w.FT.render();
-    assert.deepStrictEqual(panelIds(), before, 'the desktop keeps its own order');
+    assert.deepStrictEqual(panelIds(), desktop, 'the desktop keeps its own order');
   });
 
-  await step('a page whose panels are all hidden says so and how to bring them back', async () => {
+  const chips = () => $$('#app .pchip');
+  const chipIds = () => chips().map((c) => c.dataset.id);
+  const chosenChip = () => chips().find((c) => c.getAttribute('aria-selected') === 'true').dataset.id;
+  const shownPanels = () => $$('#app .ppanel').filter((p) => !p.hidden).map((p) => p.dataset.panel);
+
+  await step('phone Today: the focus pinned and short, a chip per panel in the phone order with counts, one panel at a time', async () => {
+    w.__narrow = true;
+    w.FT.render();
+    assert.ok($('.ppinned .fcompact .fc-name') && $('.ppinned [data-act="today.start"]'), 'the pinned focus: its name and Start');
+    assert.ok(/Next/.test($('.ppinned .fc-next').textContent), 'and the next action');
+    assert.ok(!$('.ppinned [data-act="today.swap"]'), 'the rest waits behind More');
+    click($('.ppinned-more'));
+    assert.ok($('.ppinned [data-act="today.swap"]') && $('.ppinned-more').getAttribute('aria-expanded') === 'true', 'More shows the whole focus');
+    click($('.ppinned-more'));
+    assert.ok($('.ppinned .fcompact'), 'Less goes back');
+    const order = (serverData().layout['today.phone'] || []).filter((id) => chipIds().includes(id));
+    assert.deepStrictEqual(chipIds().slice(0, order.length), order, 'chips follow the phone order (▲ ▼)');
+    assert.ok(!chipIds().includes('focus'), 'the pinned focus has no chip');
+    const openTodos = w.FT.store.todos.items.filter((t) => !t.done && (!t.day || t.day <= w.FT.store.todos.day)).length;
+    assert.strictEqual($('.pchip[data-id="todos"] .pcount').textContent, String(openTodos), 'To-dos shows how many are open');
+    assert.ok(/^\d+\/\d+$/.test($('.pchip[data-id="habits"] .pcount').textContent), 'Habits shows done of how many');
+    assert.strictEqual($('.pchip[data-id="rotation"]').textContent, 'Rotation', 'a short name');
+    assert.strictEqual(shownPanels().length, 1, 'one panel at a time');
+    click($('.pchip[data-id="habits"]'));
+    assert.deepStrictEqual(shownPanels(), ['habits'], 'a chip shows its panel');
+    assert.strictEqual($('.pchip[data-id="habits"]').getAttribute('aria-selected'), 'true');
+    w.FT.render();
+    assert.strictEqual(chosenChip(), 'habits', 'the chosen panel is remembered');
+  });
+
+  await step('phone Today: a swipe on the panel changes panel and stops at the ends; a swipe on the focus changes tab', async () => {
+    const ids = chipIds();
+    click($('.pchip[data-id="' + ids[0] + '"]'));
+    const swipe = (el, dx) => { touch(el, 'touchstart', 200, 300); touch(el, 'touchend', 200 + dx, 305); };
+    const panelArea = () => $('#app .ppanel:not([hidden])');
+    swipe(panelArea(), -120);
+    assert.deepStrictEqual(shownPanels(), [ids[1]], 'a swipe to the left shows the next panel');
+    assert.strictEqual(w.FT.state.view, 'today', 'and stays on Today');
+    swipe(panelArea(), 120);
+    assert.deepStrictEqual(shownPanels(), [ids[0]], 'a swipe to the right goes back');
+    swipe(panelArea(), 120);
+    assert.deepStrictEqual(shownPanels(), [ids[0]], 'the first panel is the end: no tab change');
+    assert.strictEqual(w.FT.state.view, 'today');
+    click(chips()[chips().length - 1]);
+    swipe(panelArea(), -120);
+    assert.strictEqual(w.FT.state.view, 'today', 'nor past the last panel');
+    $('.pchip[aria-selected="true"]').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    assert.strictEqual(chosenChip(), ids[0], 'Home on the chips goes to the first');
+    chips()[0].dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    assert.strictEqual(chosenChip(), ids[1], 'the arrow keys move along them');
+    swipe($('.ppinned .fc-name'), -120);
+    await waitFor(() => w.FT.state.view === 'projects', 'a swipe on the pinned focus goes to the next tab');
+    click(tab('Today'));
+    await waitFor(() => $('.ppager'), 'back on Today');
+  });
+
+  const placeInRow = (els, axis) => els.forEach((el, i) => {
+    el.getBoundingClientRect = () => axis === 'x' ? { left: i * 100, right: i * 100 + 90, width: 90, top: 0, bottom: 44, height: 44 }
+      : { left: 0, right: 390, width: 390, top: i * 200, bottom: i * 200 + 180, height: 180 };
+  });
+
+  await step('phone: press and hold a chip, then drag it, reorders the chips and saves the phone order', async () => {
+    const ids = chipIds();
+    const focusAt = serverData().layout['today.phone'].indexOf('focus');
+    placeInRow(chips(), 'x');
+    const first = chips()[0];
+    touch(first, 'touchstart', 40, 20);
+    touch(first, 'touchmove', 46, 22);
+    await sleep(LONG_PRESS_WAIT);
+    assert.ok(first.classList.contains('lifted') && d.body.classList.contains('reordering'), 'a short wobble does not stop the hold, and the chip lifts');
+    const move = touch(first, 'touchmove', ids.length * 100 + 50, 20);
+    assert.ok(move.defaultPrevented, 'the page does not scroll while a chip is dragged');
+    touch(first, 'touchend', ids.length * 100 + 50, 20);
+    const want = ids.slice(1).concat([ids[0]]);
+    assert.deepStrictEqual(chipIds(), want, 'the chip is last at once');
+    assert.ok(!d.body.classList.contains('reordering'));
+    await waitFor(() => JSON.stringify((serverData().layout['today.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the new order reached the server');
+    assert.ok(focusAt !== -1 && serverData().layout['today.phone'].indexOf('focus') === focusAt, 'the pinned focus keeps its place in the order');
+  });
+
+  await step('phone: a finger that moves before the hold is a scroll; press and hold a panel on another page moves it', async () => {
+    const ids = chipIds();
+    placeInRow(chips(), 'x');
+    touch(chips()[0], 'touchstart', 40, 20);
+    touch(chips()[0], 'touchmove', 40, 60);
+    await sleep(LONG_PRESS_WAIT);
+    assert.ok(!$('.lifted'), 'moving first cancels the hold');
+    touch(chips()[0], 'touchend', 40, 60);
+    assert.deepStrictEqual(chipIds(), ids, 'nothing moved');
+
+    const project = w.FT.store.projects.find((p) => p.status === 'active' && !w.FT.lockedUntil(p));
+    w.FT.go('project', { id: project.id });
+    const cells = $$('#app .lflow > .lcell');
+    const before = cells.map((c) => c.dataset.panel);
+    placeInRow(cells, 'y');
+    const editor = cells.map((c) => c.querySelector('[contenteditable="true"], input, textarea, button')).find(Boolean);
+    touch(editor, 'touchstart', 100, 100);
+    await sleep(LONG_PRESS_WAIT);
+    assert.ok(!$('.lifted'), 'a field, button or editor keeps its own long press');
+    touch(editor, 'touchend', 100, 100);
+    const grab = cells[0].querySelector('.label, h2') || cells[0];
+    touch(grab, 'touchstart', 100, 20);
+    await sleep(LONG_PRESS_WAIT);
+    assert.ok(cells[0].classList.contains('lifted'), 'the panel lifts');
+    touch(grab, 'touchmove', 100, 330);
+    touch(grab, 'touchend', 100, 330);
+    const want = [before[1], before[0]].concat(before.slice(2));
+    assert.deepStrictEqual(panelIds(), want, 'dropped below the next panel at once');
+    await waitFor(() => JSON.stringify((serverData().layout['project.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the project page\'s phone order reached the server');
+    w.__narrow = false;
+    click(tab('Today'));
+  });
+
+  await step('a page whose panels are all removed says so and how to bring them back', async () => {
     click(tab('Whiteboards'));
     click($('#layoutBtn'));
-    click($('.lcell[data-panel="boards"] [data-act="core.hidePanel"]'));
-    assert.ok(/All panels are hidden\. Edit layout → Add feature/.test($('#app').textContent), 'in Edit layout');
+    click($('.lcell[data-panel="boards"] [data-act="core.removePanel"]'));
+    assert.ok(/Every panel is removed from this page\. Edit layout → Add feature/.test($('#app').textContent), 'in Edit layout');
     click($('#layoutBtn'));
-    assert.ok(/All panels are hidden\. Edit layout → Add feature/.test($('#app').textContent), 'and after it');
-    click($('.allhidden [data-act="core.addFeature"]'));
+    assert.ok(/Every panel is removed/.test($('#app').textContent), 'and after it');
+    click($('.allremoved [data-act="core.addFeature"]'));
     assert.ok(w.FT.state.editLayout, 'its Add feature turns Edit layout on');
     click(addButton('Whiteboards'));
-    assert.ok(panelIds().includes('boards') && !/All panels are hidden/.test($('#app').textContent), 'the panel is back');
-    await waitFor(() => !(serverData().layout.whiteboards || {}).boards.hidden, 'saved');
+    assert.ok(panelIds().includes('boards') && !/Every panel is removed/.test($('#app').textContent), 'the panel is back');
+    await waitFor(() => !(serverData().layout.whiteboards || {}).boards.removed, 'saved');
     click($('#dlg-submit'));
     click($('#layoutBtn'));
   });

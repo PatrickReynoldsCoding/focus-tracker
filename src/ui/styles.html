@@ -194,12 +194,12 @@ body.editing-grid .grid-stack-item-content > * { pointer-events: none; }
 .grid-stack-placeholder > .placeholder-content { border: 2px dashed var(--accent) !important; border-radius: 10px; background: var(--accent-soft) !important; }
 .editbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
 .edithint { display: none; }
-/* Edit layout without the grid (a phone): each panel has a strip with its name, ▲ ▼ and Hide; its content is a short, untappable preview. */
+/* Edit layout without the grid (a phone): each panel has a strip with its name, ▲ ▼ and Remove; its content is a short, untappable preview. */
 .pedit { display: flex; align-items: center; gap: 8px; justify-content: space-between; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px; padding: 4px 4px 4px 12px; }
 .pedit-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pedit-btns { display: flex; gap: 6px; flex: none; }
 .pedit-btn { min-width: 44px; min-height: 44px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
-.pedit-btn.pedit-hide { padding: 0 12px; font-size: 14px; }
+.pedit-btn.pedit-remove { padding: 0 12px; font-size: 14px; }
 .pedit-btn:disabled { opacity: 0.35; cursor: default; }
 body.editing-layout .lcell { gap: 6px; }
 body.editing-layout .lcell > :not(.pedit) { pointer-events: none; max-height: 140px; overflow: hidden; opacity: 0.7;
@@ -210,7 +210,7 @@ body.editing-layout .lcell > :not(.pedit) { pointer-events: none; max-height: 14
   .editbar .edithow { display: none; }
   .edithint { display: block; margin: 0; font-size: 13.5px; color: var(--muted); }
 }
-/* Add feature: hidden panels and things that can be added, each with a line about it and Add. */
+/* Add feature: one list, what can be added (with Add) first, then what is already on the page (ticked, greyed). */
 .feathead { font-size: 13px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 14px 0 6px; font-weight: 500; }
 .featlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .featlist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 8px 12px; }
@@ -218,7 +218,41 @@ body.editing-layout .lcell > :not(.pedit) { pointer-events: none; max-height: 14
 .feat b { overflow-wrap: anywhere; }
 .feat small { color: var(--muted); font-size: 13px; }
 .featlist .btn { flex: none; }
-.allhidden .actions { margin-top: 8px; }
+.allremoved .actions { margin-top: 8px; }
+.featlist li.on { background: var(--surface-2); border-style: dashed; }
+.featlist li.on b { color: var(--muted); }
+.feat-on { flex: none; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+/* A panel moves by its title at any time (desktop); one with no title has a small grip at its top edge. */
+.panel-handle { cursor: grab; user-select: none; -webkit-user-select: none; }
+.grid-stack-item.ui-draggable-dragging .panel-handle { cursor: grabbing; }
+.panel-grip { position: absolute; top: 2px; left: 50%; width: 44px; height: 10px; margin-left: -22px; border-radius: 5px; background: var(--line); z-index: 4; }
+.panel-grip:hover { background: var(--line-strong); }
+/* Press, hold and drag (phone): the lifted panel or chip is outlined; nothing is selected while it moves. */
+body.reordering, body.reordering * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.lifted { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18); position: relative; z-index: 6; }
+:root[data-theme="eink"] .lifted { outline: 4px dashed #000; box-shadow: none; }
+/* The phone's pager (Today): the pinned panel, a row of chips that stays under the header, one panel at a time. */
+.ppager { display: grid; gap: 12px; }
+.ppinned { position: relative; }
+.ppinned-more { position: absolute; top: 8px; right: 8px; min-height: 44px; min-width: 64px; }
+.pchips { display: flex; gap: 8px; overflow-x: auto; position: sticky; top: 61px; z-index: 12; background: var(--bg); margin: 0 -4px; padding: 6px 4px; scrollbar-width: none; }
+.pchips::-webkit-scrollbar { display: none; }
+.pchip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-weight: 600; font-size: 14px; cursor: pointer; }
+.pchip[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pcount { font-family: var(--font-mono); font-size: 12px; font-weight: 500; opacity: 0.85; }
+.ppanels { min-height: 50vh; touch-action: pan-y; }
+.ppanel { display: grid; gap: 16px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ppanel.slide-next { animation: pslide-next 0.2s ease-out; }
+  .ppanel.slide-prev { animation: pslide-prev 0.2s ease-out; }
+}
+@keyframes pslide-next { from { transform: translateX(40px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@keyframes pslide-prev { from { transform: translateX(-40px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+:root[data-theme="eink"] .pchip { border: 2px solid #000; background: #fff; color: #000; }
+:root[data-theme="eink"] .pchip[aria-selected="true"] { background: #000; color: #fff; }
+:root[data-theme="eink"] .pchip[aria-selected="true"]::before { content: "\2713"; }
+:root[data-theme="eink"] .featlist li.on { background: #fff; border: 2px dashed #000; }
+.pedit-pinned { font-size: 13px; color: var(--muted); align-self: center; padding: 0 6px; }
 .iconbtn[hidden] { display: none; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
@@ -291,9 +325,9 @@ textarea { min-height: 150px; resize: vertical; }
 .toastx { border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer; }
 @media (max-width: 760px) { .toast { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 68px)); } }
 .toastbtn { margin-left: 0; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
-/* In Edit layout the Hide button gets its own strip at the top of the panel, so it never covers the panel's own buttons. */
-.grid-stack-item:has(> .hidebtn) > .grid-stack-item-content > .panel { padding-top: 50px; }
-.hidebtn { position: absolute; top: 10px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+/* In Edit layout the Remove button gets its own strip at the top of the panel, so it never covers the panel's own buttons. */
+.grid-stack-item:has(> .removebtn) > .grid-stack-item-content > .panel { padding-top: 50px; }
+.removebtn { position: absolute; top: 10px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .back { margin-bottom: 4px; }
 @media (prefers-reduced-motion: no-preference) { .btn, .tab { transition: background 0.12s, color 0.12s; } }
@@ -398,7 +432,7 @@ textarea { min-height: 150px; resize: vertical; }
 /* ---- Theme review fixes, part 2: E-ink borders, states and tap targets ---- */
 /* Nothing thinner than 2px, and no placeholder that fades to grey. */
 :root[data-theme="eink"] .choice label, :root[data-theme="eink"] .seg label, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .mvb,
-:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .pedit-btn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .removebtn, :root[data-theme="eink"] .pedit-btn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
 :root[data-theme="eink"] .pager .dots i { border-width: 2px; width: 10px; height: 10px; } :root[data-theme="eink"] .pager .dots i.on { width: 20px; }
 :root[data-theme="eink"] .addcol { border: 2px dashed #000; }
 :root[data-theme="eink"] ::placeholder { color: #333; opacity: 1; }
@@ -433,7 +467,7 @@ textarea { min-height: 150px; resize: vertical; }
 :root[data-theme="eink"] body[data-mode="work"] .bar { border-bottom: 6px double #000; }
 /* Tap targets of at least 44px on e-ink, where a missed tap costs a slow screen refresh. */
 :root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm, :root[data-theme="eink"] .mvb, :root[data-theme="eink"] .sortbtn, :root[data-theme="eink"] .rotq .arrows button,
-:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .wblist .wbname { min-width: 44px; min-height: 44px; }
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .removebtn, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .wblist .wbname { min-width: 44px; min-height: 44px; }
 :root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm { padding: 8px 12px; }
 :root[data-theme="eink"] .btn.sm { min-height: 44px; padding: 8px 14px; }
 :root[data-theme="eink"] .kcard .ktitle { padding: 10px 0; min-height: 44px; display: flex; align-items: center; }
