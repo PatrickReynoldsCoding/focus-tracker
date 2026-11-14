@@ -681,6 +681,81 @@ async function run(browser, size) {
   assert.ok(/^https:\/\/docs\.google\.com\/document\/d\//.test(docLink.href) && docLink.href === docRow.doc, '[' + size.name + '] and links the Doc: ' + docLink.href);
   log('"Open in Docs" shows once the notes Doc exists');
 
+  // ---------- 8: pop-out windows ----------
+  env.latency = LATENCY;
+  await gotoTab('Today');
+  const popWin = pg.locator('#popRoot .popwin[data-key="today::todos"]');
+  const saved = () => pg.evaluate(() => JSON.parse(localStorage.getItem('ft.popout.personal')).windows[0]);
+  const drag = async (from, dx, dy) => {
+    await pg.mouse.move(from.x, from.y); await pg.mouse.down();
+    await pg.mouse.move(from.x + dx, from.y + dy, { steps: 6 }); await pg.mouse.up(); await sleep(60);
+  };
+  const near = (a, b, label) => assert.ok(Math.abs(a - b) <= 1.5, '[' + size.name + '] ' + label + ': ' + a + ' vs ' + b);
+  await quick('Pop out: To-dos', pg.locator('#app .popbtn[data-panel="todos"]'));
+  await popWin.waitFor();
+  if (!size.mobile) {
+    const start = await popWin.boundingBox(), title = await popWin.locator('.poptitle').boundingBox();
+    await drag({ x: title.x + 30, y: title.y + title.height / 2 }, 150, 80);
+    const moved = await popWin.boundingBox();
+    near(moved.x, start.x + 150, 'dragged by its title bar (x)'); near(moved.y, start.y + 80, 'dragged by its title bar (y)');
+    near(moved.width, start.width, 'same width after a move');
+    const grip = await popWin.locator('[data-pop-resize="se"]').boundingBox();
+    await drag({ x: grip.x + grip.width / 2, y: grip.y + grip.height / 2 }, 120, 90);
+    const sized = await popWin.boundingBox();
+    near(sized.width, moved.width + 120, 'wider from the corner'); near(sized.height, moved.height + 90, 'taller from the corner');
+    near(sized.x, moved.x, 'the corner resize keeps its left edge');
+    const left = await popWin.locator('[data-pop-resize="w"]').boundingBox();
+    await drag({ x: left.x + left.width / 2, y: left.y + left.height / 2 }, -60, 0);
+    const wider = await popWin.boundingBox();
+    near(wider.x, sized.x - 60, 'the left edge moves'); near(wider.width, sized.width + 60, 'and the width grows');
+    const kept = await saved();
+    near(kept.free.x, wider.x, 'place kept'); near(kept.free.w, wider.width, 'size kept');
+    await gotoTab('Lists');
+    const onLists = await popWin.boundingBox();
+    near(onLists.x, wider.x, 'same place on another tab'); near(onLists.height, wider.height, 'same size on another tab');
+    assert.ok(await popWin.locator('#td-new').isVisible(), 'and still the live To-dos panel');
+    log('Pop out: a free window is dragged by its title bar and resized from a corner and an edge; it keeps its place on another tab');
+
+    await pg.click('#popRoot .popwin [data-act="popout.style"][data-style="pane"]');
+    const pane = pg.locator('#popRoot .poppane');
+    await pane.waitFor();
+    const pageRight = () => pg.evaluate(() => document.querySelector('.wrap').getBoundingClientRect().right);
+    const paneBefore = await pane.boundingBox();
+    assert.ok(await pageRight() <= paneBefore.x + 1, '[' + size.name + '] the page stops where the pane starts (not covered)');
+    const divider = await pg.locator('.poppane-divider').boundingBox();
+    await drag({ x: divider.x + divider.width / 2, y: divider.y + divider.height / 2 }, -120, 0);
+    const paneAfter = await pane.boundingBox();
+    near(paneAfter.width, paneBefore.width + 120, 'dragging the divider left widens the pane');
+    assert.ok(await pageRight() <= paneAfter.x + 1, '[' + size.name + '] and the page reflows beside it');
+    near(await pg.evaluate(() => JSON.parse(localStorage.getItem('ft.popout.personal')).paneWidth), paneAfter.width, 'pane width kept');
+    log('Pop out: the side pane\'s divider resizes it and the page reflows beside it');
+
+    await pg.click('#popRoot .poppane [data-act="popout.style"][data-style="mini"]');
+    await popWin.waitFor();
+    assert.ok(await popWin.evaluate((el) => el.classList.contains('pop-at-bl')), 'a mini card starts in the bottom left corner');
+    const card = await popWin.locator('.poptitle').boundingBox();
+    await drag({ x: card.x + 20, y: card.y + card.height / 2 }, size.viewport.width - 200, -(size.viewport.height - 200));
+    await pg.mouse.move(size.viewport.width / 2, size.viewport.height / 2); await sleep(250);
+    assert.strictEqual((await saved()).mini.corner, 'tr', 'dropped near the top right, it snaps to that corner');
+    const snapped = await popWin.boundingBox();
+    near(snapped.x + snapped.width, size.viewport.width - 12, 'against the right edge');
+    log('Pop out: a mini card snaps to the nearest corner');
+  } else {
+    assert.ok(await popWin.evaluate((el) => el.classList.contains('pop-phone')), 'on a phone the window is a card');
+    const card = await popWin.boundingBox();
+    assert.ok(card.y + card.height > size.viewport.height - 80, '[' + size.name + '] at the bottom of the screen');
+    await quick('Pop out: open the card', popWin.locator('.popopen'), false);
+    await pg.waitForSelector('#popRoot .pop-sheet #td-new');
+    const sheet = await popWin.boundingBox();
+    near(sheet.width, size.viewport.width, 'the sheet fills the width');
+    await pg.click('#popRoot .pop-sheet [data-act="popout.sheetDone"]');
+    assert.ok(!(await popWin.evaluate((el) => el.classList.contains('pop-sheet'))), 'Done puts it back to a card');
+    log('Pop out: on a phone the window is a card at the bottom that opens as a full screen sheet');
+  }
+  await pg.click('#popRoot .popwin [data-act="popout.close"]');
+  assert.strictEqual(await pg.evaluate(() => document.getElementById('popRoot').children.length), 0, 'closed');
+  await pg.evaluate(() => localStorage.removeItem('ft.popout.personal'));
+
   await ctx.close();
   await env.close();
   assert.deepStrictEqual(errors, [], 'page errors: ' + errors.join(' | '));

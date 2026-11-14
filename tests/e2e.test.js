@@ -1843,6 +1843,153 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#layoutBtn'));
   });
 
+  // ---------- pop-out windows (src/ui/popout.html) ----------
+  const popWin = (panel) => $$('#popRoot .popwin').find((el) => el.dataset.key.endsWith(':' + panel));
+  const popSaved = () => JSON.parse(w.localStorage.getItem('ft.popout.personal') || '{"windows":[]}').windows;
+  const key = (el, k) => el.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true }));
+
+  await step('pop out: a Today panel becomes a free window on top, live, with a placeholder on its page', async () => {
+    click(tab('Today'));
+    const btn = $('#app .lcell[data-panel="todos"] .popbtn');
+    assert.ok(btn, 'the To-dos panel has a Pop out button in its title');
+    assert.strictEqual(btn.getAttribute('aria-label'), 'Pop out To-dos');
+    assert.strictEqual($('#app .lcell[data-panel="todos"] .label').textContent, 'To-dos', 'the title text is unchanged');
+    click(btn);
+    const win = popWin('todos');
+    assert.ok(win && win.classList.contains('pop-free'), 'a free window');
+    assert.strictEqual(d.activeElement, win, 'focused');
+    assert.strictEqual(win.getAttribute('aria-label'), 'To-dos window');
+    assert.ok(win.querySelector('#td-new'), 'the panel is inside it');
+    assert.ok($('#app .lcell[data-panel="todos"] .popslot'), 'its page shows a placeholder');
+    assert.ok(!$('#app #td-new'), 'and only one copy of the panel exists');
+    assert.deepStrictEqual(Array.from(win.querySelectorAll('.popbtns button')).map((b) => b.getAttribute('aria-label')),
+      ['Free window', 'Side pane', 'Mini card', 'Minimise To-dos', 'Close To-dos and put it back on its page']);
+    setVal(win.querySelector('#td-new'), 'Water the plants');
+    click(win.querySelector('[data-act="todos.addBtn"]'));
+    await waitFor(() => popWin('todos').textContent.includes('Water the plants'), 'the new to-do shows in the window');
+    await waitFor(() => serverData().todos.items.some((t) => t.title === 'Water the plants'), 'and reached the server');
+    assert.deepStrictEqual(popSaved().map((x) => [x.page, x.panel, x.style, x.minimised]), [['today', 'todos', 'free', false]], 'kept on this device');
+  });
+
+  await step('pop out: the window stays on other tabs and keeps working there', async () => {
+    click(tab('Lists'));
+    assert.ok($('#app .lists, #app .panel'), 'on the Lists tab');
+    const win = popWin('todos');
+    assert.ok(win && win.querySelector('#td-new'), 'the To-dos window is still there, drawn from Today off screen');
+    const row = Array.from(win.querySelectorAll('li')).find((li) => li.textContent.includes('Water the plants'));
+    click(row.querySelector('[data-act="todos.remove"]'));
+    await waitFor(() => !popWin('todos').textContent.includes('Water the plants'), 'gone from the window at once');
+    await waitFor(() => !serverData().todos.items.some((t) => t.title === 'Water the plants'), 'and from the server');
+  });
+
+  await step('pop out: switch to the side pane (tabs, divider) and to a mini card', async () => {
+    click(popWin('todos').querySelector('[data-act="popout.style"][data-style="pane"]'));
+    assert.ok(!popWin('todos'), 'no longer floating');
+    assert.ok($('#popRoot .poppane #td-new'), 'docked in the side pane');
+    assert.ok(d.body.classList.contains('pop-pane-on'), 'the page makes room beside it');
+    assert.strictEqual(d.body.style.getPropertyValue('--pop-pane-w'), '400px');
+    assert.ok(d.body.classList.contains('pop-pane-tight'), 'with the narrow desktop bar, as the page beside the pane is under 1000 px');
+    click(tab('Today'));
+    click($('#app .lcell[data-panel="rotation"] .popbtn'));
+    click(popWin('rotation').querySelector('[data-act="popout.style"][data-style="pane"]'));
+    assert.deepStrictEqual($$('.poppane .poptab').map((t) => t.textContent), ['To-dos', 'Weekly rotation'], 'two docked panels are tabs');
+    assert.strictEqual($('.poppane .poptab[aria-selected="true"]').textContent, 'Weekly rotation', 'the newest is shown');
+    assert.ok(!$('.poppane #td-new'), 'only the shown tab is drawn');
+    click($$('.poppane .poptab')[0]);
+    assert.ok($('.poppane #td-new'), 'the other tab');
+    const divider = $('.poppane-divider');
+    assert.strictEqual(divider.getAttribute('role'), 'separator');
+    divider.focus(); key(divider, 'ArrowLeft');
+    assert.strictEqual(d.body.style.getPropertyValue('--pop-pane-w'), '424px', 'the left arrow widens the pane');
+    click($('.poppane [data-act="popout.style"][data-style="mini"]'));
+    assert.ok(popWin('todos').classList.contains('pop-mini') && popWin('todos').classList.contains('pop-at-bl'), 'a mini card in the bottom left corner');
+    assert.deepStrictEqual($$('.poppane .poptab').map((t) => t.textContent), ['Weekly rotation']);
+    assert.deepStrictEqual(popSaved().map((x) => [x.panel, x.style]), [['todos', 'mini'], ['rotation', 'pane']]);
+    assert.strictEqual(JSON.parse(w.localStorage.getItem('ft.popout.personal')).paneWidth, 424, 'the pane width is kept');
+    click($('.poppane [data-act="popout.close"]'));
+    assert.ok(!$('.poppane') && !d.body.classList.contains('pop-pane-on'), 'closing the last docked panel removes the pane');
+    assert.ok($('#app .lcell[data-panel="rotation"] .rot') && !$('#app .lcell[data-panel="rotation"] .popslot'), 'and the panel is back on its page');
+  });
+
+  await step('pop out: minimise to the dock, restore, and Esc minimises the focused window', async () => {
+    click(popWin('todos').querySelector('[data-act="popout.style"][data-style="free"]'));
+    click(popWin('todos').querySelector('[data-act="popout.minimise"]'));
+    assert.ok(!popWin('todos'), 'the window goes');
+    const chip = $('#popRoot .popdock .popchip');
+    assert.strictEqual(chip.textContent, 'To-dos');
+    assert.strictEqual(d.activeElement, chip, 'focus moves to its chip');
+    assert.ok(/is in a minimised window/.test($('#app .lcell[data-panel="todos"] .popslot').textContent), 'the placeholder says so');
+    click(chip);
+    assert.ok(popWin('todos') && !$('#popRoot .popdock'), 'restored, and the dock is empty');
+    assert.strictEqual(d.activeElement, popWin('todos'));
+    key(popWin('todos'), 'Escape');
+    assert.ok(!popWin('todos') && $('#popRoot .popchip'), 'Esc minimised it');
+    click($('#app .lcell[data-panel="todos"] [data-act="popout.show"]'));
+    assert.ok(popWin('todos'), 'Show window on the placeholder brings it back');
+    assert.strictEqual(popSaved()[0].minimised, false);
+  });
+
+  await step('pop out: a project page panel keeps its project on other tabs; the notes need that project to be the one opened last', async () => {
+    const live = w.FT.store.projects.filter((p) => p.status === 'active' && !w.FT.lockedUntil(p));
+    const [project, other] = live;
+    w.FT.go('project', { id: project.id });
+    await waitFor(() => $('#app .lcell[data-panel="criteria"] .popbtn'), 'criteria with a Pop out button');
+    click($('#app .lcell[data-panel="criteria"] .popbtn'));
+    assert.strictEqual(popWin('criteria').dataset.key, 'project:' + project.id + ':criteria');
+    assert.strictEqual(popWin('criteria').querySelector('.poptitle').textContent, 'Acceptance criteria · ' + project.name, 'the title names the project');
+    click(tab('Today'));
+    const input = popWin('criteria').querySelector('#crit-new');
+    assert.strictEqual(input.dataset.project, project.id, 'still that project\'s criteria on Today');
+    setVal(input, 'Works from a window');
+    key(input, 'Enter');
+    assert.ok(popWin('criteria').textContent.includes('Works from a window'), 'shown at once');
+    await waitFor(() => serverData().criteria.some((c) => c.text === 'Works from a window' && c.project_id === project.id), 'saved on that project');
+
+    w.FT.go('project', { id: project.id });
+    click($('#app .lcell[data-panel="kanban"] .popbtn'));
+    const inWindow = (s) => popWin('kanban').contains(s.el);
+    assert.ok(w.__sortables.some(inWindow), 'cards in a popped-out board can be dragged');
+    click(popWin('kanban').querySelector('[data-act="popout.close"]'));
+    assert.ok($('#app .lcell[data-panel="kanban"] .board') && !w.__sortables.some((s) => !d.body.contains(s.el)), 'back on its page');
+    await waitFor(() => $('#app .lcell[data-panel="notes"] .popbtn'), 'notes');
+    click($('#app .lcell[data-panel="notes"] .popbtn'));
+    await waitFor(() => popWin('notes').querySelector('#nt-text[contenteditable="true"]'), 'the notes editor works in the window');
+    click(tab('Lists'));
+    assert.ok(popWin('notes').querySelector('#nt-text'), 'and on another tab, while that project was the one opened last');
+    w.FT.go('project', { id: other.id });
+    await waitFor(() => popWin('notes').querySelector('.popnote'), 'another project opened');
+    assert.ok(popWin('notes').textContent.includes('Open ' + project.name), 'the window says which project to open: ' + popWin('notes').textContent);
+    assert.ok(!popWin('notes').querySelector('#nt-text') && $('#app #nt-text'), 'no second notes editor that would type into the wrong project');
+    click(popWin('notes').querySelector('[data-act="popout.openProject"]'));
+    assert.strictEqual(w.FT.state.projectId, project.id);
+    assert.ok(popWin('notes').querySelector('#nt-text') && $('#app .lcell[data-panel="notes"] .popslot'), 'live again, with the placeholder on its page');
+  });
+
+  await step('pop out: on a phone every window is a card that opens as a full screen sheet', async () => {
+    click(tab('Today'));
+    w.__narrow = true;
+    w.FT.render();
+    const cards = $$('#popRoot .popwin');
+    assert.strictEqual(cards.length, 3);
+    assert.ok(cards.every((c) => c.classList.contains('pop-phone') && !c.querySelector('.popbody').innerHTML), 'title-only cards');
+    assert.ok(!$('#popRoot .popwin [data-act="popout.style"]'), 'no style buttons on a phone');
+    click(popWin('todos').querySelector('.popopen'));
+    assert.ok(popWin('todos').classList.contains('pop-sheet') && popWin('todos').querySelector('#td-new'), 'tapped, it opens as a sheet with the panel');
+    key(popWin('todos').querySelector('#td-new'), 'Escape');
+    assert.ok(!popWin('todos').classList.contains('pop-sheet'), 'Esc puts it back to a card');
+    w.__narrow = false;
+    w.FT.render();
+    assert.ok(popWin('todos').classList.contains('pop-free'), 'the desktop keeps its own style');
+  });
+
+  await step('pop out: ✕ puts each panel back on its page, and nothing stays behind', async () => {
+    ['todos', 'criteria', 'notes'].forEach((panel) => click(popWin(panel).querySelector('[data-act="popout.close"]')));
+    assert.strictEqual($$('#popRoot > *').length, 0, 'no windows, pane or dock');
+    assert.deepStrictEqual(popSaved(), []);
+    click(tab('Today'));
+    assert.ok($('#app #td-new') && !$('#app .popslot'), 'To-dos is back on Today');
+  });
+
   assert.deepStrictEqual(errors, [], 'no uncaught page errors');
   console.log('\n' + passed + ' browser steps passed');
   dom.window.close();

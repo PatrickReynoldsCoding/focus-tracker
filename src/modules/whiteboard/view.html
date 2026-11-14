@@ -93,7 +93,7 @@ body.wb-open .scrim { z-index: 55; }
 
   /** Put fetched previews into the placeholders on screen, without drawing the page again. The box keeps its size. */
   function paintThumbs() {
-    Array.prototype.forEach.call(document.querySelectorAll('#app [data-thumb]'), function (el) {
+    Array.prototype.forEach.call(document.querySelectorAll('#app [data-thumb], #popRoot [data-thumb]'), function (el) {
       var w = boardById(el.dataset.thumb), image = w && thumbOf(w);
       if (!image || el.querySelector('img')) return;
       var img = document.createElement('img');
@@ -106,7 +106,7 @@ body.wb-open .scrim { z-index: 55; }
   function loadThumbs() {
     if (Date.now() < thumbsRetryAt) return;
     var mode = FT.state.mode, stamps = {};
-    Array.prototype.forEach.call(document.querySelectorAll('#app [data-thumb]'), function (el) {
+    Array.prototype.forEach.call(document.querySelectorAll('#app [data-thumb], #popRoot [data-thumb]'), function (el) {
       var w = boardById(el.dataset.thumb);
       if (w && thumbOf(w) === undefined && !thumbsLoading[thumbKey(w.id)]) stamps[w.id] = w.updated;
     });
