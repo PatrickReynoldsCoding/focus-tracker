@@ -161,8 +161,9 @@
     var cat = FT.category(h.category), focus = (FT.store.today || {}).focusId;
     var active = (FT.store.projects || []).filter(function (p) { return p.status === 'active' && p.category === h.category; });
     var p = active.filter(function (x) { return x.id !== focus; })[0] || active[0];
-    return '<div class="hnext">' + FT.esc(cat.label) + ' · ' + (p ? '<button data-act="today.open" data-id="' + FT.esc(p.id) + '">' + FT.esc(p.name) + '</button>: <b>' + FT.linkify(p.next_action) + '</b>'
-      : 'no active project yet') + '</div>';
+    var nextShown = p && FT.nextActionShown && FT.nextActionShown(p);
+    return '<div class="hnext">' + FT.esc(cat.label) + ' · ' + (p ? '<button data-act="today.open" data-id="' + FT.esc(p.id) + '">' + FT.esc(p.name) + '</button>' +
+      (nextShown ? ': <b>' + FT.linkify(p.next_action) + '</b>' : '') : 'no active project yet') + '</div>';
   }
 
   /** "Never miss twice", for a habit per day: after one day off, a calm word, never two days running. */

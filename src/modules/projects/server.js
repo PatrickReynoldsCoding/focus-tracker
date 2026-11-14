@@ -11,8 +11,15 @@ function lockEndMs_(until) {
 }
 function projectLocked_(p) { return !!p && lockEndMs_(p.locked_until) > Date.now(); }
 
+/**
+ * show_next_action: the project's own choice from Project settings: on, off, or empty to follow the mode's default
+ * (Settings → Show next action on projects, layout.project.view; hidden unless turned on). An app column, added to the
+ * end of the tab by Table the first time the update reads it.
+ */
+var PROJECT_NEXT_ACTION_CHOICES_ = ['', 'on', 'off'];
+
 function projectsModule() {
-  var T = new Table('Projects', ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at']);
+  var T = new Table('Projects', ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at', 'show_next_action']);
   var STATUSES = PROJECT_STATUSES_;
 
   function list() { return T.all(); }
@@ -56,6 +63,10 @@ function projectsModule() {
         if (a.category !== undefined) { assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category); patch.category = a.category; }
         if (a.status !== undefined) { assert_(STATUSES.indexOf(a.status) !== -1, 'Unknown status: ' + a.status); patch.status = a.status; }
         if (a.next_action !== undefined) patch.next_action = clean_(a.next_action, 300);
+        if (a.show_next_action !== undefined) {
+          assert_(PROJECT_NEXT_ACTION_CHOICES_.indexOf(a.show_next_action) !== -1, 'Show next action must be on, off or empty.');
+          patch.show_next_action = a.show_next_action;
+        }
         var row = T.update(a.id, patch);
         ctx.refresh('projects', 'today', 'categories');
         return row;

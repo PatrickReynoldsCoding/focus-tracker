@@ -187,7 +187,7 @@
     if (key !== 'projects.update') return;
     var p = FT.project(a.id);
     if (!p) return;
-    ['name', 'category', 'status', 'next_action'].forEach(function (f) { if (a[f] !== undefined) p[f] = a[f]; });
+    ['name', 'category', 'status', 'next_action', 'show_next_action'].forEach(function (f) { if (a[f] !== undefined) p[f] = a[f]; });
     FT.render();
   }
 

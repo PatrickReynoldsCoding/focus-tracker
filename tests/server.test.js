@@ -21,7 +21,7 @@ function fresh() {
 test('setup creates a tab per table and a Drive folder', () => {
   const s = fresh();
   ['Projects', 'Columns', 'Tasks', 'Notes', 'Resources', 'Log'].forEach((n) => assert.ok(s.ss.sheets[n], 'missing tab ' + n));
-  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at']);
+  assert.deepStrictEqual(s.ss.sheets.Projects.rows[0], ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at', 'show_next_action']);
   assert.ok(s.script._m.FOLDER_ID && s.script._m.SHEET_ID);
 });
 
@@ -253,6 +253,39 @@ test('redo puts back what undo took away, and a new change ends the redo list', 
   assert.ok(names().includes('C'), 'deleted project is back');
   assert.strictEqual(redo().redone, 'projects.remove');
   assert.ok(!names().includes('C'), 'and gone again');
+});
+
+test('a project shows its next action by its own choice (on, off) or the mode\'s default; the choice is checked and undoable', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Loft', category: 'house', next_action: 'Get quotes' }).result;
+  assert.strictEqual(p.show_next_action, '', 'a new project follows the default');
+  assert.strictEqual(s.call('projects', 'update', { id: p.id, show_next_action: 'on' }).result.show_next_action, 'on');
+  assert.strictEqual(rowsOf(s.ss.sheets.Projects).find((r) => r.id === p.id).show_next_action, 'on', 'kept in the Projects tab');
+  s.call('projects', 'update', { id: p.id, show_next_action: 'off' });
+  assert.throws(() => s.call('projects', 'update', { id: p.id, show_next_action: 'maybe' }), /on, off or empty/);
+  assert.strictEqual(json(s.run('undo')()).undone, 'projects.update');
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects.find((r) => r.id === p.id).show_next_action, 'on', 'undo puts the choice before back');
+  s.call('projects', 'update', { id: p.id, show_next_action: '' });
+  assert.strictEqual(json(s.run('bootstrap()')).data.projects.find((r) => r.id === p.id).show_next_action, '', 'empty: back to the default');
+
+  s.call('layout', 'saveView', { page: 'project', view: { nextAction: 'shown' } });
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.layout['project.view'], { nextAction: 'shown' }, 'the default: Settings row layout.project.view');
+  s.call('layout', 'saveView', { page: 'project', view: { nextAction: null } });
+  assert.strictEqual(json(s.run('bootstrap()')).data.layout['project.view'].nextAction, undefined, 'forgotten: hidden, the default');
+  assert.throws(() => s.call('layout', 'saveView', { page: 'project', view: { nextAction: 'on' } }), /Bad view setting: nextAction/);
+});
+
+test('a Projects tab from before show_next_action gets the column at the end, as an app column, and every project follows the default', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Loft', category: 'house', next_action: 'Get quotes' }).result;
+  const sheet = s.ss.sheets.Projects, at = sheet.rows[0].indexOf('show_next_action');
+  sheet.rows.forEach((r) => r.splice(at, 1));
+  s.run("setSettings_({ 'layout.project.view': JSON.stringify({ nextAction: 'hidden' }) })"); // "Hide next action" from the old ⋯ More menu
+  const data = json(s.run('bootstrap()')).data;
+  assert.deepStrictEqual(sheet.rows[0].slice(-4), ['id', 'created', 'updated_at', 'show_next_action'], 'added after the app columns');
+  assert.strictEqual(data.projects.find((r) => r.id === p.id).show_next_action, '', 'no choice of its own');
+  assert.deepStrictEqual(data.layout['project.view'], { nextAction: 'hidden' }, 'the old saved choice still reads as hidden, the new default');
+  assert.strictEqual(s.call('projects', 'update', { id: p.id, show_next_action: 'on' }).result.show_next_action, 'on');
 });
 
 test('a locked project leaves the focus pick, cannot start a session, and lifting the lock early needs confirmation', () => {

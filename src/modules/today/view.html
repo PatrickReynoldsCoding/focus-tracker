@@ -80,6 +80,8 @@
   var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
 
   function activeProjects() { return (FT.store.projects || []).filter(function (p) { return p.status === 'active'; }); }
+  /** Whether project p shows its next action (Settings and its Project settings; the projects module decides). */
+  function nextActionShown(p) { return !!FT.nextActionShown && FT.nextActionShown(p); }
 
   /** Same rule as workedMs_ on the server: wall time minus pauses. */
   function workedMs(session, nowMs) {
@@ -185,7 +187,7 @@
     var lastLog = (FT.store.log || []).filter(function (l) { return l.project_id === f.id; })[0];
     return '<section class="panel"><div class="label">Today\'s focus</div><h2 class="focus-name">' + FT.esc(f.name) + '</h2>' +
       '<div class="meta">' + FT.pill(f.category) + '<span class="' + FT.ageClass(n) + '">Last touched ' + FT.ageLabel(n) + '</span></div>' +
-      '<div class="next"><small>Next action</small>' + FT.linkify(f.next_action) + '</div>' +
+      (nextActionShown(f) ? '<div class="next"><small>Next action</small>' + FT.linkify(f.next_action) + '</div>' : '') +
       '<div class="lastnote">' + (lastLog ? '<b>Last time:</b> ' + FT.linkify(lastLog.where_stopped) : 'No notes yet for this project.') + '</div>' +
       (running ? sessionHtml(t)
                : '<div class="actions"><button class="btn primary" data-act="today.start">Start session</button>' + lengthPickerHtml(t) + '<button class="btn" data-act="today.swap">Swap focus</button>') +
@@ -244,7 +246,7 @@
       : '<button class="btn primary" data-act="today.start">Start session</button>' + lengthPickerHtml(t);
     return '<section class="panel fcompact"><div class="fc-top"><span class="label">Today\'s focus</span>' + timer + '</div>' +
       '<h2 class="fc-name">' + FT.esc(f.name) + '</h2>' +
-      '<div class="fc-next"><small>Next</small> ' + FT.linkify(f.next_action) + '</div>' +
+      (nextActionShown(f) ? '<div class="fc-next"><small>Next</small> ' + FT.linkify(f.next_action) + '</div>' : '') +
       (s ? planHtml(t) + pomodoroHtml(t) : '') +
       '<div class="actions">' + buttons + '</div></section>';
   }
@@ -761,9 +763,8 @@
       subtitle: p ? p.name : '',
       submit: 'Save and park it',
       fields: [
-        { id: 'where', label: 'Where did you stop?', type: 'textarea', placeholder: 'One line is enough' },
-        { id: 'next', label: 'What is the very next action?', value: p ? p.next_action : '', maxlength: 300 }
-      ],
+        { id: 'where', label: 'Where did you stop?', type: 'textarea', placeholder: 'One line is enough' }
+      ].concat(p && nextActionShown(p) ? [{ id: 'next', label: 'What is the very next action?', value: p.next_action, maxlength: 300 }] : []),
       after: t.session ? '<div class="discardrow"><span>Not worth keeping?</span><button class="btn sm danger" type="button" id="dlg-discard">Delete this session</button></div>' : '',
       onOpen: function () {
         var discard = document.getElementById('dlg-discard');

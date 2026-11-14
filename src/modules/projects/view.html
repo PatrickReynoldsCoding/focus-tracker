@@ -15,7 +15,9 @@
   .ptable tbody td:nth-child(3) { grid-area: status; justify-self: end; align-self: center; }
   .ptable tbody td:nth-child(4) { grid-area: next; color: var(--muted); overflow-wrap: anywhere; }
   .ptable tbody td:nth-child(5) { grid-area: age; text-align: right; white-space: nowrap; font-size: 13px; }
+  .ptable tbody td.pnext:empty { display: none; }
 }
+.ptable.nonext th:nth-child(4), .ptable.nonext td:nth-child(4) { display: none; }
 .lockbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; gap: 4px; }
 .lockbox span { color: var(--ink); font-size: 14px; }
 .waitbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); display: grid; gap: 4px; }
@@ -25,12 +27,28 @@
 .tophead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .tophead .label { margin: 0; }
 .status-paused, .status-done, .status-archived { color: var(--muted); }
-.phead { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
-.phead > div:first-child { min-width: 0; }
-.phead h2 { font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
-/* The category pill is a button that opens the category picker; ⋯ opens the More menu. Both menus are .pmenu. */
+/* The project's top panel: the name and its line of facts on the left, the buttons and ⚙ on the right; on a phone the buttons go under the name. */
+.phead { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; min-width: 0; }
+.ptitle { flex: 1 1 16rem; min-width: 0; }
+.ptitle h2 { margin: 0; font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
+.ptitle .meta { margin-top: 8px; }
+.phead .pacts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin: 2px 0 0 auto; max-width: 100%; min-width: 0; }
+.phead .pacts .btn { white-space: nowrap; }
+.phead .morebtn { min-width: 36px; min-height: 34px; }
+@media (max-width: 760px) {
+  .phead .morebtn { min-width: 44px; min-height: 44px; }
+  .phead { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title settings" "acts acts"; gap: 12px 10px; }
+  .phead.noacts { grid-template-areas: "title settings"; }
+  .ptitle { grid-area: title; }
+  .phead .pheadbtns { grid-area: settings; }
+  .phead .pacts { grid-area: acts; justify-content: flex-start; margin: 0; }
+}
+/* The category pill is a button that opens the category picker; ⚙ opens Project settings. Both menus are .pmenu. */
 .pmenuwrap { position: relative; display: inline-flex; flex: none; }
 .pheadbtns { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.morebtn svg { display: block; width: 18px; height: 18px; margin: auto; }
+.pmenulabel { padding: 6px 10px 2px; color: var(--muted); font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+:root[data-theme="eink"] .pmenulabel { color: #000; }
 .catbtn { border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 99px; display: inline-flex; align-items: center; }
 .catbtn .pill::after { content: "\25BE"; font-size: 10px; color: var(--muted); }
 .catbtn:hover .pill { background: var(--line); }
@@ -48,6 +66,7 @@
 .psectbtn .chev { display: inline-block; width: 1em; transition: transform 0.15s; }
 .psectbtn[aria-expanded="true"] .chev { transform: rotate(90deg); }
 .pcount { padding: 1px 8px; border-radius: 99px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 600; }
+.pnone { color: var(--muted); font-weight: 400; font-size: 13.5px; }
 .psectbody { padding: 2px 0 6px; }
 @media (max-width: 760px) {
   .morebtn, .psectbtn, .catbtn { min-height: 44px; }
@@ -100,16 +119,16 @@
     name: function (p) { return p.name.toLowerCase(); },
     category: function (p) { return FT.category(p.category).label.toLowerCase(); },
     status: function (p) { return ORDER[p.status]; },
-    next_action: function (p) { return p.next_action.toLowerCase(); },
+    next_action: function (p) { return nextActionShown(p) ? p.next_action.toLowerCase() : ''; },
     last_touched: function (p) { return p.last_touched; }
   };
   // view.sort null keeps the default order: active first, then longest untouched.
   var view = { sort: null, desc: false, category: '', statusOpen: false, text: '' };
 
   // Choices kept in the mode's Settings tab through the layout module (layout.<page>.view), so every device shows the same:
-  // the Projects tab's statuses (none for all) and the project page's hidden next action.
+  // the Projects tab's statuses (none for all) and whether projects show their next action (Settings; hidden by default).
   var DEFAULT_STATUSES = ['active'];
-  var NEXT_ACTION_HIDDEN = 'hidden';
+  var NEXT_ACTION_SHOWN_BY_DEFAULT = 'shown';
   function savedView(page) { return (FT.store.layout || {})[page + '.view'] || {}; }
   /** Shown at once; saved behind. changes: { name: value }, null forgets one. */
   function saveView(page, changes) {
@@ -123,7 +142,29 @@
     return Array.isArray(saved) ? STATUSES.filter(function (s) { return saved.indexOf(s) !== -1; }) : DEFAULT_STATUSES;
   }
   function saveStatuses(statuses) { saveView('projects', { status: statuses }); }
-  function nextActionHidden() { return savedView('project').nextAction === NEXT_ACTION_HIDDEN; }
+
+  // ---------- next action: shown or hidden ----------
+  // The mode's default (Settings → Show next action on projects) and each project's own choice in Project settings
+  // (the Projects tab's show_next_action: on, off, or empty to follow the default).
+  var PROJECT_NEXT_ACTION_CHOICES = [['', 'Use default'], ['on', 'Show'], ['off', 'Hide']];
+  var NEXT_ACTION_ON = 'on', NEXT_ACTION_OFF = 'off';
+
+  function nextActionShownByDefault() { return savedView('project').nextAction === NEXT_ACTION_SHOWN_BY_DEFAULT; }
+
+  /** The project's own choice, as typed in the sheet or set in the app: 'on', 'off' or '' (the default). */
+  function projectNextActionChoice(p) {
+    var choice = String((p && p.show_next_action) || '').trim().toLowerCase();
+    return choice === NEXT_ACTION_ON || choice === NEXT_ACTION_OFF ? choice : '';
+  }
+
+  function nextActionShown(p) {
+    var choice = projectNextActionChoice(p);
+    return choice ? choice === NEXT_ACTION_ON : nextActionShownByDefault();
+  }
+  /** Other views (Today's focus, Habits) ask here before showing a project's next action. */
+  FT.nextActionShown = nextActionShown;
+
+  function defaultWord() { return nextActionShownByDefault() ? 'shown' : 'hidden'; }
 
   // The status list closes when the mode changes.
   var statusMode = null;
@@ -141,6 +182,9 @@
       .filter(function (b) { return b && !finished(b); });
   }
 
+  /** The Projects tab shows its Next action column only while a project in the mode shows its next action. */
+  function anyNextActionShown(projects) { return projects.some(nextActionShown); }
+
   function defaultOrder(a, b) {
     return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
   }
@@ -156,7 +200,7 @@
     var statuses = shownStatuses();
     if (statuses.length && statuses.indexOf(p.status) === -1) return false;
     var text = view.text.trim().toLowerCase();
-    return !text || (p.name + ' ' + p.next_action).toLowerCase().indexOf(text) !== -1;
+    return !text || (p.name + (nextActionShown(p) ? ' ' + p.next_action : '')).toLowerCase().indexOf(text) !== -1;
   }
 
   function isFiltered() { return !!(view.category || shownStatuses().length || view.text.trim()); }
@@ -180,7 +224,7 @@
       return '<option value="' + FT.esc(c.id) + '"' + (c.id === view.category ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
     }).join('');
     return '<div class="pfilters">' +
-      '<input type="text" id="pj-text" placeholder="Search name or next action" aria-label="Search projects" value="' + FT.esc(view.text) + '" data-input="projects.text">' +
+      '<input type="text" id="pj-text" placeholder="' + (anyNextActionShown(FT.store.projects || []) ? 'Search name or next action' : 'Search projects') + '" aria-label="Search projects" value="' + FT.esc(view.text) + '" data-input="projects.text">' +
       '<select id="pj-category" aria-label="Filter by category" data-change="projects.category">' + categories + '</select>' +
       statusHtml() +
       '<button class="btn sm" data-act="projects.clear"' + (isFiltered() ? '' : ' disabled') + '>Clear</button></div>';
@@ -198,15 +242,16 @@
   function tabHtml() {
     closeStatusOnModeChange();
     var all = FT.store.projects || [];
+    if (view.sort === 'next_action' && !anyNextActionShown(all)) view.sort = null;
     var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
       return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b><button class="rowlink" data-act="projects.open" data-id="' + FT.esc(p.id) + '">' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</button></b>' + waitMarkHtml(p) + '</td><td>' + categoryButtonHtml(p) +
-        '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.linkify(p.next_action) +
+        '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td class="pnext">' + (nextActionShown(p) ? FT.linkify(p.next_action) : '') +
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
     var table = list.length
-      ? '<div class="scroll"><table class="ptable"><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+      ? '<div class="scroll"><table class="ptable' + (anyNextActionShown(all) ? '' : ' nonext') + '"><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
       : '<p class="empty">' + (all.length ? 'No projects match these filters.' : 'No projects yet. Add the first one.') + '</p>';
     var main = '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
       (all.length ? filtersHtml() : '') + table + '</section>';
@@ -237,52 +282,78 @@
     }).join(', ') + '</b><span>It is left out of your focus pick until ' + (on.length === 1 ? 'that project is' : 'those projects are') + ' done.</span></div>';
   }
 
-  /** The project's top panel ('header'): name, category, status, next action, its buttons, the ⋯ More menu and the sections other modules add. */
+  /** The project's top panel ('header'): name, category, status, its buttons, ⚙ Project settings, the next action when shown and the sections other modules add. */
   function headerHtml(p) {
-    var n = FT.daysSince(p.last_touched);
-    var inactive = p.status !== 'active', lockedUntil = FT.lockedUntil(p);
-    return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + categoryButtonHtml(p) +
-      '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
-      skippedHtml(p) + '</div></div>' + moreButtonHtml(p) + '</div>' + waitBoxHtml(p) +
+    var lockedUntil = FT.lockedUntil(p);
+    return '<section class="panel"><div class="phead' + (lockedUntil ? ' noacts' : '') + '">' + titleHtml(p) + (lockedUntil ? '' : statusButtonsHtml(p)) + settingsButtonHtml(p) + '</div>' +
+      waitBoxHtml(p) +
       (lockedUntil ? '<div class="lockbox"><b>🔒 Locked until ' + FT.esc(FT.lockLabel(lockedUntil)) + '</b><span>You locked this project so it cannot take over. It is hidden from your focus pick and its boards, notes and whiteboards are closed until then.</span></div>'
-        : nextActionHidden() ? '' : '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>') +
-      (lockedUntil ? '' : '<div class="actions" style="margin-top:0"><button class="btn sm" data-act="projects.edit">Edit</button>' +
-        (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
-        (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
-        (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
-        '<button class="btn sm" data-act="projects.delete">Delete</button></div>') + sectionsHtml(p) + '</section>';
+        : nextActionShown(p) ? '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>' : '') +
+      sectionsHtml(p) + '</section>';
   }
 
-  /** ⋯ with the panel's Pop out button beside it, so the button does not sit on top of ⋯ in the corner. */
-  function moreButtonHtml(p) {
-    return '<span class="pheadbtns"><span class="popspot"></span><span class="pmenuwrap"><button type="button" class="morebtn" data-act="projects.more" aria-haspopup="menu" aria-expanded="false" aria-label="More for ' + FT.esc(p.name) + '">⋯</button></span></span>';
+  function titleHtml(p) {
+    var n = FT.daysSince(p.last_touched), inactive = p.status !== 'active';
+    return '<div class="ptitle"><h2>' + FT.esc(p.name) + '</h2><div class="meta">' + categoryButtonHtml(p) +
+      '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
+      skippedHtml(p) + '</div></div>';
+  }
+
+  function statusButtonsHtml(p) {
+    var finished = p.status === 'done' || p.status === 'archived';
+    return '<div class="actions pacts"><button class="btn sm" data-act="projects.edit">Edit</button>' +
+      (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
+      (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
+      (finished ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
+      '<button class="btn sm" data-act="projects.delete">Delete</button></div>';
+  }
+
+  var ICON_SETTINGS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1l-.4-2.6h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>';
+
+  /** ⚙ Project settings, with the panel's Pop out button beside it, so the button does not sit on top of ⚙ in the corner. */
+  function settingsButtonHtml(p) {
+    return '<span class="pheadbtns"><span class="popspot"></span><span class="pmenuwrap"><button type="button" class="morebtn" data-act="projects.settings" aria-haspopup="menu" aria-expanded="false"' +
+      ' aria-label="Project settings for ' + FT.esc(p.name) + '" title="Project settings">' + ICON_SETTINGS + '</button></span></span>';
   }
 
   function menuItemHtml(act, label, data) {
     return '<button type="button" role="menuitem" tabindex="-1" data-act="' + act + '"' + (data || '') + '>' + FT.esc(label) + '</button>';
   }
 
-  function moreMenuHtml(p) {
-    var lockedUntil = FT.lockedUntil(p);
-    return menuItemHtml('projects.lock', lockedUntil ? 'Change lock…' : 'Lock…') +
-      (lockedUntil ? '' : menuItemHtml('projects.toggleNextAction', nextActionHidden() ? 'Show next action' : 'Hide next action'));
+  /** Project settings: whether this project shows its next action (Use default, Show, Hide), then Lock. A locked project has only Lock. */
+  function settingsMenuHtml(p) {
+    var lockedUntil = FT.lockedUntil(p), lock = menuItemHtml('projects.lock', lockedUntil ? 'Change lock…' : 'Lock…');
+    if (lockedUntil) return lock;
+    var chosen = projectNextActionChoice(p), id = ' data-id="' + FT.esc(p.id) + '"';
+    var choices = PROJECT_NEXT_ACTION_CHOICES.map(function (choice) {
+      var label = choice[0] ? choice[1] : choice[1] + ' (' + defaultWord() + ')';
+      return '<button type="button" role="menuitemradio" tabindex="-1" aria-checked="' + (choice[0] === chosen) + '" data-act="projects.nextAction"' + id +
+        ' data-choice="' + choice[0] + '">' + FT.esc(label) + '</button>';
+    }).join('');
+    return '<div class="pmenulabel" aria-hidden="true">Next action</div><div role="group" aria-label="Next action">' + choices + '</div>' +
+      '<div class="pmenusep" role="separator"></div>' + lock;
   }
 
   // ---------- sections in the top panel ----------
   // Other modules add sections through the slot 'project.header': { id, title, order, render(project, FT) -> { count, html } }.
-  // Each opens and closes with its button; which ones are open is remembered on this device.
+  // Each opens and closes with its button; which ones are open is remembered on this device. An empty one (count 0) starts
+  // closed on every project and stays open only on the project where it was opened, until the page is reloaded.
   var SECTIONS_KEY = 'ft.projects.sections';
+  var openedOnThisProject = {};
   function openSections() {
     try { return JSON.parse(localStorage.getItem(SECTIONS_KEY) || '{}') || {}; } catch (e) { return {}; }
   }
   function keepOpenSections(open) { try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(open)); } catch (e) {} }
+  function sectionOnProject(projectId, sectionId) { return projectId + ':' + sectionId; }
 
   function sectionsHtml(p) {
     var open = openSections();
     return FT.slots('project.header').map(function (slot) {
-      var out = slot.render(p, FT), id = FT.esc(slot.id), isOpen = !!open[slot.id];
-      return '<div class="psection"><button type="button" class="psectbtn" data-act="projects.section" data-id="' + id + '" aria-expanded="' + isOpen + '" aria-controls="ps-' + id + '">' +
-        '<span class="chev" aria-hidden="true">▸</span>' + FT.esc(slot.title) + (out.count ? ' <span class="pcount">' + out.count + '</span>' : '') + '</button>' +
+      var out = slot.render(p, FT), id = FT.esc(slot.id);
+      var isOpen = !!openedOnThisProject[sectionOnProject(p.id, slot.id)] || (!!out.count && !!open[slot.id]);
+      return '<div class="psection"><button type="button" class="psectbtn" data-act="projects.section" data-id="' + id + '" data-project="' + FT.esc(p.id) + '"' +
+        (out.count ? '' : ' data-empty="true"') + ' aria-expanded="' + isOpen + '" aria-controls="ps-' + id + '">' +
+        '<span class="chev" aria-hidden="true">▸</span>' + FT.esc(slot.title) + (out.count ? ' <span class="pcount">' + out.count + '</span>' : ' <span class="pnone">None yet</span>') + '</button>' +
         '<div class="psectbody" id="ps-' + id + '"' + (isOpen ? '' : ' hidden') + '>' + out.html + '</div></div>';
     }).join('');
   }
@@ -408,7 +479,7 @@
     slots: { 'project.page': [{ id: 'header', title: 'Project', description: 'Name, category, status, next action and the project\'s buttons.', order: 0, span: 'full', alwaysShown: true, render: headerHtml }] }
   });
 
-  // ---------- menus: ⋯ More and the category picker ----------
+  // ---------- menus: ⚙ Project settings and the category picker ----------
   // A menu opens under its button (above it near the bottom of the screen). Arrow keys, Home and End move through it,
   // Escape closes it and puts focus back on the button, Tab or a click elsewhere closes it. Items run through data-act.
   var openMenu = null;
@@ -471,14 +542,40 @@
     if (again) again.focus();
   }
 
-  FT.action('projects.more', function (el) { toggleMenu(el, 'More', moreMenuHtml(FT.project(FT.state.projectId))); });
+  FT.action('projects.settings', function (el) { toggleMenu(el, 'Project settings', settingsMenuHtml(FT.project(FT.state.projectId))); });
 
-  FT.action('projects.toggleNextAction', function () {
+  var NEXT_ACTION_WORDS_BY_CHOICE = {
+    '': function () { return 'This project follows the default: next action ' + defaultWord() + '.'; },
+    on: function () { return 'Next action shown on this project.'; },
+    off: function () { return 'Next action hidden on this project.'; }
+  };
+
+  /** Project settings → Next action: Use default, Show or Hide, for this project. Shown at once, saved behind, undoable. */
+  FT.action('projects.nextAction', function (el) {
+    var p = FT.project(el.dataset.id), choice = el.dataset.choice || '';
     closeMenu(true);
-    saveView('project', { nextAction: nextActionHidden() ? null : NEXT_ACTION_HIDDEN });
-    FT.render();
-    refocus('[data-act="projects.more"]');
+    if (!p || projectNextActionChoice(p) === choice) return;
+    var before = p.show_next_action;
+    FT.optimistic(function () { p.show_next_action = choice; return function () { p.show_next_action = before; }; },
+      function () { return FT.rpc('projects', 'update', { id: p.id, show_next_action: choice }, { render: false }); }).catch(function () {});
+    FT.toast(NEXT_ACTION_WORDS_BY_CHOICE[choice](), null, { label: 'Undo', run: FT.undo });
+    refocus('[data-act="projects.settings"]');
   });
+
+  FT.settings.add({ id: 'nextAction', order: 22, html: function () {
+    var shown = nextActionShownByDefault();
+    return '<label>Show next action on projects (every device, this mode)</label><div class="choice two" role="radiogroup" aria-label="Show next action on projects">' +
+      [['shown', 'Show', shown], ['hidden', 'Hide', !shown]].map(function (o) {
+        return '<label><input type="radio" name="dlg-nextaction" value="' + o[0] + '"' + (o[2] ? ' checked' : '') + '>' + o[1] + '</label>';
+      }).join('') + '</div><div class="hint" style="background:none;padding:4px 0 0">A project can choose for itself in its ⚙ Project settings.</div>';
+  }, onOpen: function (root) {
+    Array.prototype.forEach.call(root.querySelectorAll('input[name="dlg-nextaction"]'), function (radio) {
+      radio.addEventListener('change', function () {
+        saveView('project', { nextAction: radio.value === NEXT_ACTION_SHOWN_BY_DEFAULT ? NEXT_ACTION_SHOWN_BY_DEFAULT : null });
+        FT.render();
+      });
+    });
+  } });
 
   FT.action('projects.pickCategory', function (el) {
     var p = FT.project(el.dataset.id);
@@ -500,8 +597,11 @@
   });
 
   FT.action('projects.section', function (el) {
-    var open = openSections(), body = document.getElementById('ps-' + el.dataset.id), isOpen = !open[el.dataset.id];
-    if (isOpen) open[el.dataset.id] = true; else delete open[el.dataset.id];
+    var open = openSections(), body = document.getElementById('ps-' + el.dataset.id), isOpen = el.getAttribute('aria-expanded') !== 'true';
+    var here = sectionOnProject(el.dataset.project, el.dataset.id);
+    if (isOpen) openedOnThisProject[here] = true; else delete openedOnThisProject[here];
+    if (isOpen && !el.dataset.empty) open[el.dataset.id] = true;
+    if (!isOpen) delete open[el.dataset.id];
     keepOpenSections(open);
     el.setAttribute('aria-expanded', String(isOpen));
     if (body) body.hidden = !isOpen;

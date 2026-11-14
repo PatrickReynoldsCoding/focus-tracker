@@ -36,7 +36,7 @@ function guideTabs_() {
         name: ['needed', 'The project\'s name. No two projects share a name.'],
         category: ['needed', 'A category label from the Categories tab, for example "Coding". Never make up a category: ask.'],
         status: ['optional', 'One of: ' + statuses + '. Empty means active.'],
-        next_action: ['optional', 'The next small, concrete step, one sentence. Empty means "Decide the first small step".'],
+        next_action: ['optional', 'The next small, concrete step, one sentence. Empty means "Decide the first small step". The app shows it only where the owner turned it on, but keep it current.'],
         locked_until: ['optional', 'A date (2026-11-03): the project is left out of the daily pick until then. Usually empty.'],
         last_touched: ['app', 'When work last happened. Filled by the app.'],
         notes: ['optional', 'The link to the project\'s notes Doc, filled by the app. See "Notes" for how to add notes.'],
