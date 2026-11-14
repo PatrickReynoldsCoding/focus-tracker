@@ -24,6 +24,7 @@ Written 2026-10-29 for the November spec (`docs/SPEC-2026-11.md`). The migration
 |---|---|---|
 | **Start here** | – | A short guide: what each tab is, how to add a project, card, resource or note, the safety rules. Written by the app, refreshed after each migration. Same text as the Drive guide for assistants, shorter. |
 | **Projects** | name, category, status, next_action, locked_until, last_touched, notes, problem · id, created, updated_at | `notes` is the link to the project's notes file or Doc, filled in when it is created. |
+| **Backlog** | title, category, note, problem · id, order, created, updated_at | Projects not started yet (added 2026-11-14). Not projects: Start in the app makes the project and removes the row. `category` optional; `order` is the order the owner dragged them into. |
 | **Tasks** | title, column, project, list, note, color, problem · id, project_id, list_id, column_id, order, note_html, created, updated_at | Kanban cards and list items. Exactly one of `project_id` / `list_id` is set (today `project_id` also holds list ids, which is confusing). `note` is the plain text; `note_html` the formatted copy the app shows. An assistant writes `note` only and the app makes the HTML. |
 | **Lists** | name, project, show_today, display, seconds, color, problem · id, project_id, order, created | `project` is new: a list linked to a project shows on its page. |
 | **Resources** | title, type, value, group, project, category, note, problem · id, project_id, added | `type`: link, drive, phone, email or text. `value`: the address, number or text. `group`: free text, for example "Code", "Suppliers". Empty `project` means shared by the category. Today's `url` becomes `value` with type link (or drive for Google Drive addresses). |
@@ -98,6 +99,7 @@ The migration, the tab styles, the Settings tab and the completing of typed rows
 - `migrateAllModes()` can be run from the Apps Script editor to migrate every mode that has a spreadsheet before the app is opened.
 
 - **Assistant integration** (2026-10-30): Start here is the short version of the guide for AI assistants (`src/core/guide.js`), whose full version is a Google Doc in the root folder. A card typed for a project board with no columns makes To do, Doing and Done (plus the column named, if it is another), not only one column. A new project row whose name another project has is flagged. A notes cell holding text instead of a link is moved into the project's notes by the notes module.
+- **Backlog** (2026-11-14) is made by the `backlog` module (setup, or the first load after the update), right after Projects. A typed row needs a title; its category may be a label or empty, and an unknown one is flagged. When a category is deleted, backlog items that used it keep the old id and show as "No category" (deleting a category does not check the backlog).
 
 ### Risks on Google's runtime (what the fakes cannot prove)
 

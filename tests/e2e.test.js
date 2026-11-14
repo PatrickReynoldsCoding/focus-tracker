@@ -963,6 +963,58 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-cancel'));
   });
 
+  const backlogNow = () => JSON.parse(JSON.stringify(server.run('bootstrap')(w.FT.state.mode))).data.backlog;
+  const backlogTitles = () => $$('.btable tbody tr').map((r) => r.querySelector('.btitle').textContent);
+  const backlogRow = (title) => $$('.btable tbody tr').find((r) => r.querySelector('.btitle').textContent === title);
+
+  await step('Backlog on the Projects tab: add with Enter, edit a title in place, drag to reorder, delete with Undo, Start makes a project', async () => {
+    assert.ok(/Nothing in the backlog/.test($('.backlog-panel').textContent), 'an empty Backlog panel on the Projects tab');
+    setVal($('#bl-cat'), 'house', 'change');
+    ['Shed roof', 'Learn Rust', 'Blog'].forEach((title) => { setVal($('#bl-new'), title); enter($('#bl-new')); });
+    assert.deepStrictEqual(backlogTitles(), ['Shed roof', 'Learn Rust', 'Blog'], 'shown at once, in the order added');
+    assert.strictEqual(d.activeElement.id, 'bl-new', 'the box keeps focus for the next one');
+    assert.strictEqual($$('.backlog-panel .sortbtn').length, 0, 'no sorting by column: the order is dragged');
+    await waitFor(() => backlogNow().length === 3, 'saved');
+    assert.ok(backlogNow().every((b) => b.category === 'house'));
+
+    click(backlogRow('Blog').querySelector('.btitle'));
+    setVal($('#bl-edit'), 'Write a blog');
+    enter($('#bl-edit'));
+    assert.deepStrictEqual(backlogTitles(), ['Shed roof', 'Learn Rust', 'Write a blog'], 'renamed at once');
+    await waitFor(() => backlogNow().some((b) => b.title === 'Write a blog'), 'title saved');
+
+    const body = $('.btable tbody'), sortable = w.__sortables.find((x) => x.el === body);
+    assert.ok(sortable, 'the rows can be dragged');
+    assert.ok(sortable.opts.delay === 180 && sortable.opts.delayOnTouchOnly, 'a short press first on touch screens');
+    const last = body.lastElementChild;
+    sortable.opts.onStart({ item: last });
+    body.insertBefore(last, body.firstChild);
+    sortable.opts.onEnd({ item: last, from: body, to: body, oldIndex: 2, newIndex: 0 });
+    assert.deepStrictEqual(backlogTitles(), ['Write a blog', 'Shed roof', 'Learn Rust'], 'moved at once');
+    await waitFor(() => backlogNow().map((b) => b.title).join('|') === 'Write a blog|Shed roof|Learn Rust', 'order saved');
+
+    click(backlogRow('Learn Rust').querySelector('[data-act="backlog.remove"]'));
+    assert.ok(!backlogRow('Learn Rust'), 'gone at once');
+    assert.ok(/Backlog item deleted/.test($('#toast').textContent) && $('#toast .toastbtn'), 'Undo offered at once');
+    await waitFor(() => backlogNow().length === 2, 'deleted');
+    click($('#toast .toastbtn'));
+    await waitFor(() => backlogRow('Learn Rust'), 'Undo brings it back');
+
+    click(backlogRow('Shed roof').querySelector('[data-act="backlog.start"]'));
+    await waitFor(() => $('.dialog #dlg-name'), 'Start dialog');
+    assert.strictEqual($('#dlg-name').value, 'Shed roof');
+    assert.strictEqual($('#dlg-category').value, 'house', 'the item\'s category');
+    setVal($('#dlg-next'), 'Measure the roof');
+    click($('#dlg-submit'));
+    await waitFor(() => w.FT.state.view === 'project' && w.FT.project(w.FT.state.projectId).name === 'Shed roof', 'the new project opens');
+    assert.strictEqual(w.FT.project(w.FT.state.projectId).next_action, 'Measure the roof');
+    assert.ok(!backlogNow().some((b) => b.title === 'Shed roof'), 'off the backlog');
+    await w.FT.undo();
+    assert.ok(backlogNow().some((b) => b.title === 'Shed roof') && !w.FT.store.projects.some((p) => p.name === 'Shed roof'), 'Undo puts it back on the backlog');
+    click(tab('Projects'));
+    await waitFor(() => backlogTitles().join('|') === 'Write a blog|Shed roof|Learn Rust', 'in its place again');
+  });
+
   await step('lists: create one, add groups and items like a vertical board, and show it on Today', async () => {
     click(tab('Lists'));
     await waitFor(() => $('[data-act="lists.add"]'), 'lists tab');

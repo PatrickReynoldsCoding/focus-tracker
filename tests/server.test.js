@@ -1080,6 +1080,55 @@ test('a log line can be edited: text, day, next action follows the newest line, 
   assert.strictEqual(json(s.run('bootstrap()')).data.log.find((x) => x.id === newest.id).date, newest.date);
 });
 
+test('backlog: add, edit, reorder, delete with undo; Start makes a project and takes the item off, and undo puts it back', () => {
+  const s = fresh();
+  assert.throws(() => s.call('backlog', 'add', { title: '  ' }), /needs a title/);
+  assert.throws(() => s.call('backlog', 'add', { title: 'Shed', category: 'nope' }), /Unknown category/);
+  const shed = s.call('backlog', 'add', { id: 'bbbb0001', title: 'Shed roof', category: 'house', note: 'Felt or tiles?' }).result;
+  s.call('backlog', 'add', { title: 'Learn Rust' });
+  const blog = s.call('backlog', 'add', { title: 'Blog' }).result;
+  assert.strictEqual(shed.id, 'bbbb0001', 'the browser\'s id is used');
+  assert.deepStrictEqual(s.ss.sheets.Backlog.rows[0], ['title', 'category', 'note', 'problem', 'id', 'order', 'created', 'updated_at']);
+  let list = s.call('backlog', 'update', { id: blog.id, order: 0.5 }).slices.backlog;
+  assert.deepStrictEqual(list.map((b) => b.title), ['Blog', 'Shed roof', 'Learn Rust'], 'dragged to the top');
+  list = s.call('backlog', 'update', { id: blog.id, title: 'Write a blog', category: 'coding' }).slices.backlog;
+  assert.deepStrictEqual([list[0].title, list[0].category], ['Write a blog', 'coding']);
+  assert.throws(() => s.call('backlog', 'update', { id: blog.id, title: '' }), /needs a title/);
+  s.call('backlog', 'remove', { id: blog.id });
+  assert.strictEqual(json(s.run('undo')()).undone, 'backlog.remove');
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.backlog.map((b) => b.title), ['Write a blog', 'Shed roof', 'Learn Rust'], 'undo brings it back in its place');
+
+  const started = s.call('backlog', 'start', { id: shed.id, category: 'house', next_action: 'Measure the roof' });
+  assert.strictEqual(started.result.name, 'Shed roof', 'an empty name keeps the title');
+  assert.strictEqual(started.result.next_action, 'Measure the roof');
+  assert.deepStrictEqual(started.slices.backlog.map((b) => b.title), ['Write a blog', 'Learn Rust'], 'off the backlog');
+  assert.ok(started.slices.projects.some((p) => p.id === started.result.id));
+  assert.deepStrictEqual(started.slices.kanban.columns.filter((c) => c.project_id === started.result.id).map((c) => c.name), ['To do', 'Doing', 'Done'], 'a real project, with its board');
+  assert.strictEqual(json(s.run('undo')()).undone, 'backlog.start');
+  const back = json(s.run('bootstrap()')).data;
+  assert.ok(!back.projects.some((p) => p.name === 'Shed roof'), 'undo takes the project away');
+  assert.deepStrictEqual(back.backlog.map((b) => b.title), ['Write a blog', 'Shed roof', 'Learn Rust'], 'and puts the item back');
+
+  const rust = back.backlog.find((b) => b.title === 'Learn Rust');
+  assert.throws(() => s.call('backlog', 'start', { id: rust.id }), /Unknown category/, 'a project needs a category');
+  const named = s.call('backlog', 'start', { id: rust.id, name: 'Rust in 30 days', newCategory: 'Learning' }).result;
+  assert.strictEqual(named.name, 'Rust in 30 days');
+  assert.throws(() => s.call('backlog', 'start', { id: rust.id }), /no longer exists/);
+});
+
+test('backlog is per mode, and a row typed into the Backlog tab gets its id and order', () => {
+  const s = fresh();
+  s.call('backlog', 'add', { title: 'Shed roof' });
+  const sh = s.ss.sheets.Backlog;
+  sh.rows.push(rowFrom(sh, { title: 'Greenhouse', category: 'House' }));
+  sh.rows.push(rowFrom(sh, { title: 'Pond', category: 'Fishing' }));
+  s.run('tableCache_ = {}');
+  const list = json(s.run('bootstrap()')).data.backlog;
+  assert.deepStrictEqual(list.map((b) => [b.title, b.category, b.order]), [['Shed roof', '', 1], ['Greenhouse', 'house', 2]], 'a category label becomes its id');
+  assert.ok(/No category called "Fishing"/.test(rowsOf(sh).find((r) => r.title === 'Pond').problem), 'an unknown category is flagged, not guessed');
+  assert.deepStrictEqual(json(s.run('bootstrap("work")')).data.backlog, [], 'Work has its own backlog');
+});
+
 test('linked projects: add, refuse self, duplicate and circle, remove with undo, names kept in step', () => {
   const s = fresh();
   const a = s.call('projects', 'create', { name: 'Walls', category: 'house' }).result;
@@ -1215,8 +1264,8 @@ test('rpc rejects unknown modules and functions, and bootstrap returns every sli
   assert.throws(() => s.call('nope', 'x'), /not installed/);
   assert.throws(() => s.call('projects', 'nope'), /no api function/);
   const b = json(s.run('bootstrap()'));
-  assert.deepStrictEqual(Object.keys(b.data).sort(), ['categories', 'criteria', 'habits', 'kanban', 'layout', 'links', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'todos', 'whiteboard']);
-  assert.strictEqual(b.modules.length, 16); // insights has no slice: it loads when its tab opens
+  assert.deepStrictEqual(Object.keys(b.data).sort(), ['backlog', 'categories', 'criteria', 'habits', 'kanban', 'layout', 'links', 'lists', 'log', 'notes', 'projects', 'resources', 'stickies', 'today', 'todos', 'whiteboard']);
+  assert.strictEqual(b.modules.length, 17); // insights has no slice: it loads when its tab opens
 });
 
 test('a module can be removed by deleting its line in MODULES', () => {

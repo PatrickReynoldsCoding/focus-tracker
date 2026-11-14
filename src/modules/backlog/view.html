@@ -1,0 +1,228 @@
+<style>
+.btable td { vertical-align: middle; }
+.btable tbody tr { cursor: grab; }
+.btable tbody tr:hover { background: var(--surface-2); }
+.btable .grip { width: 1.5em; padding-right: 0; color: var(--muted); user-select: none; }
+.btable .btext { cursor: text; overflow-wrap: anywhere; }
+.btable .btitle { font-weight: 700; }
+.btable .bnote { color: var(--muted); }
+.btable .bnote.empty { font-style: italic; opacity: 0.7; }
+.btable .bedit { width: 100%; padding: 4px 8px; }
+.btable select { width: auto; max-width: 12em; padding: 4px 8px; }
+.btable .bact { white-space: nowrap; text-align: right; }
+.btable .rm { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.btable .rm:hover { background: var(--surface-2); color: var(--ink); }
+.blcount { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.bladd { display: flex; gap: 8px; margin-top: 10px; }
+.bladd input { flex: 1 1 auto; min-width: 0; width: auto; }
+.bladd select { flex: none; width: auto; }
+.bladd .btn { flex: none; }
+/* Phone: each item is a card (grip, title and buttons, then category and note) instead of a table wider than the screen. */
+@media (max-width: 760px) {
+  .scroll table.btable { min-width: 0; }
+  .btable, .btable tbody { display: block; }
+  .btable thead { display: none; }
+  .btable tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "grip title act" "grip cat cat" "grip note note"; gap: 6px 10px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+  .btable tbody td { display: block; padding: 0; border: 0; min-width: 0; }
+  .btable td.grip { grid-area: grip; align-self: center; font-size: 18px; }
+  .btable td:nth-child(2) { grid-area: title; font-size: 16px; }
+  .btable td:nth-child(3) { grid-area: cat; }
+  .btable td:nth-child(4) { grid-area: note; }
+  .btable td.bact { grid-area: act; }
+  .btable .rm { min-width: 44px; min-height: 44px; }
+  .btable select { min-height: 44px; font-size: 16px; }
+}
+</style>
+<script>
+/**
+ * Backlog panel on the Projects tab (slot 'projects.tab', id 'backlog'): projects not started yet, as a simple table in
+ * the order they were dragged into (no column sorting). Click a title or note to edit it in place, change the category
+ * in its row, drag a row up or down (a short press first on touch screens), × deletes with Undo. Changes show at once
+ * and save behind with { render: false }. Start opens the Add project form filled in from the item; the server makes the
+ * project and takes the item off the backlog, then the project's page opens.
+ */
+(function () {
+  var NEW_CATEGORY = '__new';
+  var editing = null; // { id, field: 'title' | 'note' } while a text is being edited in place
+  var sortable = null;
+  var addCategory = ''; // the category picked in the add box, kept while the page redraws
+
+  function items() { return FT.store.backlog || []; }
+  function inOrder() { return items().slice().sort(function (a, b) { return a.order - b.order; }); }
+  function byId(id) { return items().filter(function (item) { return item.id === id; })[0] || null; }
+  function hasCategory(id) { return FT.categories().some(function (c) { return c.id === id; }); }
+
+  function categorySelectHtml(selected, attrs) {
+    return '<select ' + attrs + '><option value="">No category</option>' + FT.categories().map(function (c) {
+      return '<option value="' + FT.esc(c.id) + '"' + (c.id === selected ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
+    }).join('') + '</select>';
+  }
+
+  function textCellHtml(item, field) {
+    var id = FT.esc(item.id), label = field === 'title' ? 'title' : 'note';
+    if (editing && editing.id === item.id && editing.field === field) {
+      return '<input type="text" class="bedit" id="bl-edit" value="' + FT.esc(item[field]) + '" maxlength="' + (field === 'title' ? 120 : 300) +
+        '" aria-label="Edit ' + label + '" data-enter="backlog.save" data-id="' + id + '" data-field="' + field + '">';
+    }
+    var empty = field === 'note' && !item.note;
+    return '<span class="btext b' + field + (empty ? ' empty' : '') + '" role="button" tabindex="0" data-act="backlog.edit" data-id="' + id + '" data-field="' + field +
+      '" aria-label="Edit ' + label + (empty ? '' : ': ' + FT.esc(item[field])) + '">' + (empty ? 'Add a note' : FT.linkify(item[field])) + '</span>';
+  }
+
+  function rowHtml(item) {
+    var id = FT.esc(item.id);
+    return '<tr data-id="' + id + '"><td class="grip" aria-hidden="true" title="Drag to reorder">⠿</td>' +
+      '<td>' + textCellHtml(item, 'title') + '</td>' +
+      '<td>' + categorySelectHtml(hasCategory(item.category) ? item.category : '', 'aria-label="Category of ' + FT.esc(item.title) + '" data-change="backlog.category" data-id="' + id + '"') + '</td>' +
+      '<td>' + textCellHtml(item, 'note') + '</td>' +
+      '<td class="bact"><button class="btn sm primary" data-act="backlog.start" data-id="' + id + '">Start</button>' +
+      '<button class="rm" data-act="backlog.remove" data-id="' + id + '" aria-label="Delete backlog item ' + FT.esc(item.title) + '">×</button></td></tr>';
+  }
+
+  function panelHtml() {
+    var list = inOrder();
+    var table = list.length
+      ? '<div class="scroll"><table class="btable"><thead><tr><th></th><th>Project idea</th><th>Category</th><th>Note</th><th></th></tr></thead><tbody>' +
+        list.map(rowHtml).join('') + '</tbody></table></div>'
+      : '<p class="empty" style="padding:4px 0">Nothing in the backlog. Add a project you are not starting yet, so it stops taking up space in your head.</p>';
+    return '<section class="panel backlog-panel"><div class="tophead"><div class="label">Backlog</div>' +
+      (list.length ? '<span class="blcount">' + list.length + ' not started · drag to reorder</span>' : '') + '</div>' + table +
+      '<div class="bladd"><input type="text" id="bl-new" placeholder="Add a project for later" aria-label="New backlog item" maxlength="120" data-enter="backlog.add">' +
+      categorySelectHtml(addCategory, 'id="bl-cat" aria-label="Category of the new item" data-change="backlog.pickCategory"') +
+      '<button class="btn" data-act="backlog.addBtn">Add</button></div></section>';
+  }
+
+  FT.module({
+    id: 'backlog',
+    slots: { 'projects.tab': [{ id: 'backlog', title: 'Backlog', description: 'Projects not started yet, in the order you want to start them.', order: 1, w: 12, render: panelHtml }] }
+  });
+
+  /** Show a change to an item at once, then save it; a failed save reloads the true state. */
+  function saveChange(item, patch) {
+    Object.keys(patch).forEach(function (key) { item[key] = patch[key]; });
+    FT.render();
+    FT.rpc('backlog', 'update', Object.assign({ id: item.id }, patch), { render: false }).catch(FT.saveFailed);
+  }
+
+  function addFromBox() {
+    var input = document.getElementById('bl-new'), title = input ? input.value.trim() : '';
+    if (!title) return;
+    var list = items();
+    var item = { id: FT.newId(), title: title.slice(0, 120), category: addCategory, note: '', order: list.reduce(function (largest, x) { return Math.max(largest, x.order); }, 0) + 1 };
+    FT.store.backlog = list.concat([item]);
+    FT.render();
+    var again = document.getElementById('bl-new');
+    if (again) again.focus();
+    FT.rpc('backlog', 'add', { id: item.id, title: item.title, category: item.category }, { render: false }).catch(FT.saveFailed);
+  }
+  FT.on('enter', 'backlog.add', addFromBox);
+  FT.action('backlog.addBtn', addFromBox);
+  FT.on('change', 'backlog.pickCategory', function (el) { addCategory = el.value; });
+
+  FT.on('change', 'backlog.category', function (el) {
+    var item = byId(el.dataset.id);
+    if (item && item.category !== el.value) saveChange(item, { category: el.value });
+  });
+
+  FT.action('backlog.edit', function (el) {
+    editing = { id: el.dataset.id, field: el.dataset.field };
+    FT.render();
+    var input = document.getElementById('bl-edit');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  });
+
+  function saveEdit(el) {
+    var item = byId(el.dataset.id), field = el.dataset.field, text = el.value.trim();
+    editing = null;
+    if (!item || text === item[field] || (field === 'title' && !text)) { FT.render(); return; }
+    var patch = {};
+    patch[field] = text;
+    saveChange(item, patch);
+  }
+  FT.on('enter', 'backlog.save', saveEdit);
+  document.addEventListener('focusout', function (e) {
+    if (e.target && e.target.id === 'bl-edit' && editing) saveEdit(e.target);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!e.target) return;
+    if (e.key === 'Escape' && e.target.id === 'bl-edit') { editing = null; FT.render(); }
+    var opensEditor = (e.key === 'Enter' || e.key === ' ') && e.target.dataset && e.target.dataset.act === 'backlog.edit';
+    if (opensEditor) { e.preventDefault(); e.target.click(); }
+  });
+
+  FT.action('backlog.remove', function (el) {
+    var item = byId(el.dataset.id);
+    if (!item) return;
+    var before = items();
+    FT.optimistic(function () {
+      FT.store.backlog = before.filter(function (x) { return x.id !== item.id; });
+      return function () { FT.store.backlog = before; };
+    }, function () { return FT.rpc('backlog', 'remove', { id: item.id }, { render: false }); }).catch(function () {});
+    FT.deleted('Backlog item');
+  });
+
+  function categoryOptions() {
+    return FT.categories().map(function (c) { return { value: c.id, label: c.label }; })
+      .concat([{ value: NEW_CATEGORY, label: '+ New category…' }]);
+  }
+
+  /** The "new category" name box shows only when "+ New category…" is picked. */
+  function wireNewCategory() {
+    var select = document.getElementById('dlg-category'), input = document.getElementById('dlg-newcategory');
+    var label = document.querySelector('label[for="dlg-newcategory"]');
+    function showNameBoxWhenNew() {
+      var isNew = select.value === NEW_CATEGORY;
+      input.hidden = !isNew; label.hidden = !isNew;
+      if (isNew) input.focus();
+    }
+    select.addEventListener('change', showNameBoxWhenNew);
+    showNameBoxWhenNew();
+  }
+
+  /** Start: the Add project form, filled in from the item. A project needs a category, so one is always picked. */
+  FT.action('backlog.start', function (el) {
+    var item = byId(el.dataset.id);
+    if (!item) return;
+    FT.dialog({
+      title: 'Start this project',
+      subtitle: 'It becomes a project with its own board and leaves the backlog.',
+      submit: 'Start project',
+      fields: [
+        { id: 'name', label: 'Name', value: item.title, maxlength: 120 },
+        { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: hasCategory(item.category) ? item.category : FT.categories()[0].id },
+        { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
+        { id: 'next', label: 'Next action', value: item.note, placeholder: 'The first small step', maxlength: 300 }
+      ],
+      onOpen: wireNewCategory,
+      onSubmit: function (values) {
+        var args = { id: item.id, name: values.name, next_action: values.next };
+        if (values.category !== NEW_CATEGORY) args.category = values.category;
+        else if (!values.newcategory) throw new Error('Type a name for the new category.');
+        else args.newCategory = values.newcategory;
+        return FT.rpc('backlog', 'start', args, { quiet: true })
+          .then(function (project) { FT.go('project', { id: project.id }); });
+      }
+    });
+  });
+
+  /** Dragging a row gives it an order halfway between its new neighbours. */
+  FT.onRender(function () {
+    if (sortable) { sortable.destroy(); sortable = null; }
+    var body = document.querySelector('#app .btable tbody');
+    if (!body || !window.Sortable || editing) return;
+    sortable = window.Sortable.create(body, {
+      animation: 150, delay: 180, delayOnTouchOnly: true, filter: 'input, button, a, select', preventOnFilter: false, ghostClass: 'kghost',
+      onStart: function () { FT.state.dragging = true; },
+      onEnd: function (evt) {
+        FT.state.dragging = false;
+        var item = byId(evt.item.dataset.id);
+        if (!item || evt.oldIndex === evt.newIndex) { FT.dragEnded(); return; }
+        var ids = Array.prototype.map.call(body.children, function (row) { return row.dataset.id; });
+        var above = byId(ids[evt.newIndex - 1]), below = byId(ids[evt.newIndex + 1]);
+        var order = above && below ? (above.order + below.order) / 2 : above ? above.order + 1 : below ? below.order - 1 : 1;
+        saveChange(item, { order: order });
+      }
+    });
+  });
+})();
+</script>
