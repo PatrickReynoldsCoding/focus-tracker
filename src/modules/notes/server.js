@@ -67,6 +67,13 @@ function notesModule() {
     return DriveApp.getFileById(row.html_file_id).getBlob().getDataAsString();
   }
 
+  /** A new version stamp, always later than the previous one, so two saves in the same millisecond still differ. */
+  function versionAfter_(previousVersion) {
+    var stampNow = nowIso_();
+    if (!previousVersion || stampNow > previousVersion) return stampNow;
+    return new Date(timeOf_(previousVersion) + 1).toISOString();
+  }
+
   /**
    * Write the notes file, checking the version: the editor's save, and text brought back from the Doc. The editor also
    * sends its HTML (a.html), kept as the formatted copy of the version written.
@@ -96,7 +103,7 @@ function notesModule() {
         var conflict = { kept: serverNewer ? 'server' : 'yours', copyName: copyName };
         if (serverNewer) return { url: row.file_url, updated: row.updated, text: current, conflict: conflict };
       }
-      var stampNow = nowIso_();
+      var stampNow = versionAfter_(row.updated);
       var patch = { updated: stampNow };
       if (hasFormatted) { patch.html_file_id = saveFormatted_(row, project, a.projectId, a.html); patch.html_version = stampNow; }
       else if (row.html_version) patch.html_version = ''; // markdown written without the editor's HTML: the copy is out of date

@@ -37,14 +37,9 @@ function todayModule() {
 
   /** Today's date key, ISO weekday and the date of this week's Monday, in the script's time zone. */
   function dayInfo_() {
-    var tz = Session.getScriptTimeZone();
-    var now = new Date();
-    var weekday = Number(Utilities.formatDate(now, tz, 'u'));
-    return {
-      key: Utilities.formatDate(now, tz, 'yyyy-MM-dd'),
-      weekday: weekday,
-      weekKey: Utilities.formatDate(new Date(now.getTime() - (weekday - 1) * DAY_MS), tz, 'yyyy-MM-dd')
-    };
+    var todayKey = todayIso_();
+    var weekday = Number(Utilities.formatDate(new Date(todayKey + 'T12:00:00Z'), 'UTC', 'u'));
+    return { key: todayKey, weekday: weekday, weekKey: isoAddDays_(todayKey, 1 - weekday) };
   }
 
   function dateInDays_(days) {
