@@ -15,7 +15,10 @@ function test(name, fn) {
 const json = (x) => JSON.parse(JSON.stringify(x));
 const rowsOf = (sh) => sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, i) => [h, r[i] === undefined ? '' : r[i]])));
 const byId = (sh) => Object.fromEntries(rowsOf(sh).map((r) => [r.id, r]));
-const copyRows = (ss) => Object.fromEntries(ss.order().map((n) => [n, ss.sheets[n].rows.map((r) => r.slice())]));
+// A sheet's rows as values. A real sheet has no row length, so empty cells at the end of a row are left out (the fake keeps
+// a row as long as it was written: a column the app adds later, such as Notes.preview, is empty on older rows).
+const withoutEmptyEnd = (row) => { const out = row.slice(); while (out.length && out[out.length - 1] === '') out.pop(); return out; };
+const copyRows = (ss) => Object.fromEntries(ss.order().map((n) => [n, ss.sheets[n].rows.map(withoutEmptyEnd)]));
 
 const DAY = 86400000;
 const LATEST = String(loadServer().run('SCHEMA_VERSION'));
@@ -163,7 +166,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.deepStrictEqual(sh.Criteria.rows[0], ['text', 'done', 'project', 'problem', 'id', 'project_id', 'order', 'created', 'updated_at']);
   assert.deepStrictEqual(sh.Log.rows[0], ['date', 'project', 'where_stopped', 'next_action', 'minutes', 'id', 'project_id']);
   assert.deepStrictEqual(sh.Categories.rows[0], ['label', 'color', 'id', 'order']);
-  assert.deepStrictEqual(sh.Notes.rows[0], ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today'], 'v5: the notes are their Doc; v6: a note of the Notes tab has list_id');
+  assert.deepStrictEqual(sh.Notes.rows[0], ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today', 'preview'], 'v5: the notes are their Doc; v6: a note of the Notes tab has list_id; the notes module adds preview when it first reads the tab');
   assert.deepStrictEqual(sh.Undo.rows, [['id', 'created', 'action', 'changes', 'kind']], 'old undo steps use old columns, so they are cleared');
   assert.deepStrictEqual(sh['My sums'].rows, V1['My sums'], 'a person\'s own tab is not touched');
 
@@ -206,7 +209,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.deepStrictEqual(b.data.resources.map((r) => r.value), V1.Resources.slice(1).map((r) => r[4]));
   assert.deepStrictEqual(b.data.whiteboard.map((w) => [w.name, w.url]), [['Pad layout', 'https://docs.google.com/file/file-wb-1'], ['Whiteboard', 'https://docs.google.com/file/file-wb-2']]);
   const notesDoc = 'https://docs.google.com/document/d/' + byId(s.ss.sheets.Notes).n0000001.doc_id + '/edit';
-  assert.deepStrictEqual(b.data.notes, [{ project_id: 'p0000001', list_id: '', url: notesDoc, updated: byId(s.ss.sheets.Notes).n0000001.updated, doc: notesDoc, show_today: '' }], 'v5: the notes are their Doc');
+  assert.deepStrictEqual(b.data.notes, [{ project_id: 'p0000001', list_id: '', url: notesDoc, updated: byId(s.ss.sheets.Notes).n0000001.updated, doc: notesDoc, show_today: '', preview: null }], 'v5: the notes are their Doc; its first lines were never kept (null), so the Notes tab will ask for them once');
   assert.strictEqual(s.drive.files['file-notes-1'].trashed, true, 'the old notes file is in the bin');
   assert.strictEqual(b.data.projects.length, 2);
   assert.strictEqual(b.data.categories.length, 3);
@@ -595,7 +598,7 @@ test('v4 to v5: each project\'s notes become its Google Doc; old files go to the
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
   assert.ok(s.script._m['SCHEMA_BACKUP.v5.personal'], 'the sheet was backed up first');
   const notes = Object.fromEntries(rowsOf(s.ss.sheets.Notes).map((r) => [r.id, r]));
-  assert.deepStrictEqual(s.ss.sheets.Notes.rows[0], ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today', 'my_note'], 'the notes are their Doc (v6 adds list_id and show_today); a person\'s own column stays');
+  assert.deepStrictEqual(s.ss.sheets.Notes.rows[0], ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today', 'my_note', 'preview'], 'the notes are their Doc (v6 adds list_id and show_today); a person\'s own column stays; the app adds preview after it');
   assert.strictEqual(notes.n1.my_note, 'keep me');
   // Fan: a new Doc from the formatted copy, colours and all
   const get = (id) => s.call('notes', 'get', { projectId: id }).result;

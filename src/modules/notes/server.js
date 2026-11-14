@@ -24,11 +24,18 @@
  * project. Nothing about it reaches the Projects tab or the Log's project column. Deleting the note puts its Doc in
  * Drive's bin; undo brings the row back, and the Doc comes out of the bin the next time the note is read or saved.
  * A project's notes can be shown on Today too (show_today on its Notes row).
+ *
+ * The first lines of each Doc's text are kept on its Notes row (`preview`, plain text) whenever the app writes or reads
+ * the Doc, so the Notes tab can show every note as a small card without reading a single Doc. A row written before
+ * previews were kept has none until the Doc is next read: the snapshot sends null for it, and the page asks for it.
  */
 
 var NOTES_HTML_MAX_LENGTH_ = 1000000;
 var NOTES_DOC_MIME_ = 'application/vnd.google-apps.document';
-var NOTES_HEADERS_ = ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today'];
+var NOTES_HEADERS_ = ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today', 'preview'];
+var NOTES_PREVIEW_LENGTH_ = 300;
+// notesFingerprint_ starts with the text's length, so notes with no text have this fingerprint.
+var NOTES_EMPTY_FINGERPRINT_PREFIX_ = '0-';
 // Before schema v6 Today had one running note of its own, keyed 'today' where a project id goes. v6 made it a note of
 // the Notes tab and kept its id in a script property, so a save from an older page (or one that waited offline) still
 // reaches it.
@@ -113,7 +120,7 @@ function notesModule() {
         var editedInDocs = docMoved && notesFingerprint_(current) !== row.written;
         if (baseIsOld || editedInDocs) {
           if (notesFingerprint_(current) === notesFingerprint_(html)) {
-            T.update(row.id, { updated: meta.modifiedTime, written: notesFingerprint_(current) });
+            T.update(row.id, { updated: meta.modifiedTime, written: notesFingerprint_(current), preview: notesPreviewOf_(current) });
             return { url: notesDocUrl_(row.doc_id), updated: meta.modifiedTime };
           }
           var docNewer = timeOf_(meta.modifiedTime) >= timeOf_(a._editedAt);
@@ -122,7 +129,7 @@ function notesModule() {
             (docNewer ? 'The newer notes were kept; your text' : 'Your text was newer and replaced them; the other text') + ' is saved as the Doc "' + copyName + '" in the Notes folder.' });
           conflict = { kept: docNewer ? 'server' : 'yours', copyName: copyName };
           if (docNewer) {
-            T.update(row.id, { updated: meta.modifiedTime, written: notesFingerprint_(current) });
+            T.update(row.id, { updated: meta.modifiedTime, written: notesFingerprint_(current), preview: notesPreviewOf_(current) });
             return { url: notesDocUrl_(row.doc_id), updated: meta.modifiedTime, html: current, text: notesHtmlToMarkdown_(current), conflict: conflict };
           }
         }
@@ -130,7 +137,7 @@ function notesModule() {
     }
     var t0 = Date.now();
     var file = meta ? updateNotesDoc_(row.doc_id, docName, html) : createNotesDoc_(docName, html);
-    var patch = { doc_id: file.id, updated: file.modifiedTime || nowIso_(), written: notesFingerprint_(html) };
+    var patch = { doc_id: file.id, updated: file.modifiedTime || nowIso_(), written: notesFingerprint_(html), preview: notesPreviewOf_(html) };
     if (row) T.update(row.id, patch);
     else {
       assert_(target.project || target.list, 'Project not found.');
@@ -171,7 +178,7 @@ function notesModule() {
     snapshot: function (ctx) {
       importTyped_(ctx);
       return T.all().filter(function (r) { return r.doc_id; }).map(function (r) {
-        return { project_id: r.project_id, list_id: r.list_id, url: notesDocUrl_(r.doc_id), updated: r.updated, doc: notesDocUrl_(r.doc_id), show_today: r.show_today };
+        return { project_id: r.project_id, list_id: r.list_id, url: notesDocUrl_(r.doc_id), updated: r.updated, doc: notesDocUrl_(r.doc_id), show_today: r.show_today, preview: knownPreviewOf_(r) };
       });
     },
     api: {
@@ -186,10 +193,12 @@ function notesModule() {
         if (!meta) return empty;
         var url = notesDocUrl_(row.doc_id);
         if (a.known && a.known === row.updated && meta.modifiedTime === row.updated) return { same: true, url: url, updated: row.updated };
-        var html = readNotesDoc_(row.doc_id), fingerprint = notesFingerprint_(html);
+        var html = readNotesDoc_(row.doc_id), fingerprint = notesFingerprint_(html), preview = notesPreviewOf_(html);
         if (fingerprint !== row.written) {
-          T.update(row.id, { updated: meta.modifiedTime, written: fingerprint });
+          T.update(row.id, { updated: meta.modifiedTime, written: fingerprint, preview: preview });
           row.updated = meta.modifiedTime;
+        } else if (preview !== row.preview) {
+          T.update(row.id, { preview: preview });
         }
         return { html: html, text: notesHtmlToMarkdown_(html), url: url, updated: row.updated };
       },
@@ -231,6 +240,18 @@ function notesModule() {
       }
     }
   };
+}
+
+// ---------- the first lines of the notes, for the Notes tab's cards ----------
+
+function notesPreviewOf_(html) {
+  return richTextToPlain_(html).slice(0, NOTES_PREVIEW_LENGTH_);
+}
+
+/** The row's preview; '' for notes with no text; null when it was never made (written before previews were kept). */
+function knownPreviewOf_(row) {
+  if (row.preview) return row.preview;
+  return String(row.written || '').indexOf(NOTES_EMPTY_FINGERPRINT_PREFIX_) === 0 ? '' : null;
 }
 
 // ---------- the notes Doc in Drive ----------

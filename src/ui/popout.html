@@ -243,6 +243,17 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       '<button class="btn sm" data-act="popout.close" data-key="' + key + '">Close window</button></span></section>';
   }
 
+  /**
+   * For a view that draws a one-copy panel without FT.layout (the Notes tab's pop-up): the placeholder to draw instead
+   * of html while a window shows the same notes, or '' when none does (always '' on a phone).
+   */
+  FT.popout = {
+    otherCopyHtml: function (html) {
+      var win = isPhone() ? null : otherCopyWindow({ html: html });
+      return win ? otherCopyHtml(win) : '';
+    }
+  };
+
   FT.onLayout(function (page, panels) {
     if (capturedPanelsByPage) { capturedPanelsByPage[page] = panels; return null; }
     if (isPhone()) return panels;

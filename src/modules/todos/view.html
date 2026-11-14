@@ -169,6 +169,20 @@
     return shownOn(ON_TODAY, l.id).filter(function (t) { return !t.done; }).length;
   }
 
+  /**
+   * What a to-do list's card on the Notes tab shows: each group (one with no name when the list has none) with its open
+   * to-dos, dated ones first, each with the word for its day ('' for anytime); how many are open; how many were ticked today.
+   */
+  function cardPreview(l) {
+    var today = slice().day, groups = groupsOf(l.id), shown = shownOn('tab', l.id);
+    var open = shown.filter(function (t) { return !t.done; });
+    var todoOfCard = function (t) { return { id: t.id, title: t.title, day: t.day ? dayWord(t.day, today) : '' }; };
+    var cardGroups = groups.length ? groups.map(function (group) {
+      return { name: group.name, todos: open.filter(function (t) { return groupIdOf(t, groups) === group.id; }).map(todoOfCard) };
+    }) : [{ name: '', todos: open.map(todoOfCard) }];
+    return { groups: cardGroups, open: open.length, doneToday: shown.length - open.length };
+  }
+
   /** Plan my week belongs to the habits module; the button shows when it is installed. */
   function planButtonHtml() {
     return FT.slots('today.planWeek').length ? '<button class="btn sm" data-act="habits.planWeek">Plan my week</button>' : '';
@@ -345,6 +359,7 @@
   FT.todos = {
     add: add,
     bodyHtml: bodyHtml,
+    cardPreview: cardPreview,
     openCount: openCount,
     planButtonHtml: planButtonHtml,
     /** Move a to-do to an ISO day, or anytime with ''. */

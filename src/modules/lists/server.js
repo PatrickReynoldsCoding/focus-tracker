@@ -32,6 +32,13 @@ function listsModule() {
     return kind;
   }
 
+  /** The lists' order values, lowest first; 1, 2, 3... instead when two are the same (rows typed into the sheet). */
+  function ordersToGiveOut_(lists) {
+    var orders = lists.map(function (l) { return l.order; });
+    var allDifferent = orders.every(function (order, place) { return place === 0 || order > orders[place - 1]; });
+    return allDifferent ? orders : lists.map(function (l, place) { return place + 1; });
+  }
+
   /** The first groups a new list or to-do list starts with: names, and the ids the browser made for them (optional). */
   function firstGroups_(a, kind) {
     if (kind === TODO_LIST_KIND_) return { names: [FIRST_TODO_GROUP_], ids: a.groupId ? [a.groupId] : [] };
@@ -120,14 +127,20 @@ function listsModule() {
         return true;
       },
 
-      /** Swap a list with its neighbour: a.d is -1 (earlier) or 1 (later). */
+      /**
+       * Move a list a.d places earlier (negative) or later in the order; the lists it passes move one place the other
+       * way. With a.d -1 or 1 that swaps it with its neighbour. The order values already used are kept, given out again.
+       */
       move: function (a, ctx) {
-        var lists = list_();
-        var i = lists.map(function (l) { return l.id; }).indexOf(a.id), j = i + Number(a.d);
-        assert_(i !== -1, 'List not found.');
-        if (j < 0 || j >= lists.length) return false;
-        T.update(lists[i].id, { order: lists[j].order });
-        T.update(lists[j].id, { order: lists[i].order });
+        var lists = list_(), places = Number(a.d);
+        var from = lists.map(function (l) { return l.id; }).indexOf(a.id), to = from + places;
+        assert_(from !== -1, 'List not found.');
+        assert_(Math.floor(places) === places, 'Move a list by whole places.');
+        if (to < 0 || to >= lists.length || to === from) return false;
+        var orders = ordersToGiveOut_(lists);
+        var moved = lists.splice(from, 1)[0];
+        lists.splice(to, 0, moved);
+        lists.forEach(function (l, place) { if (l.order !== orders[place]) T.update(l.id, { order: orders[place] }); });
         ctx.refresh('lists');
         return true;
       },

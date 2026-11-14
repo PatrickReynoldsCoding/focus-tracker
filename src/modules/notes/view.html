@@ -312,9 +312,19 @@
         description: 'The project\'s notes, shown on Today as their own panel.', add: function () { showOnToday(e.row, true); } };
     });
   }
-  /** The Notes tab, with project notes shown: one panel per project that has notes. */
+  /**
+   * The Notes tab, with project notes shown: one card per project that has notes, drawn by the lists module. key: the
+   * notes key (the project's id) for FT.notes.previewOf; bodyHtml(): the editor for the card's pop-up.
+   */
   function projectNotesForTab() {
-    return projectsWithNotes().map(function (e) { return Object.assign(projectNotesPanel(e), { w: 6 }); });
+    return projectsWithNotes().map(function (e) {
+      var project = e.project;
+      return {
+        id: PROJECT_NOTES_PANEL + project.id, key: project.id, kind: 'pnote', title: project.name, project: project, onToday: !!e.row.show_today,
+        bodyHtml: function () { return blockHtml(project.id, { name: project.name + ' notes' }); },
+        setOnToday: function (on) { showOnToday(e.row, on); }
+      };
+    });
   }
 
   function showOnToday(row, on) {
@@ -446,13 +456,13 @@
    * shows up (the server answers { same: true } without reading the Doc when nothing changed). Nothing replaces what
    * is being typed. A draft left on this device by a page that closed before saving is put back and saved.
    */
-  function load(key) {
+  function load(key, quietly) {
     var seq = loads[key] = (loads[key] || 0) + 1;
     var hadNotes = has(cache, key), before = cache[key];
     modeOf[key] = modeOf[key] || FT.state.mode;
     var args = argsFor(key);
     if (hadNotes && loaded[key]) args.known = loaded[key];
-    FT.rpc('notes', 'get', args, { render: false, quiet: true, parallel: true, mode: modeOf[key] }).then(function (r) {
+    return FT.rpc('notes', 'get', args, { render: false, quiet: true, parallel: true, mode: modeOf[key] }).then(function (r) {
       if (seq !== loads[key] || dirty[key] || saving[key]) return; // a newer load, or typing: keep what is on screen
       if (r.same) return;
       takeDocNotes(key, r.html);
@@ -465,7 +475,7 @@
       show(key);
       if (dirty[key]) save(key);
       else if (hadNotes && cache[key] !== before) status(key, 'Updated from the Google Doc');
-    }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
+    }).catch(function (e) { if (!quietly) FT.toast('Could not load notes: ' + e.message, 'error'); });
   }
 
   /** Notes come on screen (a project page, a note of the Notes tab, a panel on Today): load them from the Doc, unless typing. */
@@ -486,8 +496,40 @@
     onProject: opened
   });
 
-  /** For the lists module: a note of the Notes tab drawn inside its panel. */
-  FT.notes = { blockHtml: function (listId, name) { return blockHtml(listId, { note: true, name: name }); } };
+  // ---------- the first lines of some notes, for a card on the Notes tab ----------
+  var BLOCK_END = /<\/(p|div|h[1-6]|blockquote|ul|ol)>/gi;
+
+  /** Plain text of editor HTML, lines kept and list items starting with "- ", as the server keeps it (notesPreviewOf_). */
+  function plainTextOf(html) {
+    var withLines = String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<li\b[^>]*>/gi, '\n- ').replace(BLOCK_END, '\n');
+    var text = new DOMParser().parseFromString(withLines, 'text/html').body.textContent || '';
+    return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  /**
+   * What a card shows of a key's notes: { text } (the text on this page, else the first lines kept on the Notes row,
+   * '' for notes with no text yet), or { waiting: true } for notes whose first lines nobody kept yet (FT.notes.loadPreview).
+   */
+  function previewOf(key) {
+    if (has(cache, key)) return { text: plainTextOf(editorHtml(key)) };
+    var row = noteRow(key);
+    if (!row || !row.doc) return { text: '' };
+    return typeof row.preview === 'string' ? { text: row.preview } : { waiting: true };
+  }
+
+  /** Read the notes from their Doc for a card (the server keeps their first lines from then on). Quiet when it fails. */
+  function loadPreview(key) {
+    modeOf[key] = modeOf[key] || FT.state.mode;
+    if (dirty[key] || saving[key]) return Promise.resolve();
+    return load(key, true);
+  }
+
+  /** For the lists module: a note of the Notes tab drawn inside its panel or pop-up, and the first lines of any notes for a card. */
+  FT.notes = {
+    blockHtml: function (listId, name) { return blockHtml(listId, { note: true, name: name }); },
+    previewOf: previewOf,
+    loadPreview: loadPreview
+  };
 
   // Editors are rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
   FT.onRender(function () {
