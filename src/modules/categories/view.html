@@ -28,14 +28,39 @@
         (onlyOne ? 'Keep at least one category' : 'Move its projects and links first') + '"' : '') + ' aria-label="Delete category ' + FT.esc(c.label) + '">Delete</button></div>';
   }
 
+  // The Categories panel is not on the Projects tab until it is added there (Edit layout, Add feature): new categories are
+  // made from a project's category instead. Added once, it has a place in the page's saved layout and is drawn from then on.
+  var PANEL_ID = 'categorylist', PAGE = 'projects';
+  var TITLE = 'Categories', DESCRIPTION = 'Add, rename, recolour and delete this mode\'s categories.';
+
+  function placedOnPage() { return !!((FT.store.layout || {})[PAGE] || {})[PANEL_ID]; }
+
   function panel() {
+    if (!placedOnPage()) return '';
     var list = FT.categories();
     return '<section class="panel"><div class="tophead"><div class="label">Categories</div>' +
       '<button class="btn sm" data-act="categories.add">+ Add category</button></div>' +
       '<div class="catrows">' + list.map(function (c) { return rowHtml(c, list.length < 2); }).join('') + '</div></section>';
   }
 
-  FT.module({ id: 'categories', slots: { 'projects.tab': [{ id: 'categories', title: 'Categories', description: 'Add, rename and recolour this mode\'s categories.', order: 5, w: 12, render: panel }] } });
+  /** Shown at once, saved behind: a place for the panel in the page's layout, through the layout module's api. */
+  function addPanel() {
+    FT.optimistic(function () {
+      FT.store.layout = FT.store.layout || {};
+      var pageLayout = FT.store.layout[PAGE] = FT.store.layout[PAGE] || {};
+      pageLayout[PANEL_ID] = { x: 0, y: 10000, w: 12 };
+      return function () { delete pageLayout[PANEL_ID]; };
+    }, function () { return FT.rpc('layout', 'setHidden', { page: PAGE, id: PANEL_ID, hidden: false }, { render: false }); }).catch(function () {});
+  }
+
+  function addable() {
+    return placedOnPage() ? [] : [{ id: PANEL_ID, title: TITLE, description: DESCRIPTION, panel: PANEL_ID, add: addPanel }];
+  }
+
+  FT.module({ id: 'categories', slots: {
+    'projects.tab': [{ id: PANEL_ID, title: TITLE, description: DESCRIPTION, order: 5, w: 12, render: panel }],
+    'addable.projects': [{ render: addable }]
+  } });
 
   FT.action('categories.add', function () {
     FT.dialog({

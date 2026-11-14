@@ -17,6 +17,11 @@ function projectsModule() {
 
   function list() { return T.all(); }
 
+  /** a.newCategory: the name of a category to make (through the categories api) and use, with an optional a.newCategoryColor and a.newCategoryId. */
+  function categoryMadeFor_(a, ctx) {
+    return ctx.call('categories', 'add', { id: a.newCategoryId, label: a.newCategory, color: a.newCategoryColor }).id;
+  }
+
   return {
     title: 'Projects',
     tables: [T],
@@ -24,11 +29,11 @@ function projectsModule() {
     api: {
       list: list,
 
-      /** a.newCategory: the name of a category to make and use, instead of a.category. */
+      /** a.newCategory: the name of a category to make and use, instead of a.category (see categoryMadeFor_). */
       create: function (a, ctx) {
         var name = clean_(a.name, 120);
         assert_(name, 'A project needs a name.');
-        if (a.newCategory) a.category = ctx.call('categories', 'add', { label: a.newCategory }).id;
+        if (a.newCategory) a.category = categoryMadeFor_(a, ctx);
         assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category);
         var now = nowIso_();
         var row = T.insert({
@@ -46,7 +51,7 @@ function projectsModule() {
 
       update: function (a, ctx) {
         var patch = {};
-        if (a.newCategory) a.category = ctx.call('categories', 'add', { label: a.newCategory }).id;
+        if (a.newCategory) a.category = categoryMadeFor_(a, ctx);
         if (a.name !== undefined) { patch.name = clean_(a.name, 120); assert_(patch.name, 'A project needs a name.'); }
         if (a.category !== undefined) { assert_(ctx.call('categories', 'ids').indexOf(a.category) !== -1, 'Unknown category: ' + a.category); patch.category = a.category; }
         if (a.status !== undefined) { assert_(STATUSES.indexOf(a.status) !== -1, 'Unknown status: ' + a.status); patch.status = a.status; }

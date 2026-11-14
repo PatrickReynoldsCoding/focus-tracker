@@ -5,6 +5,8 @@
  * A hidden panel is left off the page, on every screen size, until it is shown again.
  * A phone shows panels one under the other in its own order, a row of its own: layout.<page>.phone = ["id", ...],
  * which reaches the page as { '<page>.phone': [...] } next to the pages.
+ * A page's view choices (the Projects tab's status filter, the project page's hidden next action) are a row of their own
+ * too: layout.<page>.view = {"status":["active"]}, reaching the page as { '<page>.view': {...} }. Reset leaves them.
  */
 
 function layoutModule() {
@@ -49,6 +51,26 @@ function layoutModule() {
   }
 
   var PHONE = '.phone';
+  var VIEW = '.view';
+  var MAX_VIEW_KEYS = 10;
+  var MAX_VIEW_LIST = 10;
+  var MAX_VIEW_TEXT = 60;
+
+  function viewText_(value) {
+    var text = String(value);
+    assert_(text.length <= MAX_VIEW_TEXT, 'View setting too long.');
+    return text;
+  }
+
+  /** A view choice: a short text, a list of short texts, or null to forget it. */
+  function viewValue_(value) {
+    if (value === null) return null;
+    if (Array.isArray(value)) {
+      assert_(value.length <= MAX_VIEW_LIST, 'View setting too long.');
+      return value.map(viewText_);
+    }
+    return viewText_(value);
+  }
 
   function pageKey_(page) {
     assert_(/^[a-z][a-z0-9-]{0,30}$/.test(String(page || '')), 'Unknown page: ' + page);
@@ -110,6 +132,22 @@ function layoutModule() {
         });
         var all = load_();
         all[page + PHONE] = order;
+        save_(all);
+        return true;
+      },
+
+      /** Merge a.view ({ name: value }, null forgets one) into the page's saved view choices. */
+      saveView: function (a) {
+        var key = pageKey_(a.page) + VIEW;
+        assert_(a.view && typeof a.view === 'object' && !Array.isArray(a.view), 'Bad view settings.');
+        var all = load_(), view = all[key] || {};
+        Object.keys(a.view).forEach(function (name) {
+          assert_(/^[a-zA-Z]{1,30}$/.test(name), 'Bad view setting: ' + name);
+          var value = viewValue_(a.view[name]);
+          if (value === null) delete view[name]; else view[name] = value;
+        });
+        assert_(Object.keys(view).length <= MAX_VIEW_KEYS, 'Too many view settings.');
+        all[key] = view;
         save_(all);
         return true;
       },
