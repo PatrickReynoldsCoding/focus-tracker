@@ -21,6 +21,7 @@ This guide is for any AI assistant (Claude, ChatGPT, Gemini or another) that can
 | What a project is about, a description, ideas, decisions | Notes | Projects has no description column: these go in the project's notes (see "Notes"). |
 | The next step on a project | Projects, next_action | One short, concrete sentence. Replace the old one. |
 | Notes, ideas, research, meeting notes, decisions | The project's notes | See "Notes". Not in cards, not in new files. |
+| A project idea for later, not started yet | Backlog | title, and category if it is clear. Not a row in Projects. |
 | A task on a project | Tasks | A row with title, project and column (To do, Doing or Done). |
 | What "done" means for a project | Criteria | One row per criterion, with project. |
 | A code repository (GitHub, GitLab) | Resources | type link, value the https:// address, group Code, project. |
@@ -89,6 +90,19 @@ One row per project or goal.
 | problem | no, the app does | Why the app cannot use this row. Written by the app; fix the row and it clears. |
 
 App columns, leave them empty: id, created, updated_at.
+
+### Backlog
+
+Projects not started yet, one row each, in the order the owner wants to start them. Not projects: the app makes one when the owner presses Start.
+
+| Column | You fill it | Meaning |
+|---|---|---|
+| title | yes | The project idea, short, as its name would be. |
+| category | if known | A category label from the Categories tab, if it is clear. Never make up a category. |
+| note | if known | A short note, plain text. |
+| problem | no, the app does | Why the app cannot use this row. Written by the app. |
+
+App columns, leave them empty: id, order, created, updated_at.
 
 ### Tasks
 

@@ -43,6 +43,15 @@ function guideTabs_() {
         problem: ['app', 'Why the app cannot use this row. Written by the app; fix the row and it clears.']
       }
     },
+    'Backlog': {
+      what: 'Projects not started yet, one row each, in the order the owner wants to start them. Not projects: the app makes one when the owner presses Start.',
+      columns: {
+        title: ['needed', 'The project idea, short, as its name would be.'],
+        category: ['optional', 'A category label from the Categories tab, if it is clear. Never make up a category.'],
+        note: ['optional', 'A short note, plain text.'],
+        problem: ['app', 'Why the app cannot use this row. Written by the app.']
+      }
+    },
     'Tasks': {
       what: 'Cards on a project\'s board, and the items of a list.',
       columns: {
@@ -284,6 +293,7 @@ function guideMarkdown_() {
     ['What a project is about, a description, ideas, decisions', 'Notes', 'Projects has no description column: these go in the project\'s notes (see "Notes").'],
     ['The next step on a project', 'Projects, next_action', 'One short, concrete sentence. Replace the old one.'],
     ['Notes, ideas, research, meeting notes, decisions', 'The project\'s notes', 'See "Notes". Not in cards, not in new files.'],
+    ['A project idea for later, not started yet', 'Backlog', 'title, and category if it is clear. Not a row in Projects.'],
     ['A task on a project', 'Tasks', 'A row with title, project and column (To do, Doing or Done).'],
     ['What "done" means for a project', 'Criteria', 'One row per criterion, with project.'],
     ['A code repository (GitHub, GitLab)', 'Resources', 'type link, value the https:// address, group Code, project.'],

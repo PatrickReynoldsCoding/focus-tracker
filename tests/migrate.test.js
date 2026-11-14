@@ -206,7 +206,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
 test('tabs are coloured, ordered people first, with a Start here guide; app columns have a grey header', () => {
   const s = v1Server();
   s.boot();
-  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories', 'My sums',
+  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Backlog', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories', 'My sums',
     'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Settings', 'Undo']);
   const spec = Object.fromEntries(json(s.run('TAB_STYLE')).map((t) => [t.name, t]));
   ['Projects', 'Tasks', 'Lists', 'Resources', 'Whiteboards', 'Criteria', 'Log', 'Categories'].forEach((n) => {
@@ -445,14 +445,14 @@ test('a new spreadsheet starts at the latest layout; tabs made later by a module
   s.run('setup()');
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 0, 'nothing to back up');
-  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
+  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Backlog', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
     'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Thumbs'], 'Thumbs is made by the whiteboard module');
   assert.ok(!s.ss.sheets.Habits.rows[1], 'a new spreadsheet has no daily minimum to turn into a habit');
   s.ss.insertSheet('Mine');
   s.run("new Table('Links', ['from', 'type', 'to', 'problem', 'id']).ensure()");
   json(s.run('bootstrap()')); // makes Settings and Undo when first used
   json(s.run('rpc')('projects', 'create', { name: 'A', category: 'coding' }));
-  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
+  assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Backlog', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
     'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Thumbs', 'Mine', 'Settings', 'Undo'], 'a person\'s own tab stays where it was put; app tabs go after it');
   assert.strictEqual(s.ss.sheets.Habits.style.tabColor, '#e53935');
   assert.ok(s.ss.sheets.Habits.style.filter);

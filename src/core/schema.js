@@ -76,6 +76,8 @@ var TAB_STYLE = [
         }
         return checkCategory_(row, look, true);
       } } },
+  { name: 'Backlog', people: true, color: '#6d4c41', wrap: ['title', 'note', 'problem'],
+    complete: { required: ['title'], fill: { order: 'next', created: 'now' }, check: function (row, look) { return checkCategory_(row, look, false); } } },
   { name: 'Tasks', people: true, color: '#43a047', wrap: ['title', 'note', 'problem'],
     complete: { required: ['title'], fill: { order: 'next', created: 'now' }, oneOf: ['project_id', 'list_id'], html: ['note', 'note_html'],
       refs: [PROJECT_REF_, { id: 'list_id', name: 'list', table: 'Lists' },
