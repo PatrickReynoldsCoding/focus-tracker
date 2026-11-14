@@ -201,7 +201,7 @@ async function run(browser, size) {
   // "Want to go further?": a weekly habit whose level was met in the two full weeks before this one
   const habit = JSON.parse(JSON.stringify(env.server.run('rpc')('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week', size: '15 min', goal: '5 a week, 30 min', step_up_every: '2 weeks' }))).result;
   const makeDue = () => {
-    srv(`new Table('Habit log', ['id']).removeWhere(function (r) { return r.habit_id === '${habit.id}' && (r.kind === 'level' || r.kind === 'done' || r.kind === 'prompt' && r.day === todayIso_()); })`);
+    srv(`new Table('Habit log', ['id']).removeWhere(function (r) { return r.habit_id === '${habit.id}' && (r.kind === 'level' || r.kind === 'done' || r.kind === 'pending' || r.kind === 'prompt' && r.day === todayIso_()); })`);
     const h = habitsNow().habits.find((x) => x.id === habit.id);
     srv(`new Table('Habits', ['id']).update('${habit.id}', { next_prompt: isoAddDays_(todayIso_(), -1), prompts: 'on' })`);
     srv(`new Table('Habit log', ['id']).insertMany([{ habit_id: '${habit.id}', day: isoAddDays_(isoMonday_(todayIso_()), -14), kind: 'level', value: '${h.sessions} a week, ${h.size}' },
@@ -221,6 +221,23 @@ async function run(browser, size) {
   }
   assert.strictEqual(habitsNow().habits.find((x) => x.id === habit.id).prompts, 'at goal');
   log('Want to go further?: Not now, Yes, adjust and I\'m at my goal answer at once and reach the server');
+
+  // a level change that is due: Not now and Accept answer at once and reach the server
+  const pendingNow = () => srv(`new Table('Habit log', ['id']).all().filter(function (r) { return r.habit_id === '${habit.id}' && r.kind === 'pending'; }).map(function (r) { return r.day; })`);
+  const makeLevelDue = () => srv(`(function () { var t = new Table('Habit log', ['id']); t.removeWhere(function (r) { return r.habit_id === '${habit.id}' && r.kind === 'pending'; }); t.insert({ habit_id: '${habit.id}', day: todayIso_(), kind: 'pending', value: '3 a week, 15 min' }); return true; })()`);
+  makeLevelDue();
+  await quickly(async () => { await pg.evaluate(() => FT.reload()); await pg.waitForSelector('.levelcard'); });
+  await quick('New level: Not now', pg.locator('.levelcard [data-act="habits.postponeLevel"]'));
+  assert.ok(!(await pg.isVisible('.levelcard')), 'the card goes at once');
+  await settle();
+  assert.ok(pendingNow()[0] > srv('todayIso_()'), 'Not now reached the server');
+  makeLevelDue();
+  await quickly(async () => { await pg.evaluate(() => FT.reload()); await pg.waitForSelector('.levelcard'); });
+  await quick('New level: Accept', pg.locator('.levelcard [data-act="habits.acceptLevel"]'));
+  assert.ok(!(await pg.isVisible('.levelcard')), 'the card goes at once');
+  await settle();
+  assert.strictEqual(habitsNow().habits.find((x) => x.id === habit.id).sessions, 3, 'Accept reached the server');
+  log('New level: Not now and Accept answer at once and reach the server');
 
   await quick('Habits: Plan my week', pg.locator('.habits-panel [data-act="habits.planWeek"]'));
   const tomorrowCell = pg.locator(`.plan [data-act="habits.planAdd"][data-id="${jobId}"]`).last();
@@ -711,7 +728,7 @@ async function run(browser, size) {
     assert.ok(await pg.isVisible('#nt-text li font[color="#d64545"]'), 'the red button colours the selection');
     await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
     const savedNotes = serverCall('notes', 'get', { projectId: pid });
-    assert.ok(/^- red in a list$/m.test(savedNotes.text) && savedNotes.html.includes('<font color="#d64545">red in a list</font>'), 'the markdown has the text, the formatted copy its colour');
+    assert.ok(/^- red in a list$/m.test(savedNotes.text) && savedNotes.html.includes('<font color="#d64545">red in a list</font>'), 'the markdown has the text, the Doc its colour');
     const heightBefore = await pg.evaluate(() => document.getElementById('nt-text').offsetHeight);
     await pg.focus('#nt-grip');
     await pg.keyboard.press('ArrowDown');
@@ -720,6 +737,41 @@ async function run(browser, size) {
     assert.strictEqual(resized.height, heightBefore + 80, 'the arrow keys on the bar under the notes make them taller');
     assert.strictEqual(resized.kept, resized.height + 'px', 'and the height is kept in this browser');
     log('Notes toolbar: H1 twice turns a heading back into text, no heading in a list, a colour is kept in the formatted copy; the bar under the notes resizes them');
+
+    // Paper themes: every text row (paragraphs, headings, list items) starts and ends on a ruled line, at this screen's font size.
+    const paperCheck = () => pg.evaluate(() => {
+      const ed = document.getElementById('nt-text'), cs = getComputedStyle(ed);
+      const rule = parseFloat(cs.fontSize) * 1.75;
+      const contentTop = ed.getBoundingClientRect().top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop) - ed.scrollTop;
+      const off = (n) => { const r = n % rule; return Math.min(r, rule - r); };
+      const blocks = [...ed.querySelectorAll('p, h1, h2, h3, li')].filter((el) => !el.querySelector('p, h1, h2, h3, li'));
+      const misaligned = blocks.filter((el) => { const r = el.getBoundingClientRect(); return off(r.top - contentTop) > 1 || off(r.height) > 1; })
+        .map((el) => el.tagName + ' "' + el.textContent.slice(0, 20) + '"');
+      return { misaligned, count: blocks.length, attachment: cs.backgroundAttachment, image: cs.backgroundImage, color: cs.color };
+    });
+    for (const paper of ['legal', 'graph', 'card']) {
+      await pg.selectOption('#nt-paper', paper);
+      const checked = await paperCheck();
+      assert.ok(checked.count > 3, 'there are text rows to check');
+      assert.deepStrictEqual(checked.misaligned, [], paper + ': every row sits on the lines');
+      assert.ok(checked.attachment.split(',').every((a) => a.trim() === 'local'), paper + ': the lines scroll with the text');
+      assert.strictEqual(checked.color, 'rgb(27, 42, 74)', paper + ': dark ink on the paper');
+    }
+    await pg.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await pg.selectOption('#nt-paper', 'legal');
+    assert.strictEqual((await paperCheck()).color, 'rgb(27, 42, 74)', 'dark app theme: the pad stays light paper with dark ink');
+    await pg.evaluate(() => { document.documentElement.dataset.theme = 'eink'; });
+    for (const paper of ['legal', 'graph', 'card']) {
+      await pg.selectOption('#nt-paper', paper);
+      const eink = await paperCheck();
+      assert.strictEqual(eink.color, 'rgb(0, 0, 0)', paper + ' on e-ink: black text');
+      const colours = (eink.image.match(/rgba?\([^)]*\)/g) || []).filter((c) => !/^rgba?\((0, 0, 0|255, 255, 255)(, [01])?\)$/.test(c));
+      assert.deepStrictEqual(colours, [], paper + ' on e-ink: black and white only, no colour');
+      assert.deepStrictEqual(eink.misaligned, [], paper + ' on e-ink: rows still on the lines');
+    }
+    await pg.evaluate(() => { delete document.documentElement.dataset.theme; });
+    await pg.selectOption('#nt-paper', '');
+    log('Notes paper: legal pad, graph paper and index card lines match every text row (light, dark and e-ink), and scroll with the text');
 
     await quickly(async () => { await pg.locator('[data-act="kanban.open-card"]').first().click(); await pg.waitForSelector('#dlg-note'); });
     await pg.click('#dlg-note'); await pg.keyboard.press('Control+End'); await pg.keyboard.press('Enter');

@@ -190,12 +190,27 @@
   function habitHtml(h) {
     var pr = progress(h), size = h.level ? h.level.size : h.size;
     var how = levelText(pr.target, h.per, '');
-    var later = h.nextLevel ? ' · ' + FT.esc(h.nextLevel.value) + ' from ' + (h.per === 'week' ? 'Monday' : 'tomorrow') : '';
+    var waiting = h.pendingLevel && !h.pendingLevel.due;
+    var later = waiting ? ' · ' + FT.esc(h.pendingLevel.value) + ' to accept ' + (h.per === 'week' ? 'on Monday' : 'tomorrow') : '';
     return '<div class="habit" data-id="' + FT.esc(h.id) + '">' +
       '<div><button class="hname" data-act="habits.edit" data-id="' + FT.esc(h.id) + '" aria-label="Edit habit ' + FT.esc(h.name) + '">' + FT.esc(h.name) + '</button>' + (size ? '<span class="size"> · ' + FT.esc(size) + '</span>' : '') + '</div>' +
       '<div class="hcount" aria-live="polite"><b>' + pr.done + '</b> of ' + pr.target + ' ' + pr.label + '</div>' +
       '<div class="intent">' + (h.intention ? '<b>' + FT.esc(h.intention) + '</b> · ' : '') + how + later + '</div>' +
       dotsHtml(h, pr) + categoryLine(h) + missNote(h) + '</div>';
+  }
+
+  /** A level change that is due: nothing changes until Accept. Not now asks again next Monday (per week) or tomorrow (per day). */
+  function pendingLevelHtml(h) {
+    var id = FT.esc(h.id), now = levelText(h.sessions, h.per, h.size);
+    return '<div class="stepcard levelcard" role="region" aria-label="New level for ' + FT.esc(h.name) + '"><h3>New level for ' + FT.esc(h.name) + '</h3>' +
+      '<p><b>' + FT.esc(h.pendingLevel.value) + '</b>, up from ' + FT.esc(now) + '. Nothing changes until you accept it.</p>' +
+      '<div class="stepnote">' + (h.per === 'week' ? 'Applies to this week.' : 'Applies from today.') + '</div>' +
+      '<div class="actions"><button class="btn primary" data-act="habits.acceptLevel" data-id="' + id + '">Accept</button>' +
+      '<button class="btn" data-act="habits.postponeLevel" data-id="' + id + '">Not now</button></div></div>';
+  }
+
+  function pendingLevelsHtml() {
+    return activeHabits().filter(function (h) { return h.pendingLevel && h.pendingLevel.due; }).map(pendingLevelHtml).join('');
   }
 
   function promptHtml() {
@@ -228,7 +243,7 @@
     return '<section class="panel habits-panel"><div class="tophead"><div class="label">Habits</div><span class="actions" style="margin:0">' +
       '<button class="btn sm" data-act="habits.all">All habits</button><button class="btn sm" data-act="habits.planWeek">Plan my week</button>' +
       '<button class="btn sm" data-act="habits.new">+ Habit</button></span></div>' +
-      promptHtml() +
+      pendingLevelsHtml() + promptHtml() +
       (list.length ? '<div class="habits">' + list.map(habitHtml).join('') + '</div>'
         : '<p class="empty" style="padding:4px 0">No habits yet. "+ Habit" adds one, such as 10 minutes of fitness a day.</p>') +
       (paused.length ? '<div class="paused-list">Paused: ' + paused.map(function (h) {
@@ -295,16 +310,16 @@
     if (!h || !p) return;
     var option = stepChoice[h.id] !== undefined ? stepChoice[h.id] : p.selected || 0;
     var every = p.every || 'a while', o = p.options && p.options[option], text;
-    if (answer === 'yes') text = h.name + ' is ' + levelText(o.sessions, h.per, o.size) + ' from ' + p.from + '. Next check in ' + every + '.';
+    if (answer === 'yes') text = h.name + ': ' + levelText(o.sessions, h.per, o.size) + ' is ready to accept ' + (h.per === 'week' ? 'on Monday' : 'tomorrow') + '. Nothing changes until you accept it.';
     else if (answer === 'not now') text = 'No change. We\'ll ask again in ' + every + '.';
     else if (answer === 'at goal') text = h.name + ' is at your goal: ' + p.level + '. No more prompts.';
     else if (answer === 'stop asking') text = 'No more prompts for ' + h.name + '. Turn them back on in its settings.';
     else text = 'We\'ll keep asking.';
-    var saved = { prompts: h.prompts, sessions: h.sessions, size: h.size, nextLevel: h.nextLevel };
+    var saved = { prompts: h.prompts, pendingLevel: h.pendingLevel };
     FT.optimistic(function () {
       s.prompt = null;
       delete stepChoice[h.id];
-      if (answer === 'yes') { h.sessions = o.sessions; h.size = o.size; h.nextLevel = { value: levelText(o.sessions, h.per, o.size) }; }
+      if (answer === 'yes') h.pendingLevel = { value: levelText(o.sessions, h.per, o.size), from: h.per === 'week' ? addDays(s.monday, 7) : addDays(s.day, 1), due: false };
       if (answer === 'at goal') h.prompts = 'at goal';
       if (answer === 'stop asking') h.prompts = 'off';
       return function () { s.prompt = p; Object.assign(h, saved); };
@@ -312,6 +327,35 @@
       if (slice().prompt) FT.render(); // after a third "Not now" the server asks once whether to stop asking
     }).catch(function () {});
     FT.toast(text, null, { label: 'Undo', run: FT.undo });
+  });
+
+  // ---------- a level change waiting for Accept ----------
+  /** "4 a week, 30 min" -> { sessions: 4, size: '30 min' }, as the server reads it. */
+  function parseLevel(text) {
+    var m = /^\s*(\d+)\s*(?:x|×|times?)?\s*(?:a|per|\/)\s*(day|week)\s*(?:,\s*(.*?))?\s*$/i.exec(String(text || ''));
+    return m ? { sessions: Number(m[1]), size: m[3] || '' } : null;
+  }
+
+  FT.action('habits.acceptLevel', function (el) {
+    var h = habit(el.dataset.id), level = h && h.pendingLevel && parseLevel(h.pendingLevel.value);
+    if (!level) return;
+    var saved = { sessions: h.sessions, size: h.size, level: h.level, pendingLevel: h.pendingLevel };
+    FT.optimistic(function () {
+      h.sessions = level.sessions; h.size = level.size; h.level = { sessions: level.sessions, size: level.size }; delete h.pendingLevel;
+      return function () { Object.assign(h, saved); };
+    }, send('acceptLevel', { id: h.id })).catch(function () {});
+    FT.toast(h.name + ' is ' + levelText(level.sessions, h.per, level.size) + ' from ' + (h.per === 'week' ? 'this week' : 'today') + '.', null, { label: 'Undo', run: FT.undo });
+  });
+
+  FT.action('habits.postponeLevel', function (el) {
+    var h = habit(el.dataset.id), s = slice();
+    if (!h || !h.pendingLevel) return;
+    var saved = h.pendingLevel;
+    FT.optimistic(function () {
+      h.pendingLevel = { value: saved.value, from: h.per === 'week' ? addDays(s.monday, 7) : addDays(s.day, 1), due: false };
+      return function () { h.pendingLevel = saved; };
+    }, send('postponeLevel', { id: h.id })).catch(function () {});
+    FT.toast('No change for now. ' + h.name + ' stays as it is; we\'ll ask ' + (h.per === 'week' ? 'on Monday' : 'tomorrow') + '.', null, { label: 'Undo', run: FT.undo });
   });
 
   // ---------- new habit (three short steps) and editing ----------

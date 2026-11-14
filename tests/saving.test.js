@@ -84,7 +84,8 @@ async function waitFor(fn, label, ms = 4000) {
   const projectId = rpc('projects', 'create', { name: 'Saving tests', category: 'coding' }).result.id;
   const otherId = rpc('projects', 'create', { name: 'Saving other', category: 'house' }).result.id;
   const serverNotes = (id, mode) => rpc('notes', 'get', { projectId: id || projectId }, mode).result.text;
-  const conflictCopies = () => Object.values(server.drive.files).filter((f) => /-conflict-/.test(f.name || ''));
+  // conflict copies are Docs in the Notes folder; content: their text
+  const conflictCopies = () => server.docs.docs().filter((f) => / - conflict /.test(f.name)).map((f) => ({ name: f.name, content: server.docs.text(f.id) }));
 
   async function openProject(p, id) {
     await waitFor(() => p.w.FT.ready && p.$('#app'), 'app');
@@ -198,6 +199,37 @@ async function waitFor(fn, label, ms = 4000) {
     p.close();
   });
 
+  await step('two windows with the same notes open (Today and a pop-out) keep their own drafts: one never writes over the other\'s', async () => {
+    const p = page();
+    await openProject(p);
+    const key = 'ft.draft.notes.' + p.w.FT.state.mode + '.' + projectId;
+    const other = { text: 'Typed in the other window', html: '', base: '', at: new Date().toISOString() };
+    p.w.localStorage.setItem(key, JSON.stringify({ tabs: { otherwindow: other } }));
+    type(p, '<p>Typed in this window</p>');
+    const drafts = JSON.parse(p.storage()[key]).tabs;
+    assert.deepStrictEqual(Object.keys(drafts).length, 2, 'both drafts are kept');
+    assert.strictEqual(drafts.otherwindow.text, 'Typed in the other window');
+    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => serverNotes() === 'Typed in this window', 'saved');
+    await waitFor(() => Object.keys(JSON.parse(p.storage()[key] || '{"tabs":{}}').tabs).join() === 'otherwindow', 'only this window\'s draft is dropped');
+    p.w.localStorage.removeItem(key);
+    p.close();
+  });
+
+  await step('a window that is not typing loads the notes again when another window of this browser saves them', async () => {
+    const p = page();
+    await openProject(p);
+    const saved = rpc('notes', 'save', { projectId, text: 'Saved in the pop-out window' }).result;
+    p.w.dispatchEvent(new p.w.StorageEvent('storage', { key: 'ft.notes.saved.' + p.w.FT.state.mode + '.' + projectId, newValue: JSON.stringify({ updated: saved.updated, tab: 'popout' }) }));
+    await waitFor(() => p.$('#nt-text').textContent.includes('Saved in the pop-out window'), 'the newer notes are shown');
+    type(p, '<p>Saved in the pop-out window</p><p>and added here</p>');
+    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    const copies = conflictCopies().length;
+    await waitFor(() => serverNotes() === 'Saved in the pop-out window\nand added here', 'saved on the newer version');
+    assert.strictEqual(conflictCopies().length, copies, 'with no conflict');
+    p.close();
+  });
+
   await step('switching mode inside the save delay saves into the mode the notes belong to', async () => {
     const p = page();
     await openProject(p);
@@ -251,48 +283,40 @@ async function waitFor(fn, label, ms = 4000) {
   const docOf = (id) => json(server.run('bootstrap()').data).notes.find((n) => n.project_id === id).doc;
   const docsId = rpc('projects', 'create', { name: 'Saving docs', category: 'coding' }).result.id;
 
-  await step('Done writes the notes into their Google Doc after the save, and a Doc write that hangs never holds up a save', async () => {
+  await step('typing saves straight into the notes Doc, formatting and all; "Open in Docs" shows once it exists; Done needs no second write', async () => {
     const p = page();
     await openProject(p, docsId);
     assert.ok(p.$('#nt-link').hidden, 'no "Open in Docs" before there is a Doc');
-    let release; net.hold['notes.syncDoc'] = new Promise((r) => { release = r; });
-    const sent = net.calls.length;
-    type(p, '<p>First draft</p>');
-    assert.ok(!net.calls.slice(sent).includes('notes.syncDoc'), 'typing does not write the Doc');
-    p.click(p.$('[data-act="notes.done"]'));
-    await waitFor(() => serverNotes(docsId) === 'First draft', 'Done saves');
-    await waitFor(() => net.calls.slice(sent).includes('notes.syncDoc'), 'and then asks for the Doc to be written');
-    const order = net.calls.slice(sent);
-    assert.ok(order.indexOf('notes.save') < order.indexOf('notes.syncDoc'), 'after the save, so the Doc gets the saved text');
-    // the Doc write is held (Google slow): the editor's next save is sent and answered meanwhile
-    type(p, '<p>First draft</p><p>more, typed while the Doc write hangs</p>');
+    type(p, '<p>First <u>draft</u> in <font color="#2b9a5b">green</font></p>');
     p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
-    await waitFor(() => serverNotes(docsId) === 'First draft\nmore, typed while the Doc write hangs' && p.$('#nt-status').textContent === 'Saved', 'a save is sent and answered while syncDoc is held');
-    assert.ok(!docOf(docsId) && !server.docs.docs().some((f) => f.name === 'Saving docs notes'), 'the Doc write is still held');
-    assert.strictEqual(net.calls.slice(sent).filter((k) => k === 'notes.syncDoc').length, 1, 'one Doc write at a time');
-    delete net.hold['notes.syncDoc']; release();
-    await waitFor(() => !p.$('#nt-link').hidden && /^https:\/\/docs\.google\.com\/document\/d\//.test(p.$('#nt-link').href), '"Open in Docs" once the Doc exists');
+    await waitFor(() => serverNotes(docsId) === 'First draft in green' && p.$('#nt-status').textContent === 'Saved', 'saved');
+    const doc = server.docs.docs().find((f) => f.name === 'Saving docs notes');
+    assert.ok(doc.content.includes('<u>draft</u>') && doc.content.includes('<span style="color: #2b9a5b">green</span>'), 'the Doc holds the notes with their formatting');
+    await waitFor(() => !p.$('#nt-link').hidden && p.$('#nt-link').href === docOf(docsId), '"Open in Docs" links the Doc');
     assert.strictEqual(p.$('#nt-link').textContent, 'Open in Docs');
-    assert.strictEqual(p.$('#nt-link').href, docOf(docsId));
-    assert.ok(/First draft/.test(server.docs.docs().find((f) => f.name === 'Saving docs notes').content), 'the Doc holds the notes');
-    // Done again within 30 s does not write the Doc again straight away
     const before = net.calls.length;
     type(p, '<p>Third edit</p>');
     p.click(p.$('[data-act="notes.done"]'));
-    await waitFor(() => serverNotes(docsId) === 'Third edit', 'saved');
+    await waitFor(() => serverNotes(docsId) === 'Third edit', 'Done saves');
     await sleep(100);
-    assert.ok(!net.calls.slice(before).includes('notes.syncDoc'), 'at most one Doc write per 30 s');
+    assert.deepStrictEqual(net.calls.slice(before).filter((k) => k.indexOf('notes.') === 0), ['notes.save'], 'one save, no separate Doc write');
+    assert.strictEqual(server.docs.docs().filter((f) => f.name === 'Saving docs notes').length, 1, 'still one Doc');
     p.close();
   });
 
-  await step('an edit made in the Google Doc is in the editor when the project is opened again', async () => {
+  await step('an edit made in Google Docs is in the editor when the project is opened again', async () => {
     const docId = /\/d\/([^/]+)\//.exec(docOf(docsId))[1];
-    rpc('notes', 'syncDoc', { projectId: docsId }); // the Doc has the latest notes ("Third edit")
-    server.docs.edit(docId, 'Third edit\n\nAdded by an assistant in the Doc\n');
+    server.docs.edit(docId, '<p>Third edit</p><p>Added by an assistant in the Doc</p>');
     const p = page();
     await openProject(p, docsId);
     await waitFor(() => p.$('#nt-text').textContent.includes('Added by an assistant in the Doc'), 'the Doc edit is shown');
-    assert.strictEqual(serverNotes(docsId), 'Third edit\nAdded by an assistant in the Doc', 'and saved into the markdown');
+    assert.strictEqual(serverNotes(docsId), 'Third edit\nAdded by an assistant in the Doc');
+    // and on a page that already had the notes: opening the project again reads the Doc again
+    server.docs.edit(docId, '<p>Third edit</p><p>Added by an assistant in the Doc</p><p>And once more</p>');
+    p.w.FT.go('project', { id: projectId });
+    await waitFor(() => p.$('#nt-text') && p.$('#nt-text').dataset.project === projectId, 'another project');
+    p.w.FT.go('project', { id: docsId });
+    await waitFor(() => p.$('#nt-text').textContent.includes('And once more'), 'the newer Doc edit is shown');
     assert.strictEqual(p.$('#nt-status').textContent, 'Updated from the Google Doc');
     p.close();
   });

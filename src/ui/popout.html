@@ -130,8 +130,13 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     mini: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="8.5" y="8.5" width="4.5" height="3.5" fill="currentColor"/></svg>'
   };
   var POP_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 1.75h4.75V6.5M14.25 1.75 8 8M6.5 3H2.75v10.25H13V9.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  /** Project page panels whose buttons and editor act on FT.state.projectId rather than on an id in their own html. */
-  var PANELS_TIED_TO_THE_OPEN_PROJECT = { notes: true, header: true };
+  /** Project page panels whose buttons act on FT.state.projectId rather than on an id in their own html. */
+  var PANELS_TIED_TO_THE_OPEN_PROJECT = { header: true };
+  /**
+   * Panels whose editor uses fixed element ids (the notes: #nt-text and its toolbar), so only one copy can be on screen.
+   * While one is in a window, every other copy (Today's notes, a project page's notes) shows a note instead of a second editor.
+   */
+  var ONE_COPY_ON_SCREEN = { notes: true };
   var FREE_MIN_WIDTH = 240, FREE_MIN_HEIGHT = 140, FREE_MAX_START_WIDTH = 720, FREE_MIN_START_WIDTH = 320;
   var VISIBLE_EDGE = 80, TITLE_BAR_HEIGHT = 40, CASCADE_STEP = 24;
   var MINI_DEFAULT = { corner: 'bl', w: 380, h: 340 }, MINI_MIN_WIDTH = 240, MINI_MIN_HEIGHT = 160, MINI_GAP = 12, MINI_CLOSED_HEIGHT = 104, PHONE_CARD_HEIGHT = 46;
@@ -219,6 +224,19 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       '<button class="btn sm" data-act="popout.close" data-key="' + key + '">Put back here</button></span></section>';
   }
 
+  /** The window holding another copy of a one-copy panel (see ONE_COPY_ON_SCREEN), or null. */
+  function otherCopyWindow(panelId) {
+    if (!ONE_COPY_ON_SCREEN[panelId]) return null;
+    return state().windows.filter(function (win) { return win.panel === panelId; })[0] || null;
+  }
+
+  function otherCopyHtml(win) {
+    var key = esc(win.key);
+    return '<section class="panel popslot"><span><b>' + esc(windowTitle(win)) + '</b> is open in a window, and one notes editor can be on screen at a time.</span>' +
+      '<span class="actions" style="margin:0"><button class="btn sm" data-act="popout.show" data-key="' + key + '">Show window</button>' +
+      '<button class="btn sm" data-act="popout.close" data-key="' + key + '">Close window</button></span></section>';
+  }
+
   FT.onLayout(function (page, panels) {
     if (capturedPanelsByPage) { capturedPanelsByPage[page] = panels; return null; }
     livePanelsByPage[page] = panels;
@@ -227,7 +245,9 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       if (!panel.html) return panel;
       var win = findWindow(windowKey(page, projectId, panel.id));
       // compact is the phone pager's pinned version (Today's focus): a popped-out panel shows only its placeholder there too
-      return win ? copyOf(panel, { html: placeholderHtml(win), compact: '' }) : withPopButton(page, panel);
+      if (win) return copyOf(panel, { html: placeholderHtml(win), compact: '' });
+      var other = otherCopyWindow(panel.id);
+      return other ? copyOf(panel, { html: otherCopyHtml(other), compact: '' }) : withPopButton(page, panel);
     });
   });
 

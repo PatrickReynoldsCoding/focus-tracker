@@ -199,7 +199,7 @@ var FT = (function () {
     'links.add': 'Project link added', 'links.remove': 'Project link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap',
     'habits.create': 'Habit added', 'habits.update': 'Habit edit', 'habits.remove': 'Habit deleted', 'habits.tap': 'Habit session', 'habits.setStatus': 'Habit pause or end',
     'habits.move': 'Habit moved', 'habits.plan': 'Plan change', 'habits.copyWeek': 'Plan copied', 'habits.answer': 'Step-up answer',
-    'habits.aspire': 'Habit idea added', 'habits.start': 'Habit started',
+    'habits.aspire': 'Habit idea added', 'habits.start': 'Habit started', 'habits.acceptLevel': 'New level accepted', 'habits.postponeLevel': 'New level put off',
     'todos.add': 'To-do added', 'todos.toggle': 'To-do tick', 'todos.remove': 'To-do deleted', 'todos.setDay': 'To-do moved', 'todos.update': 'To-do edit'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
@@ -1100,7 +1100,7 @@ var FT = (function () {
     return out.join('');
   };
 
-  /** The rich editor's HTML back to markdown (what is stored in the notes file). Underline and colours have no markdown form and are dropped. */
+  /** The rich editor's HTML as markdown (Copy as markdown, notes drafts). Underline and colours have no markdown form and are dropped. */
   FT.htmlToMd = function (root) {
     var BREAK = '\u0003'; // where a block sat inside inline content: a line break, or a space inside a list item or heading
     function oneLine(t) { return t.replace(/[\u0003\n]+/g, ' ').replace(/ {2,}/g, ' ').trim(); }

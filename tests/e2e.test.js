@@ -483,20 +483,20 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(server.drive.contentReads, 0, 'no file was read');
   });
 
-  await step('notes autosave to a markdown file and a formatted copy, and can be copied as markdown', async () => {
+  await step('notes autosave straight into their Google Doc, formatting and all, and can be copied as markdown', async () => {
     const ta = $('#nt-text');
     assert.ok($$('#nt-bar [data-cmd="foreColor"]').length && $$('#nt-bar [data-cmd="hiliteColor"]').length && $('#nt-bar [data-cmd="underline"]'), 'colours, highlights and underline in the toolbar');
     ta.innerHTML = '<h1>Fan</h1><div>Replacement needs to be <b>100mm</b> <u>exactly</u>.</div><ul><li>Checked the duct: <font color="#d64545">98mm</font></li></ul>';
     ta.dispatchEvent(new w.Event('input', { bubbles: true }));
     ta.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
-    const file = Object.values(server.drive.files).find((f) => f.name.endsWith('.md') && f.content && f.content.includes('98mm'));
-    assert.ok(file, 'file content updated');
-    assert.strictEqual(file.content, '# Fan\nReplacement needs to be **100mm** exactly.\n- Checked the duct: 98mm', 'the rich text is stored as markdown');
-    const formattedCopy = Object.values(server.drive.files).find((f) => f.name.endsWith('.html'));
-    assert.ok(formattedCopy && formattedCopy.content.includes('<u>exactly</u>') && formattedCopy.content.includes('<font color="#d64545">98mm</font>'), 'underline and colour kept in the formatted copy');
+    const doc = server.docs.docs().find((f) => f.content && f.content.includes('98mm'));
+    assert.ok(doc, 'the notes Doc holds the notes');
+    assert.ok(doc.content.includes('<h1>Fan</h1>') && doc.content.includes('<b>100mm</b>') && doc.content.includes('<u>exactly</u>') && doc.content.includes('<span style="color: #d64545">98mm</span>'), 'with headings, bold, underline and colour');
+    assert.ok(!Object.values(server.drive.files).some((f) => /\.(md|html)$/.test(f.name)), 'and no markdown file or formatted copy beside it');
     const got = JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { projectId: w.FT.state.projectId }))).result;
-    assert.strictEqual(got.html, formattedCopy.content, 'and read back with the notes');
+    assert.ok(got.html.includes('<u>exactly</u>') && got.html.includes('<font color="#d64545">98mm</font>'), 'read back with its formatting');
+    const file = { content: '# Fan\nReplacement needs to be **100mm** exactly.\n- Checked the duct: 98mm' };
     let copied = null;
     Object.defineProperty(w.navigator, 'clipboard', { configurable: true, value: { writeText: (t) => { copied = t; return Promise.resolve(); } } });
     click($('[data-act="notes.copy"]'));
@@ -693,6 +693,75 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
 
+  // ---------- notes on Today ----------
+  const projectNamed = (name) => JSON.parse(JSON.stringify(server.run('bootstrap()').data.projects)).find((p) => p.name === name);
+  const notesOf = (id) => JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { projectId: id }))).result.text;
+  const typeNotes = (html) => { const ed = $('#nt-text'); ed.innerHTML = html; ed.dispatchEvent(new w.Event('input', { bubbles: true })); };
+
+  await step('Today has a Notes panel with the focus project\'s notes: typing there saves to that project, and its page shows them', async () => {
+    click(tab('Today'));
+    const fan = projectNamed('Bathroom extractor fan');
+    await waitFor(() => $('.focus-name').textContent === fan.name, 'the fan is the focus');
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('100mm'), 'the focus project\'s notes on Today');
+    assert.ok($('#nt-panel .label').textContent.includes('Notes · Bathroom extractor fan'), 'named after the project');
+    assert.ok($('#nt-bar [data-cmd="bold"]') && $('[data-act="notes.copy"]'), 'the same editor, toolbar and Copy as markdown');
+    typeNotes($('#nt-text').innerHTML + '<p>Typed on Today</p>');
+    $('#nt-text').dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
+    assert.ok(notesOf(fan.id).endsWith('Typed on Today'), 'saved into the focus project\'s notes');
+    click($('#nt-panel [data-act="notes.openProject"]'));
+    await waitFor(() => w.FT.state.view === 'project' && $('#nt-text') && $('#nt-text').textContent.includes('Typed on Today'), 'the project page shows the same notes');
+    click(tab('Today'));
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id, 'back on Today');
+  });
+
+  await step('the notes paper can be Plain, Legal pad, Graph paper or Index card, kept on this device for every notes panel', async () => {
+    const picker = $('#nt-paper');
+    assert.deepStrictEqual(Array.from(picker.options).map((o) => o.textContent), ['Plain', 'Legal pad', 'Graph paper', 'Index card']);
+    assert.strictEqual(picker.value, '', 'plain by default');
+    assert.ok(!$('#nt-text').classList.contains('paper'));
+    setVal(picker, 'legal', 'change');
+    assert.ok($('#nt-text').classList.contains('paper') && $('#nt-text').classList.contains('paper-legal'), 'the pad at once, no redraw');
+    assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), 'legal');
+    assert.ok(d.getElementById('nt-hand-font'), 'its handwriting font is asked for only now');
+    click($('#nt-panel [data-act="notes.openProject"]'));
+    await waitFor(() => w.FT.state.view === 'project' && $('#nt-text'), 'project page');
+    assert.ok($('#nt-text').classList.contains('paper-legal') && $('#nt-paper').value === 'legal', 'the project page uses it too');
+    setVal($('#nt-paper'), 'graph', 'change');
+    assert.ok($('#nt-text').classList.contains('paper-graph') && !$('#nt-text').classList.contains('paper-legal'));
+    setVal($('#nt-paper'), 'card', 'change');
+    assert.ok($('#nt-text').classList.contains('paper-card'));
+    setVal($('#nt-paper'), '', 'change');
+    assert.ok(!$('#nt-text').classList.contains('paper') && !$('#nt-text').className.includes('paper-'), 'Plain again');
+    assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), null);
+    click(tab('Today'));
+    await waitFor(() => $('#nt-text'), 'Today');
+  });
+
+  await step('when Today\'s focus changes, the notes panel saves what was typed and switches to the new focus\'s notes; no focus shows a short note', async () => {
+    const fan = projectNamed('Bathroom extractor fan');
+    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true', 'editable');
+    typeNotes($('#nt-text').innerHTML + '<p>Typed just before the swap</p>'); // no focusout, inside the save delay
+    click($('[data-act="today.swap"]'));
+    await waitFor(() => $('#dlg-to'), 'swap dialog');
+    const to = $('#dlg-to').options[0];
+    const toName = to.textContent.split(' (')[0];
+    setVal($('#dlg-to'), to.value, 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('.focus-name').textContent === toName, 'the new focus');
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === to.value && $('#nt-panel .label').textContent.includes(toName), 'the panel shows the new focus\'s notes');
+    await waitFor(() => notesOf(fan.id).endsWith('Typed just before the swap'), 'the text typed for the old focus is saved to it');
+    assert.ok(!$('#nt-text').textContent.includes('Typed just before the swap'), 'and is not in the new project\'s notes');
+
+    const today = w.FT.store.today, focusBefore = today.focusId;
+    today.focusId = null;
+    w.FT.render();
+    assert.ok($('#app .notes-panel .nt-empty').textContent.includes('No focus project today'), 'no focus: a short note');
+    assert.ok(!$('#nt-text'));
+    today.focusId = focusBefore;
+    w.FT.render();
+  });
+
   // ---------- habits, to-dos and Plan my week ----------
   const srv = (code) => { const v = server.run('(function () { tableCache_ = {}; return ' + code + '; })()'); return v === undefined ? null : JSON.parse(JSON.stringify(v)); };
   const rowsOfTab = (name) => { const sh = server.ss.sheets[name]; return sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, i) => [h, r[i] === undefined ? '' : r[i]]))); };
@@ -808,7 +877,7 @@ async function waitFor(fn, label, ms = 3000) {
   };
   const reload = () => w.FT.reload();
 
-  await step('"Want to go further?": Yes, adjust changes the level from Monday; three Not nows ask once to stop; I\'m at my goal stops the prompts', async () => {
+  await step('"Want to go further?": Yes, adjust makes a level change that waits for Accept; Accept and Not now on it; three Not nows ask once to stop; I\'m at my goal stops the prompts', async () => {
     const id = habitsNow().habits.find((h) => h.name === 'Cardio rides').id;
     makeDue(id, 2);
     await reload();
@@ -821,15 +890,34 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual($$('.stepcard .choice button')[1].getAttribute('aria-pressed'), 'true', 'the other step can be picked');
     click($('[data-act="habits.answer"][data-answer="yes"]'));
     assert.ok(!$('.stepcard'), 'the card goes at once');
-    assert.ok($('#toast').textContent.includes('Cardio rides is 2 a week, 20 min from Monday. Next check in a week.'));
-    await waitFor(() => habitsNow().habits.find((h) => h.id === id).size === '20 min', 'saved');
+    assert.ok($('#toast').textContent.includes('Cardio rides: 2 a week, 20 min is ready to accept on Monday. Nothing changes until you accept it.'));
+    assert.ok(habitRow('Cardio rides').textContent.includes('2 a week, 20 min to accept on Monday'), 'the row says a change waits');
     const nextMonday = plus(MON, 7);
+    await waitFor(() => rowsOfTab('Habit log').some((r) => r.habit_id === id && r.kind === 'pending' && r.day === nextMonday && r.value === '2 a week, 20 min'), 'a pending change for next Monday');
     const log = rowsOfTab('Habit log').filter((r) => r.habit_id === id);
-    assert.ok(log.some((r) => r.kind === 'level' && r.day === nextMonday && r.value === '2 a week, 20 min'), 'a level row from next Monday');
+    assert.ok(!log.some((r) => r.kind === 'level' && r.day > TODAY), 'no level row that would change it by itself');
     assert.ok(log.some((r) => r.kind === 'prompt' && r.value === 'yes'));
+    assert.strictEqual(habitsNow().habits.find((h) => h.id === id).size, '15 min', 'the habit keeps its size');
     assert.strictEqual(habitsNow().habits.find((h) => h.id === id).next_prompt, plus(TODAY, 7));
-    assert.deepStrictEqual(habitsNow().habits.find((h) => h.id === id).level, { sessions: 2, size: '15 min' }, 'this week stays as it was');
-    await waitFor(() => habitRow('Cardio rides').textContent.includes('2 a week, 20 min from Monday'), 'the row says what changes on Monday');
+
+    // the change is due (as on Monday): a card with Accept and Not now; nothing changes until Accept
+    const due = () => srv("(function () { var t = new Table('Habit log', ['id']); var r = t.all().filter(function (x) { return x.habit_id === '" + id + "' && x.kind === 'pending'; })[0]; t.update(r.id, { day: todayIso_() }); return true; })()");
+    due();
+    await reload();
+    await waitFor(() => $('.levelcard'), 'the Accept card shows');
+    assert.ok($('.levelcard').textContent.includes('New level for Cardio rides') && $('.levelcard').textContent.includes('2 a week, 20 min, up from 2 a week, 15 min'));
+    click($('.levelcard [data-act="habits.postponeLevel"]'));
+    assert.ok(!$('.levelcard'), 'Not now: gone at once');
+    await waitFor(() => rowsOfTab('Habit log').some((r) => r.habit_id === id && r.kind === 'pending' && r.day === nextMonday), 'put off to Monday');
+    assert.strictEqual(habitsNow().habits.find((h) => h.id === id).size, '15 min', 'still unchanged');
+    due();
+    await reload();
+    await waitFor(() => $('.levelcard'), 'due again');
+    click($('.levelcard [data-act="habits.acceptLevel"]'));
+    assert.ok(!$('.levelcard') && habitRow('Cardio rides').textContent.includes('20 min'), 'Accept shows the new level at once');
+    assert.ok($('#toast').textContent.includes('Cardio rides is 2 a week, 20 min from this week.'));
+    await waitFor(() => habitsNow().habits.find((h) => h.id === id).size === '20 min', 'accepted on the server');
+    assert.ok(rowsOfTab('Habit log').some((r) => r.habit_id === id && r.kind === 'level' && r.day === MON && r.value === '2 a week, 20 min'), 'its level row, from this Monday');
 
     // Not now, twice before and once now: then the card asks once whether to stop asking
     makeDue(id, 2);
@@ -1226,7 +1314,7 @@ async function waitFor(fn, label, ms = 3000) {
     click(card.querySelector('[data-act="kanban.open-card"]'));
     await waitFor(() => $('#dlg-note'), 'card dialog');
     assert.strictEqual($('#dlg-cardtitle').value, 'Tell a story with your commits');
-    assert.strictEqual($$('.rtbar button').length, 15);
+    assert.strictEqual($$('.dialog .rtbar button').length, 15);
     $$('input[name="dlg-color"]').find((r) => r.value === '5').checked = true;
     $('#dlg-note').innerHTML = '<b>Why:</b> reviewers read history<script>alert(1)</script>';
     setVal($('#dlg-cardtitle'), 'Tell a story with commits');
@@ -2317,7 +2405,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(popSaved()[0].minimised, false);
   });
 
-  await step('pop out: a project page panel keeps its project on other tabs; the notes need that project to be the one opened last', async () => {
+  await step('pop out: a project page panel keeps its project on other tabs; the notes stay that project\'s, and one notes editor is on screen', async () => {
     const live = w.FT.store.projects.filter((p) => p.status === 'active' && !w.FT.lockedUntil(p));
     const [project, other] = live;
     w.FT.go('project', { id: project.id });
@@ -2345,12 +2433,20 @@ async function waitFor(fn, label, ms = 3000) {
     click(tab('Lists'));
     assert.ok(popWin('notes').querySelector('#nt-text'), 'and on another tab, while that project was the one opened last');
     w.FT.go('project', { id: other.id });
-    await waitFor(() => popWin('notes').querySelector('.popnote'), 'another project opened');
-    assert.ok(popWin('notes').textContent.includes('Open ' + project.name), 'the window says which project to open: ' + popWin('notes').textContent);
-    assert.ok(!popWin('notes').querySelector('#nt-text') && $('#app #nt-text'), 'no second notes editor that would type into the wrong project');
-    click(popWin('notes').querySelector('[data-act="popout.openProject"]'));
-    assert.strictEqual(w.FT.state.projectId, project.id);
-    assert.ok(popWin('notes').querySelector('#nt-text') && $('#app .lcell[data-panel="notes"] .popslot'), 'live again, with the placeholder on its page');
+    await waitFor(() => $('#app .lcell[data-panel="notes"] .popslot'), 'another project opened');
+    assert.strictEqual(popWin('notes').querySelector('#nt-text').dataset.project, project.id, 'the window keeps its own project\'s notes (the editor saves to data-project)');
+    assert.strictEqual($$('#nt-text').length, 1, 'no second notes editor: the other project\'s notes say they wait for the window');
+    assert.ok($('#app .lcell[data-panel="notes"] .popslot').textContent.includes(project.name), 'naming the project in the window');
+    const windowEditor = popWin('notes').querySelector('#nt-text');
+    windowEditor.innerHTML += '<p>Typed in the window</p>';
+    windowEditor.dispatchEvent(new w.Event('input', { bubbles: true }));
+    windowEditor.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => notesOf(project.id).endsWith('Typed in the window'), 'typed in the window, saved to the window\'s project');
+    assert.ok(!notesOf(other.id).includes('Typed in the window'), 'not to the project open on the page');
+    click(tab('Today'));
+    assert.ok(!$('#app #nt-text') && $$('#nt-text').length === 1, 'Today\'s notes panel does not draw a second editor either');
+    w.FT.go('project', { id: project.id });
+    assert.ok(popWin('notes').querySelector('#nt-text') && $('#app .lcell[data-panel="notes"] .popslot'), 'on its own page, the usual placeholder');
   });
 
   await step('pop out: on a phone every window is a card that opens as a full screen sheet', async () => {

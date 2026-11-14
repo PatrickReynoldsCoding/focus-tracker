@@ -645,7 +645,7 @@
     var p = FT.project(FT.state.projectId);
     FT.dialog({
       title: 'Delete project',
-      body: '<p>This removes "' + FT.esc(p.name) + '" with its Kanban board, resource links and log lines from the tracker. The notes file stays in Drive. To keep the project but hide it, use Mark done instead. You can undo this.</p>',
+      body: '<p>This removes "' + FT.esc(p.name) + '" with its Kanban board, resource links and log lines from the tracker. The notes Doc stays in Drive. To keep the project but hide it, use Mark done instead. You can undo this.</p>',
       submit: 'Delete project',
       danger: true,
       // The dialog closes and the project goes at once; the server's answer brings its board, links and log up to date.

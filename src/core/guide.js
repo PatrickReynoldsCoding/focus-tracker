@@ -316,9 +316,9 @@ function guideMarkdown_() {
   p('');
 
   p('## Notes', '',
-    'Each project has notes: formatted text the owner reads and edits in the app. They are kept in a notes file and a Google Doc called "<project name> notes" in the mode\'s Notes folder. The notes cell in Projects holds the Doc\'s link.', '',
-    '- **The notes cell holds a Google Docs link** (https://docs.google.com/document/...): open that Doc and add your text to it. Keep what is there. Add new text at the end, under a heading with the date, for example "## 2026-11-03". The app brings the Doc\'s text into the project the next time the project is opened.',
-    '- **The notes cell is empty, or holds another link** (an older notes file): write the notes into the notes cell itself, as plain text, replacing the link. The app adds the text to the end of the project\'s notes when it next opens, makes the Doc, and puts the link back in the cell.',
+    'Each project has notes: formatted text the owner reads and edits in the app. The notes are a Google Doc called "<project name> notes" in the mode\'s Notes folder: the app reads and saves that Doc, there is no other copy. The notes cell in Projects holds the Doc\'s link.', '',
+    '- **The notes cell holds a Google Docs link** (https://docs.google.com/document/...): open that Doc and add your text to it. Keep what is there. Add new text at the end, under a heading with the date, for example "## 2026-11-03". The app shows your text the next time the project is opened.',
+    '- **The notes cell is empty, or holds another link**: write the notes into the notes cell itself, as plain text, replacing the link. The app adds the text to the end of the project\'s notes when it next opens, makes the Doc, and puts the link back in the cell.',
     '- Notes may use simple markdown: # for a heading, - for a list item, **bold**, *italic*, and [text](https://...) for a link. One paragraph per line: use real line breaks inside the cell (not the two characters backslash and n).',
     '- Writing text into the notes cell never loses the old notes: the app adds your text to the end of them.',
     '- Never create a new Doc or file for notes, and never rename or move the notes Doc: the app could no longer find it.',
