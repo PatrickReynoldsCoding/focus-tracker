@@ -1717,27 +1717,25 @@ test('step-up prompt: only when due and earned (80 % of the sessions in the full
   assert.deepStrictEqual(promptNow(s).options.map((o) => o.size), ['18 min'], 'a longer session, capped at the goal');
 });
 
-test('step-up answers: Yes adjusts from next Monday (daily: tomorrow); Not now waits a pace, three ask once to stop; I\'m at my goal', () => {
+test('step-up answers: Yes makes a level change that waits for Accept from next Monday (daily: tomorrow); Not now waits a pace, three ask once to stop; I\'m at my goal', () => {
   let s = onDay(WED);
   const h = rampHabit(s, '2 weeks', '2026-10-19', { '2026-10-20': 2, '2026-10-27': 2 });
   let r = s.call('habits', 'answer', { id: h.id, answer: 'yes', option: 1 });
-  assert.strictEqual(r.result.text, 'Cardio is 2 a week, 20 min from Monday. Next check in 2 weeks.');
+  assert.strictEqual(r.result.text, 'Cardio: 2 a week, 20 min is ready to accept on Monday. Nothing changes until you accept it.');
   const row = s.rows('Habits')[0];
-  assert.deepStrictEqual([row.sessions, row.size, row.next_prompt], ['2', '20 min', '2026-11-18']);
-  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'level').map((x) => [x.day, x.value]), [['2026-10-19', '2 a week, 15 min'], ['2026-11-09', '2 a week, 20 min']]);
+  assert.deepStrictEqual([row.sessions, row.size, row.next_prompt], ['2', '15 min', '2026-11-18'], 'the habit keeps its level');
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'level').map((x) => [x.day, x.value]), [['2026-10-19', '2 a week, 15 min']], 'no level row yet');
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'pending').map((x) => [x.day, x.value]), [['2026-11-09', '2 a week, 20 min']]);
   const slice = r.slices.habits;
   assert.deepStrictEqual(slice.habits[0].level, { sessions: 2, size: '15 min' }, 'this week keeps its target');
-  assert.deepStrictEqual(slice.habits[0].nextLevel, { value: '2 a week, 20 min', from: '2026-11-09' });
+  assert.deepStrictEqual(slice.habits[0].pendingLevel, { value: '2 a week, 20 min', from: '2026-11-09', due: false });
   assert.strictEqual(slice.prompt, null, 'at most one a day');
-  s.setDay('2026-11-09');
-  assert.deepStrictEqual(json(s.run('bootstrap()')).data.habits.habits[0].level, { sessions: 2, size: '20 min' }, 'Monday: the new level');
   s.run('undo()');
-  s.setDay(WED);
-  assert.strictEqual(s.rows('Habits')[0].size, '15 min', 'Yes can be undone');
+  assert.strictEqual(s.rows('Habit log').filter((x) => x.kind === 'pending').length, 0, 'Yes can be undone');
 
   const daily = s.call('habits', 'create', { name: 'Fitness', sessions: 1, per: 'day', size: '10 min', step_up_every: '1 week' }).result;
   s.call('habits', 'answer', { id: daily.id, answer: 'yes' });
-  assert.ok(s.rows('Habit log').some((x) => x.habit_id === daily.id && x.kind === 'level' && x.day === '2026-11-05'), 'a daily habit changes tomorrow');
+  assert.ok(s.rows('Habit log').some((x) => x.habit_id === daily.id && x.kind === 'pending' && x.day === '2026-11-05'), 'a daily habit\'s change is due tomorrow');
 
   s = onDay(WED);
   const n = rampHabit(s, '1 week', '2026-10-19', { '2026-10-27': 2 });
@@ -1770,6 +1768,44 @@ test('step-up answers: Yes adjusts from next Monday (daily: tomorrow); Not now w
   assert.deepStrictEqual([s.rows('Habits')[0].prompts, s.rows('Habits')[0].goal], ['at goal', '2 a week, 15 min']);
   assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'prompt').map((x) => [x.day, x.value]), [[WED, 'at goal']]);
   assert.throws(() => s.call('habits', 'answer', { id: g.id, answer: 'maybe' }), /Unknown answer/);
+});
+
+test('a habit level change waits for Accept: nothing changes on its day, Not now puts it off, Accept writes the level', () => {
+  let s = onDay(WED);
+  const h = rampHabit(s, '2 weeks', '2026-10-19', { '2026-10-20': 2, '2026-10-27': 2 });
+  s.call('habits', 'answer', { id: h.id, answer: 'yes', option: 1 });
+  assert.throws(() => s.call('habits', 'acceptLevel', { id: h.id }), /can be accepted from 2026-11-09/, 'not before it is due');
+  s.setDay('2026-11-09');
+  let habit = json(s.run('bootstrap()')).data.habits.habits[0];
+  assert.deepStrictEqual([habit.level, habit.sessions, habit.size], [{ sessions: 2, size: '15 min' }, 2, '15 min'], 'Monday: still the old level');
+  assert.deepStrictEqual(habit.pendingLevel, { value: '2 a week, 20 min', from: '2026-11-09', due: true }, 'shown as due');
+  assert.strictEqual(json(s.run('bootstrap()')).data.habits.prompt, null, 'no new step-up prompt while a change waits');
+  s.setDay('2026-11-11');
+  let r = s.call('habits', 'postponeLevel', { id: h.id });
+  assert.strictEqual(r.result.text, 'No change for now. Cardio stays as it is; we\'ll ask on Monday.');
+  assert.deepStrictEqual(r.slices.habits.habits[0].pendingLevel, { value: '2 a week, 20 min', from: '2026-11-16', due: false });
+  assert.strictEqual(s.rows('Habits')[0].size, '15 min');
+  s.setDay('2026-11-18');
+  r = s.call('habits', 'acceptLevel', { id: h.id });
+  assert.strictEqual(r.result.text, 'Cardio is 2 a week, 20 min from this week.');
+  assert.deepStrictEqual([s.rows('Habits')[0].sessions, s.rows('Habits')[0].size], ['2', '20 min']);
+  assert.deepStrictEqual(s.rows('Habit log').filter((x) => x.kind === 'level').map((x) => [x.day, x.value]), [['2026-10-19', '2 a week, 15 min'], ['2026-11-16', '2 a week, 20 min']], 'from this week\'s Monday');
+  assert.strictEqual(s.rows('Habit log').filter((x) => x.kind === 'pending').length, 0);
+  assert.deepStrictEqual(r.slices.habits.habits[0].level, { sessions: 2, size: '20 min' });
+  assert.throws(() => s.call('habits', 'acceptLevel', { id: h.id }), /no level change waiting/);
+  s.run('undo()');
+  assert.deepStrictEqual([s.rows('Habits')[0].size, s.rows('Habit log').filter((x) => x.kind === 'pending').length], ['15 min', 1], 'Accept can be undone');
+
+  // a daily habit: accepted from today
+  const daily = s.call('habits', 'create', { name: 'Fitness', sessions: 1, per: 'day', size: '10 min', step_up_every: '1 week' }).result;
+  s.call('habits', 'answer', { id: daily.id, answer: 'yes' });
+  s.setDay('2026-11-20');
+  s.call('habits', 'acceptLevel', { id: daily.id });
+  assert.ok(s.rows('Habit log').some((x) => x.habit_id === daily.id && x.kind === 'level' && x.day === '2026-11-20' && x.value === '2 a day, 10 min'));
+
+  // a level set by hand replaces the one waiting
+  s.call('habits', 'update', { id: h.id, sessions: 3 });
+  assert.strictEqual(s.rows('Habit log').filter((x) => x.habit_id === h.id && x.kind === 'pending').length, 0);
 });
 
 test('habits.history gives Insights the habits, done and plan rows in the range, and every level, prompt and pause row up to its end', () => {

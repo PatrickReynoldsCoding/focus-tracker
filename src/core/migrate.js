@@ -11,11 +11,12 @@
  * The headers below are the v2 layout as it was released; later changes are new steps, not edits here.
  */
 
-var SCHEMA_VERSION = 3;
+var SCHEMA_VERSION = 4;
 
 var SCHEMA_STEPS_ = [
   { to: 2, run: migrateToV2_ },
-  { to: 3, run: migrateToV3_ }
+  { to: 3, run: migrateToV3_ },
+  { to: 4, run: migrateToV4_ }
 ];
 
 // Tabs that mean a spreadsheet already holds app data. A spreadsheet with none of them is new and starts at the latest version.
@@ -320,4 +321,32 @@ function migrateToV3_() {
   }
   props.setProperty(doneKey, made);
   setSettings_({ 'rotation.daily_minimum': '' });
+}
+
+/**
+ * v3 to v4: a habit's level never changes by itself (habits/server.js). The old "Yes, adjust" wrote a level row for a
+ * later day (next Monday, or tomorrow) and changed the habit row at once, so the level changed on that day by itself.
+ * Each such row becomes a `pending` row for the same day and value, and the habit row goes back to the level it has
+ * today (its newest level row up to today). Past level rows are left as they are. Nothing to do, no backup; with rows to
+ * change, the spreadsheet is backed up first. Safe to run again: after it there are no level rows after today.
+ */
+function migrateToV4_(ss) {
+  tableCache_ = {};
+  if (!ss.getSheetByName('Habit log')) return;
+  var today = todayIso_();
+  var log = new Table('Habit log', V3_HABIT_LOG_HEADERS_, ['count']);
+  var future = log.all().filter(function (r) { return r.kind === 'level' && r.day > today; });
+  if (!future.length) return;
+  backupBeforeMigration_(ss, 'v4');
+  var habits = new Table('Habits', V3_HABIT_HEADERS_, ['sessions', 'order']);
+  future.forEach(function (r) {
+    log.remove(r.id);
+    log.removeWhere(function (x) { return x.habit_id === r.habit_id && x.kind === 'pending'; });
+    log.insert({ habit_id: r.habit_id, habit: r.habit, day: r.day, kind: 'pending', count: 0, value: r.value });
+    var h = habits.get(r.habit_id);
+    var levelsUntilToday = log.all().filter(function (x) { return x.habit_id === r.habit_id && x.kind === 'level' && x.day <= today; })
+      .sort(function (a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : 0; });
+    var current = levelsUntilToday.length && /^\s*(\d+)\s*a\s*(?:day|week)\s*(?:,\s*(.*?))?\s*$/i.exec(levelsUntilToday[levelsUntilToday.length - 1].value);
+    if (h && current) habits.update(h.id, { sessions: Number(current[1]), size: current[2] || '' });
+  });
 }

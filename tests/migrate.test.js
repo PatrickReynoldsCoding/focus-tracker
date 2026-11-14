@@ -18,6 +18,7 @@ const byId = (sh) => Object.fromEntries(rowsOf(sh).map((r) => [r.id, r]));
 const copyRows = (ss) => Object.fromEntries(ss.order().map((n) => [n, ss.sheets[n].rows.map((r) => r.slice())]));
 
 const DAY = 86400000;
+const LATEST = String(loadServer().run('SCHEMA_VERSION'));
 const weekday = (new Date().getUTCDay() + 6) % 7 + 1;
 const MONDAY = new Date(Date.now() - (weekday - 1) * DAY).toISOString().slice(0, 10);
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -136,7 +137,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   const s = v1Server();
   const before = copyRows(s.ss);
   const b = s.boot();
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
 
   // the backup: a full copy of the v1 sheet, in the mode folder, made before anything changed
   const backups = Object.values(s.drive.files).filter((f) => /backup/.test(f.name));
@@ -273,7 +274,7 @@ test('a failure part way leaves the old tab, and the next load finishes the job'
   s.boot();
   assert.ok(!s.ss.order().some((n) => /updating/.test(n)));
   assertNoDataLost(s);
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 1, 'one backup, taken before the first try');
   // a run stopped after the old tab was deleted but before the new one was renamed is finished
   const s2 = v1Server();
@@ -408,7 +409,7 @@ test('each mode migrates on its own, when it is first opened', () => {
   ['Projects', 'Categories'].forEach((n) => { work.insertSheet(n).rows = V1[n].map((r) => r.slice()); });
   s.user._m['layout.work'] = JSON.stringify({ today: { focus: { x: 0, y: 0, w: 6 } } });
   s.boot('work');
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], LATEST);
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], undefined, 'the personal sheet waits until it is opened');
   assert.deepStrictEqual(s.ss.sheets.Projects.rows, V1.Projects);
   assert.deepStrictEqual(work.sheets.Projects.rows[0].slice(0, 3), ['name', 'category', 'status']);
@@ -416,17 +417,17 @@ test('each mode migrates on its own, when it is first opened', () => {
   const backup = Object.values(s.drive.files).find((f) => /backup/.test(f.name));
   assert.strictEqual(s.drive.pathOf(backup), 'Focus Tracker/Work/Focus Tracker - Work - backup before v2 - ' + TODAY);
   s.boot();
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
 });
 
 test('migrateAllModes, run from the editor, migrates every mode that has a spreadsheet and makes none', () => {
   const s = v1Server();
   const sheetsBefore = Object.keys(s.spreadsheets).length;
   s.run('migrateAllModes()');
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
   assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], undefined);
   assert.strictEqual(Object.keys(s.spreadsheets).length, sheetsBefore + 1, 'only the backup is new');
-  assert.ok(s.mock.logs.some((l) => l === 'Personal: spreadsheet layout 1 -> 3'));
+  assert.ok(s.mock.logs.some((l) => l === 'Personal: spreadsheet layout 1 -> ' + LATEST));
   assertNoDataLost(s);
 });
 
@@ -443,7 +444,7 @@ test('a row with a name shared by two targets is flagged, not guessed', () => {
 test('a new spreadsheet starts at the latest layout; tabs made later by a module get their colour and place from TAB_STYLE', () => {
   const s = loadServer();
   s.run('setup()');
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 0, 'nothing to back up');
   assert.deepStrictEqual(s.ss.order(), ['Start here', 'Projects', 'Tasks', 'Lists', 'Resources', 'Habits', 'To-dos', 'Whiteboards', 'Links', 'Criteria', 'Log', 'Categories',
     'Columns', 'Habit log', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Thumbs'], 'Thumbs is made by the whiteboard module');
@@ -478,7 +479,7 @@ test('v2 to v3: the daily minimum becomes one habit, today\'s done flag becomes 
   const s = v2Server({ 'rotation.monday': 'coding', 'rotation.daily_minimum': 'job' });
   s.user._m['today.state'] = JSON.stringify({ day: TODAY, skipped: [], jobDone: true, session: null });
   const b = s.boot();
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
   const habits = rowsOf(s.ss.sheets.Habits);
   assert.strictEqual(habits.length, 1);
   const h = habits[0];
@@ -535,7 +536,28 @@ test('v2 to v3: no daily minimum means no habit; an unset one is the mode\'s old
   s.boot('work');
   const work = s.spreadsheets[s.script._m['SHEET_ID.work']];
   assert.strictEqual(rowsOf(work.sheets.Habits).length, 0);
-  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], '3');
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.work'], LATEST);
+});
+
+test('v3 to v4: a level row for a later day (the old "Yes, adjust") becomes a level change waiting for Accept; past level rows stay', () => {
+  const s = loadServer();
+  s.run('setup()');
+  s.boot = (mode) => json(s.run('bootstrap')(mode));
+  s.call = (m, fn, args) => json(s.run('rpc')(m, fn, json(args || {})));
+  const h = s.call('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week', size: '15 min', step_up_every: '2 weeks' }).result;
+  const later = s.run("isoAddDays_(isoMonday_(todayIso_()), 7)");
+  s.run(`tableCache_ = {}; new Table('Habit log', ['id']).insert({ habit_id: '${h.id}', habit: 'Cardio', day: '${later}', kind: 'level', value: '2 a week, 20 min' }); new Table('Habits', ['id']).update('${h.id}', { size: '20 min' })`);
+  s.script._m['SCHEMA_VERSION.personal'] = '3';
+  const b = s.boot();
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
+  assert.deepStrictEqual(rowsOf(s.ss.sheets['Habit log']).map((r) => [r.day, r.kind, r.value]), [[TODAY, 'level', '2 a week, 15 min'], [later, 'pending', '2 a week, 20 min']]);
+  assert.strictEqual(rowsOf(s.ss.sheets.Habits)[0].size, '15 min', 'the habit is back at the level it has today');
+  assert.deepStrictEqual(b.data.habits.habits[0].pendingLevel, { value: '2 a week, 20 min', from: later, due: false });
+  assert.ok(s.script._m['SCHEMA_BACKUP.v4.personal'], 'backed up first, as it changes rows');
+  const before = copyRows(s.ss);
+  s.script._m['SCHEMA_VERSION.personal'] = '3';
+  s.boot();
+  assert.deepStrictEqual(copyRows(s.ss), before, 'running it again changes nothing');
 });
 
 console.log(passed + ' migration tests passed');

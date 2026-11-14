@@ -10,6 +10,11 @@
  * tap), plus `level` rows (value "4 a week, 30 min", day = the day it applies from), `prompt` rows (value yes, not now,
  * at goal, stop asking, keep asking) and `pause` / `resume` rows. Insights compare each week with the level then.
  *
+ * A level never changes by itself. "Yes, adjust" on the step-up prompt writes a `pending` row (value the new level, day
+ * the day it is due: next Monday, or tomorrow for a daily habit). From that day Today shows it with Accept and Not now;
+ * only Accept writes the `level` row and changes the habit (acceptLevel). Not now moves the day on (postponeLevel).
+ * Level rows dated after today, written by the old "Yes" before this rule, became pending rows in the v4 step of core/migrate.js.
+ *
  * Aspiring habits (status `aspiring`): ideas not started yet, just a name and a why (description). They never show on
  * Today, never get prompts and never reach Insights; "Start" (api.start) fills in the level and makes one active.
  *
@@ -29,6 +34,7 @@ function habitsModule() {
   var TAP_DAYS_BACK = 7;     // a tap that waited offline may be for a day this long ago
   var MET_SHARE = 0.8;       // a level counts as met at 80 % of its sessions, so one missed session does not block a prompt
   var NOT_NOW_LIMIT = 3;     // after this many "Not now" in a row, ask once whether to stop asking
+  var PENDING = 'pending';   // a level change waiting for Accept
 
   // ---------- reading the words people write ----------
 
@@ -210,7 +216,8 @@ function habitsModule() {
 
   /** The prompt to show on Today, or null. One at a time and at most one a day. */
   function prompt_(habits, today, awayDays) {
-    var active = habits.filter(function (h) { return h.status === 'active' && h.prompts === 'on' && intervalDays_(h.step_up_every); });
+    var waiting = pendingByHabit_();
+    var active = habits.filter(function (h) { return h.status === 'active' && h.prompts === 'on' && intervalDays_(h.step_up_every) && !waiting[h.id]; });
     var stop = active.filter(function (h) { return notNowsInARow_(h) >= NOT_NOW_LIMIT; })[0];
     if (stop) return { habitId: stop.id, kind: 'stop', level: levelText_(stop.sessions, stop.per, stop.size) };
     if (LOG.all().some(function (r) { return r.kind === 'prompt' && r.day === today; })) return null;
@@ -231,6 +238,31 @@ function habitsModule() {
     return null;
   }
 
+  // ---------- level changes wait for Accept ----------
+
+  /** The pending level change per habit id: { id, day, value }. One per habit; the newest wins if there are more. */
+  function pendingByHabit_() {
+    var out = {};
+    LOG.all().forEach(function (r) { if (r.kind === PENDING && (!out[r.habit_id] || r.day >= out[r.habit_id].day)) out[r.habit_id] = r; });
+    return out;
+  }
+
+  /** The day a level change asked for today is due: next Monday for a habit per week, tomorrow for one per day. */
+  function nextPeriodStart_(h, today) {
+    return h.per === 'week' ? isoAddDays_(isoMonday_(today), 7) : isoAddDays_(today, 1);
+  }
+
+  /**
+   * The day an accepted level applies from: this week's Monday for a habit per week (the week it was due in), unless the
+   * level was already changed later this week, then today; today for a habit per day.
+   */
+  function acceptedFrom_(h, today) {
+    if (h.per !== 'week') return today;
+    var monday = isoMonday_(today);
+    var changedThisWeek = logFor_(h.id, 'level').some(function (r) { return r.day > monday && r.day <= today; });
+    return changedThisWeek ? today : monday;
+  }
+
   function awayDays_(ctx) {
     return ctx.optional('today', 'awayDays') || [];
   }
@@ -239,6 +271,7 @@ function habitsModule() {
 
   function snapshot_(ctx) {
     var today = todayIso_(), monday = isoMonday_(today), from = isoAddDays_(monday, -7), until = isoAddDays_(monday, 13);
+    var pendingBy = pendingByHabit_();
     var habits = sorted_(); // ended and aspiring too, for the All habits dialog; Today shows the active ones
     var log = LOG.all();
     var levelsBy = {};
@@ -250,8 +283,8 @@ function habitsModule() {
         if (isAspiring_(h)) return Object.assign({}, h, { status: ASPIRING });
         var levels = levelsBy[h.id] || [];
         var out = Object.assign({}, h, { level: levelOn_(h, levels, h.per === 'week' ? monday : today) });
-        var waiting = levels.filter(function (r) { return r.day > today; })[0];
-        if (waiting) out.nextLevel = { value: waiting.value, from: waiting.day };
+        var pending = pendingBy[h.id];
+        if (pending) out.pendingLevel = { value: pending.value, from: pending.day, due: pending.day <= today };
         return out;
       }),
       log: log.filter(function (r) { return (r.kind === 'done' || r.kind === 'plan') && r.day >= from && r.day <= until; })
@@ -344,7 +377,10 @@ function habitsModule() {
         }
         if (a.prompts !== undefined) { assert_(['on', 'off', 'at goal'].indexOf(a.prompts) !== -1, 'Prompts are on, off or at goal.'); patch.prompts = a.prompts; }
         var row = T.update(h.id, patch);
-        if (levelChanged) setLevel_(row, logFor_(h.id, 'level'), today, levelText_(row.sessions, row.per, row.size));
+        if (levelChanged) {
+          setLevel_(row, logFor_(h.id, 'level'), today, levelText_(row.sessions, row.per, row.size));
+          LOG.removeWhere(function (r) { return r.habit_id === h.id && r.kind === PENDING; }); // a level set by hand replaces the one waiting
+        }
         ctx.refresh('habits');
         return row;
       },
@@ -464,11 +500,11 @@ function habitsModule() {
         if (a.answer === 'yes') {
           var options = offers_(h), o = options[Number(a.option) || 0];
           assert_(o, 'There is no step up to take: ' + h.name + ' is at its goal.');
-          var from = h.per === 'week' ? isoAddDays_(isoMonday_(today), 7) : isoAddDays_(today, 1);
           var level = levelText_(o.sessions, h.per, o.size);
-          setLevel_(h, logFor_(h.id, 'level'), from, level);
-          T.update(h.id, { sessions: o.sessions, size: o.size, next_prompt: next });
-          text = h.name + ' is ' + levelText_(o.sessions, h.per, o.size) + ' from ' + (h.per === 'week' ? 'Monday' : 'tomorrow') + '. Next check in ' + intervalWords_(interval) + '.';
+          LOG.removeWhere(function (r) { return r.habit_id === h.id && r.kind === PENDING; });
+          addLog_(h, nextPeriodStart_(h, today), PENDING, 0, level);
+          T.update(h.id, { next_prompt: next });
+          text = h.name + ': ' + level + ' is ready to accept ' + (h.per === 'week' ? 'on Monday' : 'tomorrow') + '. Nothing changes until you accept it.';
         } else if (a.answer === 'not now') {
           T.update(h.id, { next_prompt: next });
           text = 'No change. We\'ll ask again in ' + intervalWords_(interval) + '.';
@@ -485,6 +521,35 @@ function habitsModule() {
         addLog_(h, today, 'prompt', 0, a.answer);
         ctx.refresh('habits');
         return { text: text };
+      },
+
+      /**
+       * Accept the level change waiting for a.id, once it is due: the level row is written (from this week's Monday for a
+       * habit per week, today for one per day) and the habit takes the new sessions and size. Returns { text }.
+       */
+      acceptLevel: function (a, ctx) {
+        var h = habit_(a.id), today = todayIso_();
+        var pending = pendingByHabit_()[h.id];
+        assert_(pending, h.name + ' has no level change waiting.');
+        assert_(pending.day <= today, h.name + '\'s new level can be accepted from ' + pending.day + '.');
+        var level = parseLevel_(pending.value);
+        assert_(level, 'The new level for ' + h.name + ' cannot be read: ' + pending.value);
+        setLevel_(h, logFor_(h.id, 'level'), acceptedFrom_(h, today), levelText_(level.sessions, h.per, level.size));
+        T.update(h.id, { sessions: level.sessions, size: level.size });
+        LOG.removeWhere(function (r) { return r.habit_id === h.id && r.kind === PENDING; });
+        ctx.refresh('habits');
+        return { text: h.name + ' is ' + levelText_(level.sessions, h.per, level.size) + ' from ' + (h.per === 'week' ? 'this week' : 'today') + '.' };
+      },
+
+      /** "Not now" on a level change waiting for a.id: it waits until next Monday (per week) or tomorrow (per day). Returns { text }. */
+      postponeLevel: function (a, ctx) {
+        var h = habit_(a.id), today = todayIso_();
+        var pending = pendingByHabit_()[h.id];
+        assert_(pending, h.name + ' has no level change waiting.');
+        var later = nextPeriodStart_(h, today);
+        LOG.update(pending.id, { day: later });
+        ctx.refresh('habits');
+        return { text: 'No change for now. ' + h.name + ' stays as it is; we\'ll ask ' + (h.per === 'week' ? 'on Monday' : 'tomorrow') + '.' };
       }
     }
   };

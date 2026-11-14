@@ -757,7 +757,7 @@ async function waitFor(fn, label, ms = 3000) {
   };
   const reload = () => w.FT.reload();
 
-  await step('"Want to go further?": Yes, adjust changes the level from Monday; three Not nows ask once to stop; I\'m at my goal stops the prompts', async () => {
+  await step('"Want to go further?": Yes, adjust makes a level change that waits for Accept; Accept and Not now on it; three Not nows ask once to stop; I\'m at my goal stops the prompts', async () => {
     const id = habitsNow().habits.find((h) => h.name === 'Cardio rides').id;
     makeDue(id, 2);
     await reload();
@@ -770,15 +770,34 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual($$('.stepcard .choice button')[1].getAttribute('aria-pressed'), 'true', 'the other step can be picked');
     click($('[data-act="habits.answer"][data-answer="yes"]'));
     assert.ok(!$('.stepcard'), 'the card goes at once');
-    assert.ok($('#toast').textContent.includes('Cardio rides is 2 a week, 20 min from Monday. Next check in a week.'));
-    await waitFor(() => habitsNow().habits.find((h) => h.id === id).size === '20 min', 'saved');
+    assert.ok($('#toast').textContent.includes('Cardio rides: 2 a week, 20 min is ready to accept on Monday. Nothing changes until you accept it.'));
+    assert.ok(habitRow('Cardio rides').textContent.includes('2 a week, 20 min to accept on Monday'), 'the row says a change waits');
     const nextMonday = plus(MON, 7);
+    await waitFor(() => rowsOfTab('Habit log').some((r) => r.habit_id === id && r.kind === 'pending' && r.day === nextMonday && r.value === '2 a week, 20 min'), 'a pending change for next Monday');
     const log = rowsOfTab('Habit log').filter((r) => r.habit_id === id);
-    assert.ok(log.some((r) => r.kind === 'level' && r.day === nextMonday && r.value === '2 a week, 20 min'), 'a level row from next Monday');
+    assert.ok(!log.some((r) => r.kind === 'level' && r.day > TODAY), 'no level row that would change it by itself');
     assert.ok(log.some((r) => r.kind === 'prompt' && r.value === 'yes'));
+    assert.strictEqual(habitsNow().habits.find((h) => h.id === id).size, '15 min', 'the habit keeps its size');
     assert.strictEqual(habitsNow().habits.find((h) => h.id === id).next_prompt, plus(TODAY, 7));
-    assert.deepStrictEqual(habitsNow().habits.find((h) => h.id === id).level, { sessions: 2, size: '15 min' }, 'this week stays as it was');
-    await waitFor(() => habitRow('Cardio rides').textContent.includes('2 a week, 20 min from Monday'), 'the row says what changes on Monday');
+
+    // the change is due (as on Monday): a card with Accept and Not now; nothing changes until Accept
+    const due = () => srv("(function () { var t = new Table('Habit log', ['id']); var r = t.all().filter(function (x) { return x.habit_id === '" + id + "' && x.kind === 'pending'; })[0]; t.update(r.id, { day: todayIso_() }); return true; })()");
+    due();
+    await reload();
+    await waitFor(() => $('.levelcard'), 'the Accept card shows');
+    assert.ok($('.levelcard').textContent.includes('New level for Cardio rides') && $('.levelcard').textContent.includes('2 a week, 20 min, up from 2 a week, 15 min'));
+    click($('.levelcard [data-act="habits.postponeLevel"]'));
+    assert.ok(!$('.levelcard'), 'Not now: gone at once');
+    await waitFor(() => rowsOfTab('Habit log').some((r) => r.habit_id === id && r.kind === 'pending' && r.day === nextMonday), 'put off to Monday');
+    assert.strictEqual(habitsNow().habits.find((h) => h.id === id).size, '15 min', 'still unchanged');
+    due();
+    await reload();
+    await waitFor(() => $('.levelcard'), 'due again');
+    click($('.levelcard [data-act="habits.acceptLevel"]'));
+    assert.ok(!$('.levelcard') && habitRow('Cardio rides').textContent.includes('20 min'), 'Accept shows the new level at once');
+    assert.ok($('#toast').textContent.includes('Cardio rides is 2 a week, 20 min from this week.'));
+    await waitFor(() => habitsNow().habits.find((h) => h.id === id).size === '20 min', 'accepted on the server');
+    assert.ok(rowsOfTab('Habit log').some((r) => r.habit_id === id && r.kind === 'level' && r.day === MON && r.value === '2 a week, 20 min'), 'its level row, from this Monday');
 
     // Not now, twice before and once now: then the card asks once whether to stop asking
     makeDue(id, 2);
