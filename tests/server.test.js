@@ -362,6 +362,22 @@ test('notes are stored as a markdown file and read back', () => {
 // Saves are versioned by the millisecond: wait for the next one so two saves in a test get different versions.
 const tick = () => { const t = Date.now(); while (Date.now() === t) { /* spin */ } };
 
+test('notes typed on Today save to today\'s focus project, the same notes as on its page', () => {
+  const s = fresh();
+  s.mock.weekday = 3;
+  const a = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  const b = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
+  const focusId = s.call('today', 'state').result.focusId;
+  assert.ok([a.id, b.id].includes(focusId));
+  const otherId = focusId === a.id ? b.id : a.id;
+  s.call('notes', 'save', { projectId: focusId, text: 'Written on Today', _base: '', _editedAt: new Date().toISOString() });
+  assert.strictEqual(s.call('notes', 'get', { projectId: focusId }).result.text, 'Written on Today', 'the focus project has them');
+  assert.strictEqual(s.call('notes', 'get', { projectId: otherId }).result.text, '', 'the other project does not');
+  const row = rowsOf(s.ss.sheets.Notes)[0];
+  assert.strictEqual(row.project_id, focusId);
+  assert.strictEqual(json(s.run('bootstrap()')).data.notes.filter((n) => n.project_id === focusId).length, 1, 'one notes row, shared by Today and the project page');
+});
+
 test('notes Doc: the first sync makes "<project> notes" in the Notes folder, links it, and is skipped while nothing changed', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Garden', category: 'house' }).result;

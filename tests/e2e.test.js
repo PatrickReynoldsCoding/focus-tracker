@@ -642,6 +642,75 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
 
+  // ---------- notes on Today ----------
+  const projectNamed = (name) => JSON.parse(JSON.stringify(server.run('bootstrap()').data.projects)).find((p) => p.name === name);
+  const notesOf = (id) => JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { projectId: id }))).result.text;
+  const typeNotes = (html) => { const ed = $('#nt-text'); ed.innerHTML = html; ed.dispatchEvent(new w.Event('input', { bubbles: true })); };
+
+  await step('Today has a Notes panel with the focus project\'s notes: typing there saves to that project, and its page shows them', async () => {
+    click(tab('Today'));
+    const fan = projectNamed('Bathroom extractor fan');
+    await waitFor(() => $('.focus-name').textContent === fan.name, 'the fan is the focus');
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('100mm'), 'the focus project\'s notes on Today');
+    assert.ok($('#nt-panel .label').textContent.includes('Notes · Bathroom extractor fan'), 'named after the project');
+    assert.ok($('#nt-bar [data-cmd="bold"]') && $('[data-act="notes.copy"]'), 'the same editor, toolbar and Copy as markdown');
+    typeNotes($('#nt-text').innerHTML + '<p>Typed on Today</p>');
+    $('#nt-text').dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
+    assert.ok(notesOf(fan.id).endsWith('Typed on Today'), 'saved into the focus project\'s notes');
+    click($('#nt-panel [data-act="notes.openProject"]'));
+    await waitFor(() => w.FT.state.view === 'project' && $('#nt-text') && $('#nt-text').textContent.includes('Typed on Today'), 'the project page shows the same notes');
+    click(tab('Today'));
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id, 'back on Today');
+  });
+
+  await step('the notes paper can be Plain, Legal pad, Graph paper or Index card, kept on this device for every notes panel', async () => {
+    const picker = $('#nt-paper');
+    assert.deepStrictEqual(Array.from(picker.options).map((o) => o.textContent), ['Plain', 'Legal pad', 'Graph paper', 'Index card']);
+    assert.strictEqual(picker.value, '', 'plain by default');
+    assert.ok(!$('#nt-text').classList.contains('paper'));
+    setVal(picker, 'legal', 'change');
+    assert.ok($('#nt-text').classList.contains('paper') && $('#nt-text').classList.contains('paper-legal'), 'the pad at once, no redraw');
+    assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), 'legal');
+    assert.ok(d.getElementById('nt-hand-font'), 'its handwriting font is asked for only now');
+    click($('#nt-panel [data-act="notes.openProject"]'));
+    await waitFor(() => w.FT.state.view === 'project' && $('#nt-text'), 'project page');
+    assert.ok($('#nt-text').classList.contains('paper-legal') && $('#nt-paper').value === 'legal', 'the project page uses it too');
+    setVal($('#nt-paper'), 'graph', 'change');
+    assert.ok($('#nt-text').classList.contains('paper-graph') && !$('#nt-text').classList.contains('paper-legal'));
+    setVal($('#nt-paper'), 'card', 'change');
+    assert.ok($('#nt-text').classList.contains('paper-card'));
+    setVal($('#nt-paper'), '', 'change');
+    assert.ok(!$('#nt-text').classList.contains('paper') && !$('#nt-text').className.includes('paper-'), 'Plain again');
+    assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), null);
+    click(tab('Today'));
+    await waitFor(() => $('#nt-text'), 'Today');
+  });
+
+  await step('when Today\'s focus changes, the notes panel saves what was typed and switches to the new focus\'s notes; no focus shows a short note', async () => {
+    const fan = projectNamed('Bathroom extractor fan');
+    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true', 'editable');
+    typeNotes($('#nt-text').innerHTML + '<p>Typed just before the swap</p>'); // no focusout, inside the save delay
+    click($('[data-act="today.swap"]'));
+    await waitFor(() => $('#dlg-to'), 'swap dialog');
+    const to = $('#dlg-to').options[0];
+    const toName = to.textContent.split(' (')[0];
+    setVal($('#dlg-to'), to.value, 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('.focus-name').textContent === toName, 'the new focus');
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === to.value && $('#nt-panel .label').textContent.includes(toName), 'the panel shows the new focus\'s notes');
+    await waitFor(() => notesOf(fan.id).endsWith('Typed just before the swap'), 'the text typed for the old focus is saved to it');
+    assert.ok(!$('#nt-text').textContent.includes('Typed just before the swap'), 'and is not in the new project\'s notes');
+
+    const today = w.FT.store.today, focusBefore = today.focusId;
+    today.focusId = null;
+    w.FT.render();
+    assert.ok($('#app .notes-panel .nt-empty').textContent.includes('No focus project today'), 'no focus: a short note');
+    assert.ok(!$('#nt-text'));
+    today.focusId = focusBefore;
+    w.FT.render();
+  });
+
   // ---------- habits, to-dos and Plan my week ----------
   const srv = (code) => { const v = server.run('(function () { tableCache_ = {}; return ' + code + '; })()'); return v === undefined ? null : JSON.parse(JSON.stringify(v)); };
   const rowsOfTab = (name) => { const sh = server.ss.sheets[name]; return sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, i) => [h, r[i] === undefined ? '' : r[i]]))); };
@@ -1025,7 +1094,7 @@ async function waitFor(fn, label, ms = 3000) {
     click(card.querySelector('[data-act="kanban.open-card"]'));
     await waitFor(() => $('#dlg-note'), 'card dialog');
     assert.strictEqual($('#dlg-cardtitle').value, 'Tell a story with your commits');
-    assert.strictEqual($$('.rtbar button').length, 15);
+    assert.strictEqual($$('.dialog .rtbar button').length, 15);
     $$('input[name="dlg-color"]').find((r) => r.value === '5').checked = true;
     $('#dlg-note').innerHTML = '<b>Why:</b> reviewers read history<script>alert(1)</script>';
     setVal($('#dlg-cardtitle'), 'Tell a story with commits');

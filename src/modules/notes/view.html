@@ -25,6 +25,59 @@
   .notes-panel.full .notes-done { display: inline-flex; flex: none; }
   .notes-panel.full .notes-edit { flex: 1; height: auto; min-height: 0; max-height: none; border: 0; border-radius: 0; outline: 0; padding: 12px 18px 18px; font-size: 17px; line-height: 1.6; }
 }
+.notes-panel .label .nt-open { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-transform: none; letter-spacing: 0; }
+.notes-panel .rtbar .nt-paper { height: 30px; padding: 0 6px; font-size: 13px; width: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.nt-empty { margin: 0; color: var(--muted); }
+/*
+ * Paper themes (picked per device, ft.notes.paper). Every text row is exactly one rule tall: the rule is 1.75em of the
+ * editor's own font size, line-height is the unitless 1.75, blocks have no margins, and headings are 1 or 2 rules tall.
+ * So the lines follow the text when the font size changes (phone) and scroll with it (background-attachment: local).
+ */
+:root {
+  --nt-ink: #1b2a4a; --nt-legal: #fdf5a6; --nt-white: #fffefb; --nt-blue: #9ec3e4; --nt-red: #e07272; --nt-grid: #c9dbe8;
+  --nt-binding: #7d2b2b; --nt-shadow: 0 1px 2px rgba(40, 30, 0, 0.18), 0 8px 16px -10px rgba(40, 30, 0, 0.35);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) { --nt-legal: #e6dc8f; --nt-white: #e4e3dc; --nt-blue: #7fa5c6; --nt-grid: #b2c3cf; --nt-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+}
+:root[data-theme="dark"] { --nt-legal: #e6dc8f; --nt-white: #e4e3dc; --nt-blue: #7fa5c6; --nt-grid: #b2c3cf; --nt-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.notes-edit.paper {
+  --nt-rule: 1.75em; --nt-line: var(--nt-blue);
+  --nt-rules: linear-gradient(to bottom, transparent calc(100% - 1px), var(--nt-line) calc(100% - 1px)) 0 0 / 100% var(--nt-rule) repeat local content-box;
+  color: var(--nt-ink); caret-color: var(--nt-ink); background: var(--nt-rules), local var(--nt-white); box-shadow: var(--nt-shadow); border-color: transparent;
+}
+.notes-panel .notes-edit.paper { line-height: 1.75; }
+.notes-panel .notes-edit.paper p, .notes-panel .notes-edit.paper div, .notes-panel .notes-edit.paper ul, .notes-panel .notes-edit.paper ol,
+.notes-panel .notes-edit.paper blockquote, .notes-panel .notes-edit.paper h1, .notes-panel .notes-edit.paper h2, .notes-panel .notes-edit.paper h3 { margin: 0; }
+.notes-panel .notes-edit.paper h1 { font-size: 1.75em; line-height: 2; }
+.notes-panel .notes-edit.paper h2 { font-size: 1.4em; line-height: 1.25; }
+.notes-panel .notes-edit.paper h3 { font-size: 1.15em; line-height: 1.5217; }
+.notes-panel .notes-edit.paper blockquote { color: inherit; opacity: 0.8; border-left-color: currentColor; }
+.notes-panel .notes-edit.paper a { color: #1a4fa0; }
+.notes-panel .notes-edit.paper:empty::before { color: rgba(27, 42, 74, 0.62); }
+.notes-panel .notes-edit.paper-legal {
+  font-family: "Patrick Hand", "Bradley Hand", "Segoe Print", "Comic Neue", var(--font-body); font-size: 17px; padding-left: 3.6em;
+  border-top: 14px solid var(--nt-binding); border-radius: 2px 2px 4px 4px;
+  background: linear-gradient(to right, transparent 2.6em, var(--nt-red) 2.6em, var(--nt-red) calc(2.6em + 1px), transparent calc(2.6em + 1px), transparent 2.85em, var(--nt-red) 2.85em, var(--nt-red) calc(2.85em + 1px), transparent calc(2.85em + 1px)) 0 0 / 100% 100% no-repeat local border-box,
+    var(--nt-rules), local var(--nt-legal);
+}
+.notes-panel .notes-edit.paper-graph { --nt-line: var(--nt-grid);
+  background: linear-gradient(to right, transparent calc(100% - 1px), var(--nt-grid) calc(100% - 1px)) 0 0 / var(--nt-rule) var(--nt-rule) repeat local content-box, var(--nt-rules), local var(--nt-white); }
+.notes-panel .notes-edit.paper-card { border-radius: 3px;
+  --nt-card-head: linear-gradient(var(--nt-red), var(--nt-red)) 0 calc(2 * var(--nt-rule) - 2px) / 100% 2px no-repeat local content-box,
+    linear-gradient(var(--nt-white), var(--nt-white)) 0 -24px / 100% calc(2 * var(--nt-rule) + 22px) no-repeat local content-box;
+  background: var(--nt-card-head), var(--nt-rules), local var(--nt-white); }
+@media (max-width: 760px) {
+  .notes-panel.full .notes-edit.paper-legal { font-size: 19px; padding-left: 3.6em; }
+}
+/* E-ink: black on white, thin black lines (graph paper: a dot at each crossing), no colour, no shadow, the usual font. */
+:root[data-theme="eink"] .notes-edit.paper { --nt-ink: #000; --nt-line: #000; --nt-grid: #000; --nt-red: #000; --nt-binding: #000; }
+:root[data-theme="eink"] .notes-panel .notes-edit.paper { background: var(--nt-rules), local #fff !important; color: #000 !important; font-family: var(--font-body); }
+:root[data-theme="eink"] .notes-panel .notes-edit.paper-graph { background: radial-gradient(circle at calc(100% - 1px) calc(100% - 1px), #000 1.2px, transparent 1.7px) 0 0 / var(--nt-rule) var(--nt-rule) repeat local content-box, local #fff !important; }
+:root[data-theme="eink"] .notes-panel .notes-edit.paper-card { --nt-white: #fff; background: var(--nt-card-head), var(--nt-rules), local #fff !important; }
+:root[data-theme="eink"] .notes-panel .notes-edit.paper-legal { background: linear-gradient(to right, transparent 2.6em, #000 2.6em, #000 calc(2.6em + 1px), transparent calc(2.6em + 1px)) 0 0 / 100% 100% no-repeat local border-box, var(--nt-rules), local #fff !important; }
+:root[data-theme="eink"] .notes-panel .notes-edit.paper a { color: #000; }
+:root[data-theme="eink"] .notes-panel .notes-edit.paper:empty::before { color: #333; }
 </style>
 <script>
 (function () {
@@ -50,8 +103,14 @@
   var docTimers = {};    // projectId -> a Doc write waiting for DOC_GAP_MS to pass
   var docLast = {};      // projectId -> when the Doc was last written from here
   var docChecked = {};   // projectId -> when the Doc was last checked for edits from here
-  var onScreen = null;   // the project whose notes are on screen, to notice leaving it
+  var onScreen = null;   // the project whose notes are on screen (project page or Today), to notice leaving it
   var HEIGHT_KEY = 'ft.notes.height';
+  var PAPER_KEY = 'ft.notes.paper';
+  var SAVED_KEY = 'ft.notes.saved.'; // + mode + '.' + projectId: another window of this browser saved these notes
+  // Paper themes, picked per device: [id, label]. '' is plain.
+  var PAPERS = [['', 'Plain'], ['legal', 'Legal pad'], ['graph', 'Graph paper'], ['card', 'Index card']];
+  var HANDWRITING_FONT_URL = 'https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap';
+  var tabId = thisTabId();
   var PLACEHOLDER = 'Ideas, decisions, links. Saved as a markdown file in Drive.';
 
   // Bold, italic, strikethrough, headings, lists and quotes go into the markdown file too. Underline, colours and
@@ -75,15 +134,51 @@
     return (FT.store.notes || []).filter(function (n) { return n.project_id === projectId; })[0] || null;
   }
 
+  /** This browser tab's id, kept for the tab's life (also across a reload), so two windows never write over each other's drafts. */
+  function thisTabId() {
+    var fresh = Math.random().toString(36).slice(2, 10);
+    try {
+      var id = sessionStorage.getItem('ft.tab');
+      if (!id) { id = fresh; sessionStorage.setItem('ft.tab', id); }
+      return id;
+    } catch (e) { return fresh; }
+  }
+
   // ---------- drafts: what was typed is kept on this device until the server has it, so closing the page loses nothing ----------
+  // One entry per window ({ tabs: { <tab id>: { text, html, base, at } } }), so two windows with the same notes open (Today
+  // and a project page, or a pop-out) each keep their own unsaved text. An older single draft is read as one entry.
   function draftKey(projectId) { return 'ft.draft.notes.' + (modeOf[projectId] || FT.state.mode) + '.' + projectId; }
+  function draftsOf(projectId) {
+    try {
+      var stored = JSON.parse(localStorage.getItem(draftKey(projectId)) || 'null');
+      if (!stored) return {};
+      return stored.tabs || { older: stored };
+    } catch (e) { return {}; }
+  }
+  function writeDrafts(projectId, drafts) {
+    try {
+      if (Object.keys(drafts).length) localStorage.setItem(draftKey(projectId), JSON.stringify({ tabs: drafts }));
+      else localStorage.removeItem(draftKey(projectId));
+    } catch (e) {}
+  }
   function keepDraft(projectId) {
-    try { localStorage.setItem(draftKey(projectId), JSON.stringify({ text: cache[projectId], html: formatted[projectId], base: loaded[projectId], at: edited[projectId] })); } catch (e) {}
+    var drafts = draftsOf(projectId);
+    drafts[tabId] = { text: cache[projectId], html: formatted[projectId], base: loaded[projectId], at: edited[projectId] };
+    writeDrafts(projectId, drafts);
   }
-  function readDraft(projectId) {
-    try { return JSON.parse(localStorage.getItem(draftKey(projectId)) || 'null'); } catch (e) { return null; }
+  function readDraft(projectId) { return draftsOf(projectId)[tabId] || null; }
+  function dropDraft(projectId, tab) {
+    var drafts = draftsOf(projectId);
+    delete drafts[tab || tabId];
+    writeDrafts(projectId, drafts);
   }
-  function dropDraft(projectId) { try { localStorage.removeItem(draftKey(projectId)); } catch (e) {} }
+  /** The draft to put back on loading: this window's, else the newest another window left (it may have closed before saving). */
+  function draftToRestore(projectId) {
+    var drafts = draftsOf(projectId);
+    if (drafts[tabId]) return { tab: tabId, draft: drafts[tabId] };
+    var newest = Object.keys(drafts).sort(function (a, b) { return String(drafts[b].at || '') < String(drafts[a].at || '') ? -1 : 1; })[0];
+    return newest ? { tab: newest, draft: drafts[newest] } : null;
+  }
 
   function colourButton(command, colour, title, extraClass) {
     return '<button type="button" class="dot' + extraClass + '" data-cmd="' + command + '" data-val="' + colour + '" title="' + title + '" aria-label="' + title + '"><i style="--dot:' + colour + '"></i></button>';
@@ -96,8 +191,42 @@
     }).join('') + separator +
       TEXT_COLORS.map(function (colour) { return colourButton('foreColor', colour[0], colour[1] + ' text', ''); }).join('') + separator +
       HIGHLIGHTS.map(function (colour) { return colourButton('hiliteColor', colour[0], colour[1] + ' highlight', ' hi'); }).join('') + separator +
-      '<button type="button" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">Clear</button></div>';
+      '<button type="button" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">Clear</button>' + separator + paperPickerHtml() + '</div>';
   }
+
+  // ---------- paper themes ----------
+  function savedPaper() {
+    var paper = '';
+    try { paper = localStorage.getItem(PAPER_KEY) || ''; } catch (e) {}
+    return PAPERS.some(function (p) { return p[0] === paper; }) ? paper : '';
+  }
+  function paperClass(paper) { return paper ? ' paper paper-' + paper : ''; }
+  function paperPickerHtml() {
+    var current = savedPaper();
+    return '<select class="nt-paper" id="nt-paper" data-change="notes.paper" aria-label="Paper" title="Paper">' + PAPERS.map(function (p) {
+      return '<option value="' + p[0] + '"' + (p[0] === current ? ' selected' : '') + '>' + p[1] + '</option>';
+    }).join('') + '</select>';
+  }
+  /** The legal pad's handwriting font loads only when that paper is used. Until it arrives, and if it never does, the fallbacks in the CSS show. */
+  function loadHandwritingFont() {
+    if (document.getElementById('nt-hand-font')) return;
+    var link = document.createElement('link');
+    link.id = 'nt-hand-font'; link.rel = 'stylesheet'; link.href = HANDWRITING_FONT_URL;
+    document.head.appendChild(link);
+  }
+  function applyPaper(paper) {
+    var ed = editor();
+    if (paper === 'legal') loadHandwritingFont();
+    if (!ed) return;
+    PAPERS.forEach(function (p) { if (p[0]) ed.classList.remove('paper-' + p[0]); });
+    ed.classList.toggle('paper', !!paper);
+    if (paper) ed.classList.add('paper-' + paper);
+  }
+  FT.on('change', 'notes.paper', function (el) {
+    var paper = el.value;
+    try { if (paper) localStorage.setItem(PAPER_KEY, paper); else localStorage.removeItem(PAPER_KEY); } catch (e) {}
+    applyPaper(paper);
+  });
 
   /** What the editor shows for a project: the formatted copy when there is one for this text, else the markdown. */
   function editorHtml(projectId) {
@@ -106,18 +235,34 @@
 
   function savedHeight() { try { return localStorage.getItem(HEIGHT_KEY) || ''; } catch (e) { return ''; } }
 
-  function panel(p) {
+  /** The notes panel for a project. onToday: Today's copy, named after the focus project with a link to its page. */
+  function panel(p, onToday) {
     var row = noteRow(p.id);
     var ready = has(cache, p.id) || !row;
     var height = savedHeight();
-    return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel"><div class="label">Notes</div>' +
+    var label = onToday ? 'Notes · <button type="button" class="nt-open" data-act="notes.openProject" data-id="' + FT.esc(p.id) + '" title="Open ' + FT.esc(p.name) + '">' + FT.esc(p.name) + '</button>' : 'Notes';
+    return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel" data-project="' + FT.esc(p.id) + '"><div class="label">' + label + '</div>' +
       '<div class="notes-top">' + toolbarHtml() + '<button class="btn primary notes-done" type="button" data-act="notes.done">Done</button></div>' +
-      '<div class="rtedit notes-edit' + (height ? ' sized' : '') + '" id="nt-text" contenteditable="' + (ready ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="Notes"' +
+      '<div class="rtedit notes-edit' + (height ? ' sized' : '') + paperClass(savedPaper()) + '" id="nt-text" data-project="' + FT.esc(p.id) + '" contenteditable="' + (ready ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="' + (onToday ? 'Notes for ' + FT.esc(p.name) : 'Notes') + '"' +
       (height ? ' style="--nt-h:' + FT.esc(height) + '"' : '') + ' data-placeholder="' + (ready ? PLACEHOLDER : 'Loading…') + '">' + editorHtml(p.id) + '</div>' +
       '<div class="nt-grip" id="nt-grip" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag to make the notes taller or shorter" aria-label="Resize notes. Drag, or press the up and down arrow keys."></div>' +
       '<div class="notes-foot"><span id="nt-status"></span><span class="nt-right">' +
       '<button type="button" class="nt-copy" data-act="notes.copy">Copy as markdown</button>' +
       '<a id="nt-link" href="' + FT.esc(row && row.doc ? row.doc : '') + '" target="_blank" rel="noopener noreferrer"' + (row && row.doc ? '' : ' hidden') + '>Open in Docs</a></span></div></section>';
+  }
+
+  /** Today's notes panel: the focus project's notes, the same as on its page, or a short note when there is no focus. */
+  function todayPanels() {
+    var t = FT.store.today || {}, focus = t.focusId ? FT.project(t.focusId) : null;
+    var html = focus ? panel(focus, true)
+      : '<section class="panel notes-panel"><div class="label">Notes</div><p class="nt-empty">No focus project today, so there are no notes to show. Once Today has a focus, its notes are here.</p></section>';
+    return [{ id: 'notes', title: 'Notes', description: 'Today\'s focus project\'s notes, the same as on its page.', html: html, w: 7 }];
+  }
+
+  /** The project whose notes are in the editor on screen, or null. */
+  function editorProject() {
+    var ed = editor();
+    return ed ? ed.dataset.project : null;
   }
 
   /** The Doc exists: keep its address on the notes row and the project, and show "Open in Docs". */
@@ -127,7 +272,7 @@
     var project = FT.project(projectId);
     if (project) project.notes = url;
     var link = document.getElementById('nt-link');
-    if (link && FT.state.projectId === projectId) { link.href = url; link.hidden = false; }
+    if (link && editorProject() === projectId) { link.href = url; link.hidden = false; }
   }
 
   /**
@@ -187,13 +332,13 @@
 
   function status(projectId, text) {
     var el = document.getElementById('nt-status');
-    if (el && FT.state.projectId === projectId) el.textContent = text;
+    if (el && editorProject() === projectId) el.textContent = text;
   }
 
   /** Put the cached text in the editor, if that project's notes are on screen and nothing is being typed there. */
   function show(projectId) {
-    var el = document.getElementById('nt-text');
-    if (!el || FT.state.projectId !== projectId) return;
+    var el = editor();
+    if (!el || el.dataset.project !== projectId) return;
     el.innerHTML = editorHtml(projectId); el.setAttribute('contenteditable', 'true');
     el.dataset.placeholder = PLACEHOLDER;
   }
@@ -238,6 +383,7 @@
         }
         if (dirty[projectId]) { save(projectId); return; }
         if (readDraft(projectId) && readDraft(projectId).text === text) dropDraft(projectId);
+        tellOtherWindows(projectId, r.updated);
         status(projectId, 'Saved');
         docWanted[projectId] = true;
         if (docAfterSave[projectId]) { docAfterSave[projectId] = false; finished(projectId); }
@@ -251,6 +397,20 @@
         retryLater(projectId);
       });
   }
+
+  /** Other windows of this browser with the same notes open load them again (storage event), instead of meeting a conflict later. */
+  function tellOtherWindows(projectId, version) {
+    try { localStorage.setItem(SAVED_KEY + (modeOf[projectId] || FT.state.mode) + '.' + projectId, JSON.stringify({ updated: version, tab: tabId })); } catch (e) {}
+  }
+  window.addEventListener('storage', function (e) {
+    var prefix = SAVED_KEY + FT.state.mode + '.';
+    if (!e.key || e.key.indexOf(prefix) !== 0 || !e.newValue) return;
+    var projectId = e.key.slice(prefix.length), info;
+    try { info = JSON.parse(e.newValue); } catch (err) { return; }
+    if (!info || info.tab === tabId || !has(cache, projectId) || info.updated === loaded[projectId]) return;
+    if (dirty[projectId] || saving[projectId]) return; // typing here too: the save meets the other text on the server and both are kept
+    load(projectId);
+  });
 
   /** Save every project's notes now, for example when the page is hidden or closing, and then write their Docs. */
   function saveAll() {
@@ -281,39 +441,50 @@
       cache[projectId] = r.text || '';
       formatted[projectId] = r.html || '';
       loaded[projectId] = r.updated || '';
-      var draft = readDraft(projectId);
+      var restore = draftToRestore(projectId), draft = restore && restore.draft;
       if (draft && draft.text !== cache[projectId]) {
         cache[projectId] = draft.text; formatted[projectId] = draft.html || ''; loaded[projectId] = draft.base || ''; edited[projectId] = draft.at; dirty[projectId] = true;
-      } else if (draft) dropDraft(projectId);
+        if (restore.tab !== tabId) { dropDraft(projectId, restore.tab); keepDraft(projectId); } // this window saves it now
+      } else if (draft) dropDraft(projectId, restore.tab);
       show(projectId);
       if (dirty[projectId]) save(projectId);
       else checkDoc(projectId);
     }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
   }
 
+  /** A project's notes come on screen (its page, or Today's notes panel): load them, or again if they changed elsewhere. */
+  function opened(projectId) {
+    var row = noteRow(projectId);
+    var stale = has(cache, projectId) && row && row.updated !== loaded[projectId];
+    modeOf[projectId] = modeOf[projectId] || FT.state.mode;
+    if (!has(cache, projectId) || (stale && !dirty[projectId] && !saving[projectId])) load(projectId);
+    else checkDoc(projectId);
+    // Notes from before the Docs: their Doc is made now, in the background, so "Open in Docs" is there.
+    if (row && !row.doc) { docWanted[projectId] = true; writeDoc(projectId); }
+  }
+
   FT.module({
     id: 'notes',
-    slots: { 'project.page': [{ id: 'notes', title: 'Notes', description: 'Free notes, kept as a markdown file and a Google Doc.', order: 20, span: 'half', render: panel }] },
-    onProject: function (projectId) {
-      var row = noteRow(projectId);
-      var stale = has(cache, projectId) && row && row.updated !== loaded[projectId];
-      modeOf[projectId] = modeOf[projectId] || FT.state.mode;
-      if (!has(cache, projectId) || (stale && !dirty[projectId] && !saving[projectId])) load(projectId);
-      else checkDoc(projectId);
-      // Notes from before the Docs: their Doc is made now, in the background, so "Open in Docs" is there.
-      if (row && !row.doc) { docWanted[projectId] = true; writeDoc(projectId); }
-    }
+    slots: {
+      'project.page': [{ id: 'notes', title: 'Notes', description: 'Free notes, kept as a markdown file and a Google Doc.', order: 20, span: 'half', render: function (p) { return panel(p, false); } }],
+      'today.panels': [{ order: 30, render: todayPanels }]
+    },
+    onProject: opened
   });
+
+  FT.action('notes.openProject', function (el) { FT.go('project', { id: el.dataset.id }); });
 
   function editor() { return document.getElementById('nt-text'); }
 
   // The editor is rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
   FT.onRender(function () {
     var el = editor();
-    // Leaving a project's page finishes editing its notes.
-    var now = el ? FT.state.projectId : null;
-    if (onScreen && onScreen !== now) finished(onScreen);
+    // Leaving a project's page, or Today's focus changing, finishes editing those notes: saved now, then the Doc.
+    var now = el ? el.dataset.project : null;
+    if (onScreen && onScreen !== now) { save(onScreen); finished(onScreen); }
+    if (now && now !== onScreen && FT.state.view !== 'project') opened(now); // Today: the project page's onProject does this there
     onScreen = now;
+    if (el && el.classList.contains('paper-legal')) loadHandwritingFont();
     if (!el) { fullOpen = false; if (fullEntry) { fullEntry = false; FT.popHistory(); } }
     if (el && !el.dataset.md) { el.dataset.md = '1'; FT.richShortcuts(el); FT.headingKeys(el); }
     if (el && fullOpen && narrow.matches) fitToScreen();
@@ -321,7 +492,7 @@
 
   document.addEventListener('input', function (e) {
     if (!e.target || e.target.id !== 'nt-text') return;
-    var id = FT.state.projectId;
+    var id = e.target.dataset.project;
     modeOf[id] = modeOf[id] || FT.state.mode;
     cache[id] = FT.htmlToMd(e.target); formatted[id] = e.target.innerHTML; dirty[id] = true; edited[id] = new Date().toISOString();
     keepDraft(id); status(id, 'Editing…');
@@ -329,7 +500,7 @@
     timers[id] = setTimeout(function () { save(id); }, 1200);
   });
   document.addEventListener('focusout', function (e) {
-    if (e.target && e.target.id === 'nt-text') save(FT.state.projectId);
+    if (e.target && e.target.id === 'nt-text') save(e.target.dataset.project);
   });
   // Pasted text goes in as plain text, so it cannot bring in another page's styles.
   document.addEventListener('paste', function (e) {
@@ -457,9 +628,10 @@
     fullOpen = false;
     var p = document.getElementById('nt-panel');
     if (p) p.classList.remove('full');
+    var projectId = editorProject();
     if (editor()) editor().blur();
-    save(FT.state.projectId);
-    finished(FT.state.projectId);
+    save(projectId);
+    finished(projectId);
   }
   FT.action('notes.done', function () {
     closeFull();

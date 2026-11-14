@@ -198,6 +198,37 @@ async function waitFor(fn, label, ms = 4000) {
     p.close();
   });
 
+  await step('two windows with the same notes open (Today and a pop-out) keep their own drafts: one never writes over the other\'s', async () => {
+    const p = page();
+    await openProject(p);
+    const key = 'ft.draft.notes.' + p.w.FT.state.mode + '.' + projectId;
+    const other = { text: 'Typed in the other window', html: '', base: '', at: new Date().toISOString() };
+    p.w.localStorage.setItem(key, JSON.stringify({ tabs: { otherwindow: other } }));
+    type(p, '<p>Typed in this window</p>');
+    const drafts = JSON.parse(p.storage()[key]).tabs;
+    assert.deepStrictEqual(Object.keys(drafts).length, 2, 'both drafts are kept');
+    assert.strictEqual(drafts.otherwindow.text, 'Typed in the other window');
+    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => serverNotes() === 'Typed in this window', 'saved');
+    await waitFor(() => Object.keys(JSON.parse(p.storage()[key] || '{"tabs":{}}').tabs).join() === 'otherwindow', 'only this window\'s draft is dropped');
+    p.w.localStorage.removeItem(key);
+    p.close();
+  });
+
+  await step('a window that is not typing loads the notes again when another window of this browser saves them', async () => {
+    const p = page();
+    await openProject(p);
+    const saved = rpc('notes', 'save', { projectId, text: 'Saved in the pop-out window' }).result;
+    p.w.dispatchEvent(new p.w.StorageEvent('storage', { key: 'ft.notes.saved.' + p.w.FT.state.mode + '.' + projectId, newValue: JSON.stringify({ updated: saved.updated, tab: 'popout' }) }));
+    await waitFor(() => p.$('#nt-text').textContent.includes('Saved in the pop-out window'), 'the newer notes are shown');
+    type(p, '<p>Saved in the pop-out window</p><p>and added here</p>');
+    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    const copies = conflictCopies().length;
+    await waitFor(() => serverNotes() === 'Saved in the pop-out window\nand added here', 'saved on the newer version');
+    assert.strictEqual(conflictCopies().length, copies, 'with no conflict');
+    p.close();
+  });
+
   await step('switching mode inside the save delay saves into the mode the notes belong to', async () => {
     const p = page();
     await openProject(p);
