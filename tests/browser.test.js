@@ -539,7 +539,7 @@ async function run(browser, size) {
     assert.ok(await pg.isVisible('#nt-text li font[color="#d64545"]'), 'the red button colours the selection');
     await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
     const savedNotes = serverCall('notes', 'get', { projectId: pid });
-    assert.ok(/^- red in a list$/m.test(savedNotes.text) && savedNotes.html.includes('<font color="#d64545">red in a list</font>'), 'the markdown has the text, the formatted copy its colour');
+    assert.ok(/^- red in a list$/m.test(savedNotes.text) && savedNotes.html.includes('<font color="#d64545">red in a list</font>'), 'the markdown has the text, the Doc its colour');
     const heightBefore = await pg.evaluate(() => document.getElementById('nt-text').offsetHeight);
     await pg.focus('#nt-grip');
     await pg.keyboard.press('ArrowDown');

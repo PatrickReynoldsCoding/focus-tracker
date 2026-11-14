@@ -1,43 +1,48 @@
 # Project notes as Google Docs
 
-SPEC-2026-11 "Google integration": each project's notes are also a Google Doc called `<project name> notes`, opened with "Open in Docs", only if it does not slow the app down. Built 2026-10-30. Code: `src/modules/notes/server.js` (`syncDoc`, `checkDoc`, `toDocMarkdown_`, `fromDocMarkdown_`) and `src/modules/notes/view.html`.
+Each project's notes ARE its Google Doc, `<project name> notes`, in the mode's Notes folder (`<mode folder>/Notes/`). There is no markdown file and no formatted HTML copy any more: Paddy decided on 2026-11-14 that the Doc is the only store. Code: `src/modules/notes/server.js` and `src/modules/notes/view.html`. History: notes were first markdown files (2026-10-28), then markdown plus a formatted copy plus a Doc mirror (2026-10-30); schema step v5 moved them into the Docs (below).
 
 ## How it works
 
-- **The markdown file stays the source.** The editor saves to `<mode folder>/Notes/<project>-<id>.md` exactly as before: same 1.2 s delay, drafts on the device, versioned saves, conflict copies, retries. Nothing in that path waits for the Doc or calls Google Docs.
-- **The Doc is a mirror, written when editing is finished.** That means Done (phone), leaving the project page, or hiding/closing the page. The browser then sends `notes.syncDoc({ projectId })`:
-  - after the save still to go (so the Doc gets the saved text), never while typing;
-  - in parallel (`parallel: true`), so it is not in the save queue and no later save waits for it (tested with a held `syncDoc`);
-  - `render: false, quiet: true, noMerge: true`: it does not redraw the page or show errors, and a reply cannot overwrite newer data on screen;
-  - at most once per 30 s per project from one page (a later request waits for the 30 s and then runs);
-  - one at a time per project, so two quick requests cannot make two Docs.
-  On the server it does nothing (no Drive call) if the Doc already holds this markdown version (`Notes.doc_synced === Notes.updated`).
-- **The Doc is made lazily**, on the first sync. Opening a project that has notes but no Doc yet also asks for that first sync, in the background, so older notes get their Doc and "Open in Docs" without having to be edited first. The Doc's id is kept in `Notes.doc_id`, and `Projects.notes` (the link in the sheet) changes to the Doc's address. The markdown file stays in Drive. A Doc deleted in Drive is made again on the next sync.
-- **"Open in Docs"** replaces "Open file in Drive". It shows once the Doc exists.
-- **The formatted copy** (`<project>-<id>.html`, `Notes.html_file_id`) holds what markdown cannot: underline, colours, highlights. It is written with each editor save and is used only while the markdown is the version it was saved with (`Notes.html_version === Notes.updated`). Text brought back from the Doc is saved without it, so after a Doc edit the editor shows the markdown and those styles are gone. The Doc never gets them.
-- **Edits made in the Doc come back.** On opening a project (at most once per 30 s), the browser sends `notes.checkDoc` in parallel. The server compares the Doc's Drive `modifiedTime` with `Notes.doc_seen` (the `modifiedTime` the app saw when it last wrote or read the Doc), which costs one small Drive call. If the Doc changed since:
-  - the export is turned back into the app's markdown. If it is the same notes (only blank lines, `*` bullets or trailing spaces differ) nothing happens;
-  - if the markdown did not change since the last mirror, the Doc's text is saved into the markdown through the same versioned save the editor uses. The editor shows it ("Updated from the Google Doc") if nothing is being typed. If something is being typed, the typed text's next save meets the usual version conflict, and both texts are kept;
-  - if the markdown changed too, the markdown stays, the Doc's text is saved as `<project>-<id>-conflict-<time>-doc.md` in the Notes folder, a Log line and a message say so, and the next sync writes the kept notes into the Doc.
-  - `syncDoc` makes the same check before it writes, so a Doc edit that was never brought in is kept as a conflict copy, not overwritten.
-  - An empty export is never taken as "the Doc was cleared", because it could be Drive answering with nothing.
+- **The editor loads the Doc and saves straight to it.** Opening a project (or Today's notes panel) asks `notes.get`. The server exports the Doc as HTML through the Drive advanced service and turns it into the editor's tags (`fromDocHtml_`). A save (`notes.save`, same 1.2 s delay as before, drafts on the device, retries, conflict handling) sends the editor's HTML; the server cleans it with `sanitizeRichText_` and imports it over the Doc's content (`Drive.Files.update` with `text/html`, `docHtmlFor_`). The first save makes the Doc and puts its link in the project's notes cell.
+- **No separate mirror step.** There is no "write the Doc on Done / leaving / hiding" and no "bring Doc edits back on open" any more (`syncDoc` and `checkDoc` are gone): every save is a Doc write, and every open is a Doc read.
+- **Opening is cheap when nothing changed.** The page sends the version it holds (`known`); if the Doc's `modifiedTime` is still that version, the server answers `{ same: true }` after one small `Files.get`, without exporting the Doc. Otherwise it exports it, and an edit made in Google Docs shows in the editor ("Updated from the Google Doc"), unless something is being typed.
+- **Formatting round-trips.** Headings H1 to H3, bold, italic, underline, strikethrough, text colours, highlights, bullet and numbered lists, links and quotes. Going to the Doc, `<font color>` becomes a `color` style (Docs reads styles). Coming back, Google's export puts styles in classes (`.c3{font-weight:700}`); `fromDocHtml_` reads the style block and turns each span's classes back into `b`, `i`, `u`, `s`, a colour or a highlight, drops Docs' default black text and white background, unwraps Google's link redirect (`https://www.google.com/url?q=...`), drops the link styling Docs adds around links, and reads an indented paragraph as a quote. Docs' heading styles are not turned into bold. Nested lists come back flat; images, tables and comments made in Docs are not shown in the app (their text is).
+- **Versions are the Doc's `modifiedTime`.** `Notes.updated` is the version the app last wrote or read; `Notes.written` a fingerprint of the text then (`notesFingerprint_`: the plain text, formatting and blank lines left out). A save carries the version its text builds on (`_base`) and when it was edited (`_editedAt`):
+  - same version, Doc not touched since: written;
+  - the Doc's `modifiedTime` moved but its text is the one the app wrote (Google can touch the time after a write): no change, written;
+  - the Doc changed (another device, or an edit in Google Docs) and has the same text: no conflict;
+  - otherwise the newest edit wins (the Doc's `modifiedTime` against `_editedAt`), and the other text is kept as a conflict copy: a new Doc `<project name> notes - conflict <yyyymmddhhmm>` in the Notes folder, with a message and a Log line.
+- **Drafts stay on the device** until the server has the text, one per browser window (`ft.draft.notes.<mode>.<project>` holds `{ tabs: { <window id>: draft } }`), so two windows with the same notes open (Today's panel and a pop-out, say) never overwrite each other's unsaved text. A window that is not typing loads the notes again when another window of the same browser saves them (a `storage` event on `ft.notes.saved.<mode>.<project>`).
+- **Notes typed into the sheet's notes cell** (an assistant, or Paddy) are added to the end of the Doc on the next load (headings, lists, bold, italic and links from simple markdown, `notesMarkdownToHtml_`), the Doc is made if there is none, and the cell gets the Doc's link back.
+- **Copy as markdown** converts the editor's content in the browser (`FT.htmlToMd`). `notes.get` also gives `text`, markdown made on the server (`notesHtmlToMarkdown_`), for assistants and tests.
+- **A Doc deleted in Drive**: the notes read as empty and the next save makes a new Doc and links it.
 
-## Conversion, and why no new permission
+## Why Drive's HTML conversion, not DocumentApp
 
-Google converts both ways: Drive's markdown import (upload `text/markdown` as a Google Doc) and Drive's markdown export (`files.export` as `text/markdown`), through the **Drive advanced service (v3)**, which is enabled in `src/appsscript.json`. It uses the `drive` scope the app already has, so **no new OAuth scope and no new consent prompt**. The alternative, `DocumentApp`, needs the extra `https://www.googleapis.com/auth/documents` scope and a hand-written converter both ways (headings, bold, italic, lists, quotes, links), so it was not used.
+Two ways were considered: Drive's HTML export and import (one `Files.export` to read, one `Files.update` to write, through the Drive advanced service already enabled in `src/appsscript.json`), or `DocumentApp`, building the Doc element by element. **Chosen: Drive's conversion.**
 
-The app keeps one line per paragraph; standard markdown joins lines that are not separated by a blank line. So `toDocMarkdown_` puts a blank line between blocks (list items and quote lines that follow one another stay together), and `fromDocMarkdown_` reverses that, drops the empty `>` lines between quote paragraphs and removes escapes the app's editor does not use (`\.`, `\-`, `\#` and so on). Empty paragraphs in the app's notes do not survive a trip through the Doc (Docs merges them).
+- **Permissions:** it works with the `drive` scope the app already has, so no new OAuth scope and no new consent prompt. `DocumentApp` needs `https://www.googleapis.com/auth/documents`.
+- **Speed:** a save is two Drive calls (`Files.get` for the version, `Files.update`), whatever the length of the notes; an unchanged open is one `Files.get`. `DocumentApp` needs `openById` plus a call per paragraph and per styled run to write, and the same to read, so it grows with the notes.
+- **Fidelity:** Drive's converter handles every format the editor makes (checked against Google's documented export shape in tests; see "Not verified").
+- **Not measured on Google yet.** These tests run against fakes; nothing here was timed on Google's servers. `notes.save` writes `notes.save <ms> ms` to the execution log (Apps Script editor, Executions) so the real time can be read after the next deploy. If a save is too slow, the first thing to try is `DocumentApp` for small edits.
 
-## Deviation from the spec: where the Doc goes
+## Migration (schema v5, `migrateNotesToDocs_`)
 
-The spec says "in the root of the project's folder". There is no per-project folder today: notes live in `<mode folder>/Notes/`, whiteboards in `<mode folder>/Whiteboards/`. So the Doc goes in the same **Notes** folder as the markdown file, next to it. If project folders are added later, `syncDoc` is the one place to change (the `parents` of `Drive.Files.create`); existing Docs could be moved with `DriveApp.getFileById(id).moveTo(folder)`.
+Runs once per mode when the app (or `migrateAllModes()` in the editor) first opens it after the update. For each Notes row that still has a markdown file or formatted copy:
 
-## Speed: measure on Google
+- no Doc, or its Doc was deleted: the Doc is made from the formatted copy if it belonged to the markdown's version, else from the markdown;
+- a Doc with the same text: kept, and given the formatted copy's formatting if there was one;
+- a Doc with other text (edited in Docs and never brought back): the old notes are added at its end under the heading "Imported from old notes file", so nothing is lost;
+- the row forgets the old files and gets `doc_id`, `updated`, `written` before the files go, so a run that stops part way never makes a Doc twice; then the old `.md` and `.html` files go to Drive's bin (`setTrashed(true)`, not deleted; restore from the bin within 30 days);
+- the project's notes cell links the Doc (unless it holds typed notes, which are then added as above).
 
-The editor's save is untouched, so typing and saving cannot be slower. The Doc work happens in background calls that the page does not wait for. What is not known yet is how long those calls take on Google, and whether they slow other calls by using Apps Script's concurrent-execution allowance. Both calls return `ms`, and `syncDoc` also returns `timings` (`read`: the markdown file, `check`: looking for Doc edits, `write`: Drive import, `sheet`: the Notes row). Both write a line to the execution log (`notes.syncDoc 1234 ms {...}`), visible in the Apps Script editor under Executions. If `syncDoc` is slow enough to matter, raise the 30 s gap (`DOC_GAP_MS` in view.html); if even that hurts, remove the triggers in view.html and say so.
+Then the Notes tab is laid out as `id, project_id, doc_id, updated, written` (a person's own columns kept). The spreadsheet is backed up first when there are files to move, unless the same run already made a backup. Running it again changes nothing. With many projects the first load after the update does a few Drive calls per project, so run `migrateAllModes()` from the Apps Script editor right after pushing.
+
+Older conflict copies (`...-conflict-....md`) are left where they are.
 
 ## Not verified (needs trying after `clasp push`)
 
-- Everything here runs against in-memory fakes of the Drive advanced service. Not checked on Google: that `Drive.Files.update` with `text/markdown` media replaces the Doc's content (conversion on update), what `Drive.Files.export(id, 'text/markdown', { alt: 'media' })` returns from Apps Script (the code accepts a Blob, a string or bytes), the exact markdown Google exports, and that `modifiedTime` from the update reply is the one `Files.get` reports later (if Google bumps it a little later, the next open finds "the same notes" and only updates `doc_seen`).
-- Two devices opening the same older project at the same moment could each make a Doc (no lock, so saves are never held up by a Doc write). The second one wins `doc_id`; the other Doc stays in the Notes folder.
-- Renaming a project renames its Doc only when its notes are next changed and written to the Doc.
+- Everything here runs against in-memory fakes of the Drive advanced service. Not checked on Google: that `Drive.Files.update` with `text/html` media replaces the Doc's content (conversion on update), what `Drive.Files.export(id, 'text/html', { alt: 'media' })` returns from Apps Script (the code accepts a Blob, a string or bytes), that Google's importer reads `<s>`, `<u>`, `color` and `background-color` styles and `<blockquote>` as expected, and the exact class names and indents of Google's export (the test uses its documented shape). Try a note with every toolbar format and open it in Docs and back.
+- How long a save and an open take on Google (see above).
+- Two devices saving the very first notes of a project at the same moment could each make a Doc; the second wins `doc_id`, the other Doc stays in the Notes folder.

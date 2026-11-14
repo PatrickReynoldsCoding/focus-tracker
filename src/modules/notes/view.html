@@ -81,9 +81,9 @@
 </style>
 <script>
 (function () {
-  var cache = {};        // projectId -> markdown text, once loaded
-  var formatted = {};    // projectId -> the editor's HTML for that text (underline, colours, highlights); '' when only the markdown is known
-  var loaded = {};       // projectId -> the file version (its `updated`) the text in cache builds on; '' when there was no file
+  var cache = {};        // projectId -> the notes as markdown (for drafts and comparing), once loaded
+  var formatted = {};    // projectId -> the editor's HTML: what is saved into the notes Doc
+  var loaded = {};       // projectId -> the Doc version (its modifiedTime) the text builds on; '' when there was no Doc
   var edited = {};       // projectId -> when the text was last changed here
   var modeOf = {};       // projectId -> the mode the notes belong to, so a save after a mode switch still goes to the right sheet
   var timers = {};       // projectId -> debounce timer
@@ -95,14 +95,6 @@
   var fullEntry = false; // ...and it added a browser history entry, so the phone's back button closes it
   var narrow = window.matchMedia('(max-width: 760px)');
   var RETRY_MS = [2000, 5000, 15000, 30000, 60000];
-  // The notes' Google Doc is a mirror of the markdown, written when editing is finished (docs/notes-docs.md).
-  var DOC_GAP_MS = 30000; // at most one Doc write, and one look for edits made in the Doc, per project in this time
-  var docWanted = {};    // projectId -> this page saved notes the Doc does not have yet
-  var docAfterSave = {}; // projectId -> editing was finished while a save was still to go: write the Doc after it
-  var docBusy = {};      // projectId -> a Doc write is on its way
-  var docTimers = {};    // projectId -> a Doc write waiting for DOC_GAP_MS to pass
-  var docLast = {};      // projectId -> when the Doc was last written from here
-  var docChecked = {};   // projectId -> when the Doc was last checked for edits from here
   var onScreen = null;   // the project whose notes are on screen (project page or Today), to notice leaving it
   var HEIGHT_KEY = 'ft.notes.height';
   var PAPER_KEY = 'ft.notes.paper';
@@ -111,10 +103,9 @@
   var PAPERS = [['', 'Plain'], ['legal', 'Legal pad'], ['graph', 'Graph paper'], ['card', 'Index card']];
   var HANDWRITING_FONT_URL = 'https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap';
   var tabId = thisTabId();
-  var PLACEHOLDER = 'Ideas, decisions, links. Saved as a markdown file in Drive.';
+  var PLACEHOLDER = 'Ideas, decisions, links. Saved as a Google Doc.';
 
-  // Bold, italic, strikethrough, headings, lists and quotes go into the markdown file too. Underline, colours and
-  // highlights are kept only in the formatted copy beside it (notes/server.js).
+  // Everything the toolbar makes is kept in the notes Doc (notes/server.js converts both ways).
   var TOOLS = [
     ['undo', null, '↶', 'Undo'], ['redo', null, '↷', 'Redo'],
     ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'],
@@ -228,7 +219,7 @@
     applyPaper(paper);
   });
 
-  /** What the editor shows for a project: the formatted copy when there is one for this text, else the markdown. */
+  /** What the editor shows for a project: the notes' HTML from the Doc (or a draft), else the markdown. */
   function editorHtml(projectId) {
     return formatted[projectId] || FT.mdToHtml(cache[projectId] || '');
   }
@@ -275,61 +266,6 @@
     if (link && editorProject() === projectId) { link.href = url; link.hidden = false; }
   }
 
-  /**
-   * Editing is finished (Done, leaving the project, hiding the page): write the notes into their Google Doc. After the
-   * save still to go, at most once per DOC_GAP_MS, and in parallel, so no save ever waits for the Doc.
-   */
-  function finished(projectId) {
-    if (!projectId) return;
-    if (dirty[projectId] || saving[projectId]) { docAfterSave[projectId] = true; return; }
-    if (!docWanted[projectId]) return;
-    var wait = DOC_GAP_MS - (Date.now() - (docLast[projectId] || 0));
-    if (wait > 0) {
-      clearTimeout(docTimers[projectId]);
-      docTimers[projectId] = setTimeout(function () { finished(projectId); }, wait);
-      return;
-    }
-    docLast[projectId] = Date.now();
-    writeDoc(projectId);
-  }
-
-  function writeDoc(projectId) {
-    if (docBusy[projectId]) return; // the reply runs finished() again, so nothing is missed and no second Doc is made
-    docWanted[projectId] = false; docBusy[projectId] = true;
-    FT.rpc('notes', 'syncDoc', { projectId: projectId }, { render: false, quiet: true, parallel: true, noMerge: true, mode: modeOf[projectId] })
-      .then(function (r) {
-        docBusy[projectId] = false;
-        if (r && r.url) setDocLink(projectId, r.url);
-        if (r && r.conflict) FT.toast('These notes were also changed in their Google Doc. The notes here were kept and written to the Doc; the Doc\'s text is saved as ' + r.conflict.copyName + ' in the Notes folder.', 'error');
-        if (docWanted[projectId]) finished(projectId);
-      }, function () { docBusy[projectId] = false; docWanted[projectId] = true; }); // tried again when editing is next finished
-  }
-
-  /**
-   * On opening a project: bring in edits made in its Google Doc (by you or an assistant). Shown only when nothing is
-   * being typed and the page still holds the version they build on; otherwise the next save meets them as a conflict
-   * on the server and both texts are kept.
-   */
-  function checkDoc(projectId) {
-    var row = noteRow(projectId);
-    if (!row || !row.doc || Date.now() - (docChecked[projectId] || 0) < DOC_GAP_MS) return;
-    docChecked[projectId] = Date.now();
-    var base = loaded[projectId];
-    FT.rpc('notes', 'checkDoc', { projectId: projectId }, { render: false, quiet: true, parallel: true, noMerge: true, mode: modeOf[projectId] })
-      .then(function (r) {
-        if (!r || !r.changed) return;
-        if (r.conflict) {
-          FT.toast('These notes were changed here and in their Google Doc. The notes here were kept; the Doc\'s text is saved as ' + r.conflict.copyName + ' in the Notes folder.', 'error');
-          docWanted[projectId] = true; finished(projectId); // put the kept notes back in the Doc
-          return;
-        }
-        if (r.imported && !dirty[projectId] && !saving[projectId] && loaded[projectId] === base) {
-          cache[projectId] = r.text || ''; formatted[projectId] = ''; holdVersion(projectId, r); show(projectId);
-          status(projectId, 'Updated from the Google Doc');
-        }
-      }, function () { docChecked[projectId] = 0; });
-  }
-
   function status(projectId, text) {
     var el = document.getElementById('nt-status');
     if (el && editorProject() === projectId) el.textContent = text;
@@ -349,8 +285,22 @@
     var row = noteRow(projectId);
     if (row) row.updated = r.updated;
     else if (r.url) {
-      FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: r.updated, doc: '' }]);
+      FT.store.notes = (FT.store.notes || []).concat([{ project_id: projectId, url: r.url, updated: r.updated, doc: r.url }]);
     }
+    if (r.url) setDocLink(projectId, r.url);
+  }
+
+  /** Markdown for editor HTML (drafts and comparisons work on it, and Copy as markdown gives it). */
+  function markdownOf(html) {
+    var box = document.createElement('div');
+    box.innerHTML = html || '';
+    return FT.htmlToMd(box);
+  }
+
+  /** Notes from the Doc (a load, or the newer text a conflict kept) become what this page holds. */
+  function takeDocNotes(projectId, html) {
+    formatted[projectId] = html || '';
+    cache[projectId] = markdownOf(html);
   }
 
   function retryLater(projectId) {
@@ -369,24 +319,21 @@
     var text = cache[projectId] || '';
     dirty[projectId] = false; saving[projectId] = true;
     status(projectId, 'Saving…');
-    var args = { projectId: projectId, text: text, _base: has(loaded, projectId) ? loaded[projectId] : '', _editedAt: edited[projectId] || new Date().toISOString() };
-    if (formatted[projectId]) args.html = formatted[projectId];
+    var args = { projectId: projectId, text: text, html: formatted[projectId] || FT.mdToHtml(text), _base: has(loaded, projectId) ? loaded[projectId] : '', _editedAt: edited[projectId] || new Date().toISOString() };
     FT.rpc('notes', 'save', args, { render: false, quiet: true, mode: modeOf[projectId] })
       .then(function (r) {
         saving[projectId] = false; failures[projectId] = 0;
         if (!r) { status(projectId, 'Saved on this device'); if (dirty[projectId]) save(projectId); return; } // waiting offline, sent later
         holdVersion(projectId, r);
         if (r.conflict) {
-          FT.toast('These notes were also changed on another device. Both are kept: ' + (r.conflict.kept === 'server' ? 'the newer text is shown, yours' : 'yours is shown, the other text') +
-            ' is saved as ' + r.conflict.copyName + ' in the Notes folder.', 'error');
-          if (r.conflict.kept === 'server' && !dirty[projectId]) { cache[projectId] = r.text || ''; formatted[projectId] = ''; show(projectId); }
+          FT.toast('These notes were also changed elsewhere (another device or Google Docs). Both are kept: ' + (r.conflict.kept === 'server' ? 'the newer text is shown, yours' : 'yours is shown, the other text') +
+            ' is saved as the Doc "' + r.conflict.copyName + '" in the Notes folder.', 'error');
+          if (r.conflict.kept === 'server' && !dirty[projectId]) { takeDocNotes(projectId, r.html); show(projectId); }
         }
         if (dirty[projectId]) { save(projectId); return; }
         if (readDraft(projectId) && readDraft(projectId).text === text) dropDraft(projectId);
         tellOtherWindows(projectId, r.updated);
         status(projectId, 'Saved');
-        docWanted[projectId] = true;
-        if (docAfterSave[projectId]) { docAfterSave[projectId] = false; finished(projectId); }
       }, function (e) {
         saving[projectId] = false; dirty[projectId] = true;
         failures[projectId] = (failures[projectId] || 0) + 1;
@@ -412,10 +359,9 @@
     load(projectId);
   });
 
-  /** Save every project's notes now, for example when the page is hidden or closing, and then write their Docs. */
+  /** Save every project's notes now, for example when the page is hidden or closing. */
   function saveAll() {
     Object.keys(dirty).forEach(function (id) { if (dirty[id]) save(id); });
-    Object.keys(docWanted).concat(Object.keys(saving)).forEach(function (id) { if (docWanted[id] || saving[id]) finished(id); });
   }
   FT.onLeave(saveAll);
 
@@ -426,21 +372,24 @@
     var id = d.args.projectId;
     loaded[id] = d.version;
     if (!dirty[id] && !saving[id] && cache[id] === d.args.text) { dropDraft(id); status(id, 'Saved'); }
-    docWanted[id] = true;
   });
 
   /**
-   * Load a project's notes. Also when they changed on the server since this page loaded them (fresh data from another
-   * device), unless something is being typed. A draft left on this device by a page that closed before saving is put back and saved.
+   * Load a project's notes from their Doc, also when this page already has them: an edit made in Google Docs or on
+   * another device shows up (the server answers { same: true } without reading the Doc when nothing changed). Nothing
+   * replaces what is being typed. A draft left on this device by a page that closed before saving is put back and saved.
    */
   function load(projectId) {
     var seq = loads[projectId] = (loads[projectId] || 0) + 1;
+    var hadNotes = has(cache, projectId), before = cache[projectId];
     modeOf[projectId] = modeOf[projectId] || FT.state.mode;
-    FT.rpc('notes', 'get', { projectId: projectId }, { render: false, quiet: true, parallel: true }).then(function (r) {
+    var args = { projectId: projectId };
+    if (hadNotes && loaded[projectId]) args.known = loaded[projectId];
+    FT.rpc('notes', 'get', args, { render: false, quiet: true, parallel: true, mode: modeOf[projectId] }).then(function (r) {
       if (seq !== loads[projectId] || dirty[projectId] || saving[projectId]) return; // a newer load, or typing: keep what is on screen
-      cache[projectId] = r.text || '';
-      formatted[projectId] = r.html || '';
-      loaded[projectId] = r.updated || '';
+      if (r.same) return;
+      takeDocNotes(projectId, r.html);
+      holdVersion(projectId, r);
       var restore = draftToRestore(projectId), draft = restore && restore.draft;
       if (draft && draft.text !== cache[projectId]) {
         cache[projectId] = draft.text; formatted[projectId] = draft.html || ''; loaded[projectId] = draft.base || ''; edited[projectId] = draft.at; dirty[projectId] = true;
@@ -448,25 +397,20 @@
       } else if (draft) dropDraft(projectId, restore.tab);
       show(projectId);
       if (dirty[projectId]) save(projectId);
-      else checkDoc(projectId);
+      else if (hadNotes && cache[projectId] !== before) status(projectId, 'Updated from the Google Doc');
     }).catch(function (e) { FT.toast('Could not load notes: ' + e.message, 'error'); });
   }
 
-  /** A project's notes come on screen (its page, or Today's notes panel): load them, or again if they changed elsewhere. */
+  /** A project's notes come on screen (its page, or Today's notes panel): load them from the Doc, unless typing. */
   function opened(projectId) {
-    var row = noteRow(projectId);
-    var stale = has(cache, projectId) && row && row.updated !== loaded[projectId];
     modeOf[projectId] = modeOf[projectId] || FT.state.mode;
-    if (!has(cache, projectId) || (stale && !dirty[projectId] && !saving[projectId])) load(projectId);
-    else checkDoc(projectId);
-    // Notes from before the Docs: their Doc is made now, in the background, so "Open in Docs" is there.
-    if (row && !row.doc) { docWanted[projectId] = true; writeDoc(projectId); }
+    if (!dirty[projectId] && !saving[projectId]) load(projectId);
   }
 
   FT.module({
     id: 'notes',
     slots: {
-      'project.page': [{ id: 'notes', title: 'Notes', description: 'Free notes, kept as a markdown file and a Google Doc.', order: 20, span: 'half', render: function (p) { return panel(p, false); } }],
+      'project.page': [{ id: 'notes', title: 'Notes', description: 'Free notes, kept as the project\'s Google Doc.', order: 20, span: 'half', render: function (p) { return panel(p, false); } }],
       'today.panels': [{ order: 30, render: todayPanels }]
     },
     onProject: opened
@@ -479,9 +423,9 @@
   // The editor is rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
   FT.onRender(function () {
     var el = editor();
-    // Leaving a project's page, or Today's focus changing, finishes editing those notes: saved now, then the Doc.
+    // Leaving a project's page, or Today's focus changing, finishes editing those notes: they are saved now.
     var now = el ? el.dataset.project : null;
-    if (onScreen && onScreen !== now) { save(onScreen); finished(onScreen); }
+    if (onScreen && onScreen !== now) save(onScreen);
     if (now && now !== onScreen && FT.state.view !== 'project') opened(now); // Today: the project page's onProject does this there
     onScreen = now;
     if (el && el.classList.contains('paper-legal')) loadHandwritingFont();
@@ -631,7 +575,6 @@
     var projectId = editorProject();
     if (editor()) editor().blur();
     save(projectId);
-    finished(projectId);
   }
   FT.action('notes.done', function () {
     closeFull();

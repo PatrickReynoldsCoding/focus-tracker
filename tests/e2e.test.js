@@ -457,20 +457,20 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(server.drive.contentReads, 0, 'no file was read');
   });
 
-  await step('notes autosave to a markdown file and a formatted copy, and can be copied as markdown', async () => {
+  await step('notes autosave straight into their Google Doc, formatting and all, and can be copied as markdown', async () => {
     const ta = $('#nt-text');
     assert.ok($$('#nt-bar [data-cmd="foreColor"]').length && $$('#nt-bar [data-cmd="hiliteColor"]').length && $('#nt-bar [data-cmd="underline"]'), 'colours, highlights and underline in the toolbar');
     ta.innerHTML = '<h1>Fan</h1><div>Replacement needs to be <b>100mm</b> <u>exactly</u>.</div><ul><li>Checked the duct: <font color="#d64545">98mm</font></li></ul>';
     ta.dispatchEvent(new w.Event('input', { bubbles: true }));
     ta.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
-    const file = Object.values(server.drive.files).find((f) => f.name.endsWith('.md') && f.content && f.content.includes('98mm'));
-    assert.ok(file, 'file content updated');
-    assert.strictEqual(file.content, '# Fan\nReplacement needs to be **100mm** exactly.\n- Checked the duct: 98mm', 'the rich text is stored as markdown');
-    const formattedCopy = Object.values(server.drive.files).find((f) => f.name.endsWith('.html'));
-    assert.ok(formattedCopy && formattedCopy.content.includes('<u>exactly</u>') && formattedCopy.content.includes('<font color="#d64545">98mm</font>'), 'underline and colour kept in the formatted copy');
+    const doc = server.docs.docs().find((f) => f.content && f.content.includes('98mm'));
+    assert.ok(doc, 'the notes Doc holds the notes');
+    assert.ok(doc.content.includes('<h1>Fan</h1>') && doc.content.includes('<b>100mm</b>') && doc.content.includes('<u>exactly</u>') && doc.content.includes('<span style="color: #d64545">98mm</span>'), 'with headings, bold, underline and colour');
+    assert.ok(!Object.values(server.drive.files).some((f) => /\.(md|html)$/.test(f.name)), 'and no markdown file or formatted copy beside it');
     const got = JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { projectId: w.FT.state.projectId }))).result;
-    assert.strictEqual(got.html, formattedCopy.content, 'and read back with the notes');
+    assert.ok(got.html.includes('<u>exactly</u>') && got.html.includes('<font color="#d64545">98mm</font>'), 'read back with its formatting');
+    const file = { content: '# Fan\nReplacement needs to be **100mm** exactly.\n- Checked the duct: 98mm' };
     let copied = null;
     Object.defineProperty(w.navigator, 'clipboard', { configurable: true, value: { writeText: (t) => { copied = t; return Promise.resolve(); } } });
     click($('[data-act="notes.copy"]'));

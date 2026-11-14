@@ -333,34 +333,132 @@ test('kanban: a column moves to a new place on its own board, and undo puts it b
   assert.deepStrictEqual(names(json(s.run('undo')()).data.kanban), ['To do', 'Doing', 'Done']);
 });
 
-test('notes are stored as a markdown file and read back', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'My Project!', category: 'coding' }).result;
-  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { text: '', html: '', url: '', updated: '' });
-  const saved = s.call('notes', 'save', { projectId: p.id, text: '# hello' }).result;
-  assert.ok(saved.url);
-  s.call('notes', 'save', { projectId: p.id, text: '# hello again' });
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# hello again');
-  const mdFiles = Object.values(s.drive.files).filter((f) => f.name.endsWith('.md'));
-  const file = mdFiles[0];
-  assert.ok(/^my-project-[0-9a-f]{8}\.md$/.test(file.name), file.name);
-  assert.strictEqual(file.mime, 'text/markdown');
-  assert.strictEqual(mdFiles.length, 1, 'second save updates the same file');
-  // A save that builds on an older version (a page left open elsewhere) keeps both texts; the same text is no conflict
-  const v = s.call('notes', 'get', { projectId: p.id }).result.updated;
-  assert.deepStrictEqual(s.call('notes', 'save', { projectId: p.id, text: '# hello again', _base: 'older', _editedAt: new Date().toISOString() }).result.conflict, undefined);
-  const clash = s.call('notes', 'save', { projectId: p.id, text: '# from the old tab', _base: 'older', _editedAt: new Date(Date.parse(v) + 1000).toISOString() }).result;
-  assert.strictEqual(clash.conflict.kept, 'yours');
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# from the old tab');
-  assert.ok(Object.values(s.drive.files).some((f) => f.name === clash.conflict.copyName && f.content === '# hello again'), 'the replaced text is kept as a copy');
-  const late = s.call('notes', 'save', { projectId: p.id, text: '# edited long ago', _base: 'older', _editedAt: '2020-01-01T00:00:00.000Z' }).result;
-  assert.strictEqual(late.conflict.kept, 'server');
-  assert.strictEqual(late.text, '# from the old tab', 'the browser is sent the text that was kept');
-  assert.strictEqual(s.drive.pathOf(file), 'Focus Tracker/Personal/Notes/' + file.name);
-});
-
 // Saves are versioned by the millisecond: wait for the next one so two saves in a test get different versions.
 const tick = () => { const t = Date.now(); while (Date.now() === t) { /* spin */ } };
+
+test('notes are their Google Doc: one Doc per project in the Notes folder, saved and read back, no other file', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'My Project!', category: 'coding' }).result;
+  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { html: '', text: '', url: '', updated: '' });
+  const saved = s.call('notes', 'save', { projectId: p.id, html: '<h1>hello</h1>' }).result;
+  const [doc] = s.docs.docs();
+  assert.strictEqual(saved.url, 'https://docs.google.com/document/d/' + doc.id + '/edit');
+  assert.strictEqual(doc.name, 'My Project! notes');
+  assert.strictEqual(s.drive.pathOf(doc), 'Focus Tracker/Personal/Notes/My Project! notes');
+  assert.strictEqual(s.call('projects', 'list').result[0].notes, saved.url, 'the notes cell links the Doc');
+  tick();
+  const again = s.call('notes', 'save', { projectId: p.id, html: '<h1>hello again</h1><p>More</p>', _base: saved.updated, _editedAt: new Date().toISOString() }).result;
+  assert.strictEqual(s.docs.docs().length, 1, 'the second save updates the same Doc');
+  assert.strictEqual(again.updated, doc.modifiedTime, 'the version is the Doc\'s modifiedTime');
+  assert.ok(!Object.values(s.drive.files).some((f) => /\.(md|html)$/.test(f.name)), 'no markdown file and no formatted copy');
+  const got = s.call('notes', 'get', { projectId: p.id }).result;
+  assert.deepStrictEqual([got.html, got.text, got.url, got.updated], ['<h1>hello again</h1><p>More</p>', '# hello again\nMore', saved.url, again.updated]);
+  const exports = s.docs.calls.export;
+  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id, known: again.updated }).result, { same: true, url: saved.url, updated: again.updated }, 'nothing changed: the Doc is not read');
+  assert.strictEqual(s.docs.calls.export, exports);
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.notes, [{ project_id: p.id, url: saved.url, updated: again.updated, doc: saved.url }]);
+  assert.ok(s.mock.logs.some((l) => /^notes\.save \d+ ms$/.test(l)), 'save times go to the execution log');
+});
+
+test('notes keep their formatting through the Doc: headings, bold, italic, underline, strikethrough, colours, highlights, lists, links and quotes', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  const html = '<h1>Fan</h1><h2>Parts</h2><h3>Duct</h3><p><b>100mm</b> <i>exactly</i> <u>please</u> <s>98mm</s> <font color="#d64545">red</font> ' +
+    '<span style="background-color: rgb(255, 241, 118)">marked</span> <a href="https://example.com/fan">shop</a></p>' +
+    '<ul><li>Clips</li><li>Tape</li></ul><ol><li>Measure</li><li>Order</li></ol><blockquote>Measure twice</blockquote>';
+  s.call('notes', 'save', { projectId: p.id, html: html });
+  const [doc] = s.docs.docs();
+  assert.ok(doc.content.includes('<span style="color: #d64545">red</span>') && !doc.content.includes('<font'), 'Docs gets colours as styles');
+  const got = s.call('notes', 'get', { projectId: p.id }).result.html;
+  assert.strictEqual(got, html.replace('<a href="https://example.com/fan">', '<a href="https://example.com/fan" target="_blank" rel="noopener noreferrer">'), 'the same formatting comes back');
+  assert.throws(() => s.call('notes', 'save', { projectId: p.id, html: 'x'.repeat(1000001) }), /too long/);
+  s.call('notes', 'save', { projectId: p.id, html: '<p onclick="alert(1)">Hi<script>alert(1)</script><img src="x"></p>' });
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html, '<p>Hi</p>', 'the editor\'s HTML is cleaned before it is stored');
+});
+
+test('Google\'s own HTML export of a notes Doc: its classes become the editor\'s tags, links lose Google\'s redirect, indented paragraphs are quotes', () => {
+  const s = fresh();
+  const exported = '<html><head><meta content="text/html; charset=UTF-8" http-equiv="content-type"><style type="text/css">@import url(\'https://themes.googleusercontent.com/fonts/css?kit=abc\');' +
+    'ol{margin:0;padding:0}.c0{color:#000000;font-weight:400;text-decoration:none;vertical-align:baseline;font-size:11pt;font-family:"Arial";font-style:normal}' +
+    '.c1{padding-top:0pt;padding-bottom:0pt;line-height:1.15;orphans:2;widows:2;text-align:left}.c2{font-weight:700}.c3{font-style:italic}.c4{text-decoration:underline}' +
+    '.c5{text-decoration:line-through}.c6{color:#d64545}.c7{background-color:#fff176}.c8{color:#1155cc;text-decoration:underline}.c9{margin-left:36pt}' +
+    '.c10{font-weight:700;color:#000000;font-size:20pt}.c11{background-color:#ffffff}h1{padding-top:20pt;font-size:20pt}</style></head>' +
+    '<body class="c12 doc-content"><h1 class="c1" id="h.x1"><span class="c10">Fan</span></h1>' +
+    '<p class="c1"><span class="c0 c2">100mm</span><span class="c0">&nbsp;</span><span class="c3">exactly</span> <span class="c4">please</span> <span class="c5">98mm</span> ' +
+    '<span class="c6">red</span> <span class="c7">marked</span> <span class="c11">plain</span> <span class="c8"><a class="c13" href="https://www.google.com/url?q=https://example.com/fan?size%3D100&amp;sa=D&amp;source=editors&amp;ust=1&amp;usg=AOv">shop</a></span></p>' +
+    '<p class="c1"><span class="c0"></span></p>' +
+    '<ul class="c14 lst-kix_abc-0 start"><li class="c1 li-bullet-0"><span class="c0">Clips</span></li><li class="c1 li-bullet-0"><span class="c0">Tape</span></li></ul>' +
+    '<p class="c1 c9"><span class="c0">Measure twice</span></p><p class="c1 c9"><span class="c0">cut once</span></p><p class="c1"><span class="c0"></span></p></body></html>';
+  s.sandbox.__exported = exported;
+  assert.strictEqual(s.run('fromDocHtml_(__exported)'),
+    '<h1>Fan</h1><p><b>100mm</b> <i>exactly</i> <u>please</u> <s>98mm</s> <font color="#d64545">red</font> <span style="background-color: #fff176">marked</span> plain ' +
+    '<a href="https://example.com/fan?size=100" target="_blank" rel="noopener noreferrer">shop</a></p><p><br></p><ul><li>Clips</li><li>Tape</li></ul><blockquote>Measure twice<br>cut once</blockquote>');
+  // what Drive is sent: a page, with colours as styles
+  assert.strictEqual(s.run('docHtmlFor_(\'<p><font color="#2b9a5b">ok</font></p>\')'), '<html><head><meta charset="utf-8"></head><body><p><span style="color: #2b9a5b">ok</span></p></body></html>');
+});
+
+test('notes conflicts: a save on an older version keeps both texts, the newest edit wins and the other is a conflict Doc; the same text is no conflict', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
+  const v1 = s.call('notes', 'save', { projectId: p.id, html: '<p>first</p>' }).result.updated;
+  tick();
+  const v2 = s.call('notes', 'save', { projectId: p.id, html: '<p>from the phone</p>', _base: v1, _editedAt: new Date().toISOString() }).result.updated;
+  assert.deepStrictEqual(s.call('notes', 'save', { projectId: p.id, html: '<p>from the phone</p>', _base: v1, _editedAt: new Date().toISOString() }).result, { url: s.call('notes', 'get', { projectId: p.id }).result.url, updated: v2 }, 'the same text is no conflict');
+  tick();
+  const clash = s.call('notes', 'save', { projectId: p.id, html: '<p>from the old laptop tab</p>', _base: v1, _editedAt: new Date(Date.parse(v2) + 1000).toISOString() }).result;
+  assert.strictEqual(clash.conflict.kept, 'yours');
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'from the old laptop tab');
+  const copy = s.docs.docs().find((d) => d.name === clash.conflict.copyName);
+  assert.ok(/^Shed notes - conflict \d{12}$/.test(copy.name) && s.docs.text(copy.id) === 'from the phone', 'the replaced text is kept as a conflict Doc');
+  assert.strictEqual(s.drive.pathOf(copy), 'Focus Tracker/Personal/Notes/' + copy.name);
+  const late = s.call('notes', 'save', { projectId: p.id, html: '<p>edited long ago</p>', _base: v1, _editedAt: '2020-01-01T00:00:00.000Z' }).result;
+  assert.strictEqual(late.conflict.kept, 'server');
+  assert.deepStrictEqual([late.html, late.text], ['<p>from the old laptop tab</p>', 'from the old laptop tab'], 'the browser is sent the notes that were kept');
+  assert.strictEqual(s.run(`notesHtmlToMarkdown_('<h1>Plan</h1><p><b>Bold</b> <i>it</i> <u>under</u> <s>old</s> <a href="https://x.org/a">site</a></p><ul><li>One</li></ul><ol><li>First</li></ol><blockquote>Quote</blockquote>')`),
+    '# Plan\n**Bold** _it_ under ~~old~~ [site](https://x.org/a)\n- One\n1. First\n> Quote', 'the text it gives back is markdown');
+  assert.strictEqual(s.run(`notesHtmlToMarkdown_('<p>Line</p><p><ul><li>a list Chrome put in a paragraph</li></ul></p>')`), 'Line\n- a list Chrome put in a paragraph');
+  assert.ok(s.docs.docs().some((d) => s.docs.text(d.id) === 'edited long ago'), 'and the older text is a conflict Doc too');
+  assert.ok(json(s.run('bootstrap()')).data.log.some((l) => /conflict/.test(l.where_stopped) && /Notes folder/.test(l.where_stopped)), 'a Log line says where');
+});
+
+test('an edit made in Google Docs shows up on the next load; a save built on the older text meets it; a modifiedTime that moved alone is no change', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Garden', category: 'house' }).result;
+  const v1 = s.call('notes', 'save', { projectId: p.id, html: '<p>Plan the beds</p>' }).result.updated;
+  const [doc] = s.docs.docs();
+  // Google touches the Doc after the write: same text, later modifiedTime. A save on v1 is no conflict.
+  s.docs.touch(doc.id);
+  assert.strictEqual(s.call('notes', 'get', { projectId: p.id, known: v1 }).result.updated, v1, 'the text did not change: same version');
+  const v2 = s.call('notes', 'save', { projectId: p.id, html: '<p>Plan the beds</p><p>Order the hose</p>', _base: v1, _editedAt: new Date().toISOString() }).result;
+  assert.strictEqual(v2.conflict, undefined);
+  assert.ok(s.docs.docs().length === 1);
+  // Paddy edits the Doc in Google Docs
+  tick();
+  s.docs.edit(doc.id, '<p>Plan the beds</p><p>Order the hose</p><p>Added in Google Docs</p>');
+  const seen = s.call('notes', 'get', { projectId: p.id, known: v2.updated }).result;
+  assert.strictEqual(seen.text, 'Plan the beds\nOrder the hose\nAdded in Google Docs', 'the Doc edit is the new text');
+  assert.strictEqual(seen.updated, doc.modifiedTime);
+  // a page that typed on the older text meets the Doc edit: the newer of the two is kept, the other is a copy
+  tick();
+  s.docs.edit(doc.id, '<p>Edited in Docs again</p>');
+  const typed = s.call('notes', 'save', { projectId: p.id, html: '<p>Typed in the app before the Doc edit</p>', _base: seen.updated, _editedAt: '2020-01-01T00:00:00.000Z' }).result;
+  assert.strictEqual(typed.conflict.kept, 'server');
+  assert.strictEqual(typed.text, 'Edited in Docs again');
+  assert.ok(s.docs.docs().some((d) => s.docs.text(d.id) === 'Typed in the app before the Doc edit'));
+});
+
+test('a notes Doc deleted in Drive: the notes read as empty and the next save makes a new Doc and links it', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Loft', category: 'house' }).result;
+  s.call('notes', 'save', { projectId: p.id, html: '<p>one</p>' });
+  s.docs.docs()[0].trashed = true;
+  assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id }).result, { html: '', text: '', url: '', updated: '' });
+  const saved = s.call('notes', 'save', { projectId: p.id, html: '<p>two</p>', _base: '', _editedAt: new Date().toISOString() }).result;
+  const live = s.docs.docs().filter((d) => !d.trashed);
+  assert.strictEqual(live.length, 1);
+  assert.strictEqual(saved.url, 'https://docs.google.com/document/d/' + live[0].id + '/edit');
+  assert.strictEqual(s.call('projects', 'list').result[0].notes, saved.url);
+});
 
 test('notes typed on Today save to today\'s focus project, the same notes as on its page', () => {
   const s = fresh();
@@ -376,157 +474,6 @@ test('notes typed on Today save to today\'s focus project, the same notes as on 
   const row = rowsOf(s.ss.sheets.Notes)[0];
   assert.strictEqual(row.project_id, focusId);
   assert.strictEqual(json(s.run('bootstrap()')).data.notes.filter((n) => n.project_id === focusId).length, 1, 'one notes row, shared by Today and the project page');
-});
-
-test('notes Doc: the first sync makes "<project> notes" in the Notes folder, links it, and is skipped while nothing changed', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'Garden', category: 'house' }).result;
-  assert.deepStrictEqual(s.call('notes', 'syncDoc', { projectId: p.id }).result.skipped, 'no notes', 'no notes, no Doc');
-  s.call('notes', 'save', { projectId: p.id, text: '# Plan\nDig the beds\n- spade\n- gloves\n> measure twice\n**bold** and *italic* [a link](https://example.com)' });
-  const reply = s.call('notes', 'syncDoc', { projectId: p.id }), r = reply.result;
-  assert.ok(!reply.undo, 'bookkeeping, not offered for undo');
-  assert.ok(r.created && typeof r.ms === 'number' && r.timings && typeof r.timings.write === 'number', 'reports how long it took');
-  assert.ok(s.mock.logs.some((l) => /^notes\.syncDoc \d+ ms .*\(new Doc\)$/.test(l)), 'and writes it to the execution log');
-  const docs = s.docs.docs();
-  assert.strictEqual(docs.length, 1);
-  assert.strictEqual(docs[0].name, 'Garden notes');
-  assert.strictEqual(s.drive.pathOf(docs[0]), 'Focus Tracker/Personal/Notes/Garden notes');
-  assert.strictEqual(r.url, 'https://docs.google.com/document/d/' + docs[0].id + '/edit');
-  // standard markdown for Drive's import: a blank line between blocks, list items and quote lines kept together
-  assert.strictEqual(docs[0].content, '# Plan\n\nDig the beds\n\n- spade\n- gloves\n\n> measure twice\n\n**bold** and *italic* [a link](https://example.com)');
-  const b = json(s.run('bootstrap()')).data;
-  assert.strictEqual(b.notes.find((n) => n.project_id === p.id).doc, r.url, 'the notes row carries the Doc');
-  assert.strictEqual(b.projects.find((x) => x.id === p.id).notes, r.url, 'Projects.notes links the Doc');
-  // debounce on the server: nothing changed since the last mirror, so no Drive call at all
-  const before = Object.assign({}, s.docs.calls);
-  assert.strictEqual(s.call('notes', 'syncDoc', { projectId: p.id }).result.skipped, 'unchanged');
-  assert.deepStrictEqual(s.docs.calls, before);
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: '# Plan\nDig the beds today' });
-  const again = s.call('notes', 'syncDoc', { projectId: p.id }).result;
-  assert.ok(!again.created && again.url === r.url, 'the same Doc is updated');
-  assert.strictEqual(s.docs.docs().length, 1);
-  assert.strictEqual(s.docs.docs()[0].content, '# Plan\n\nDig the beds today');
-  assert.strictEqual(s.call('notes', 'checkDoc', { projectId: p.id }).result.changed, false, 'the app\'s own write is not an edit');
-  assert.strictEqual(s.docs.calls.export, 0, 'and finding that out needs no export');
-});
-
-test('notes Doc: an edit made in the Doc comes back into the markdown when the project opens', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
-  s.call('notes', 'save', { projectId: p.id, text: 'Roof\n- felt' });
-  const doc = s.call('notes', 'syncDoc', { projectId: p.id }).result;
-  const id = s.docs.docs()[0].id;
-  // What Drive's export of an edited Doc looks like: blank lines between blocks, * bullets, escapes
-  s.docs.edit(id, 'Roof\n\n* felt\n* nails\n\n> added by an assistant\n>\n> second quote line\n\nStep 1\\. done\n');
-  const before = json(s.run('bootstrap()')).data.notes[0].updated;
-  const r = s.call('notes', 'checkDoc', { projectId: p.id }).result;
-  assert.ok(r.changed && r.imported && typeof r.ms === 'number');
-  assert.strictEqual(r.text, 'Roof\n* felt\n* nails\n> added by an assistant\n> second quote line\nStep 1. done');
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, r.text, 'saved into the markdown file');
-  assert.ok(r.updated && r.updated !== before, 'as a new version');
-  assert.strictEqual(s.call('notes', 'checkDoc', { projectId: p.id }).result.changed, false, 'brought in once');
-  assert.strictEqual(s.call('notes', 'syncDoc', { projectId: p.id }).result.skipped, 'unchanged', 'the Doc already has it');
-  assert.strictEqual(doc.url, json(s.run('bootstrap()')).data.notes[0].doc);
-  // a Doc edit that only changes what a trip through Docs changes is no edit
-  s.docs.edit(id, s.docs.docs()[0].content + '\n\n');
-  const same = s.call('notes', 'checkDoc', { projectId: p.id }).result;
-  assert.strictEqual(same.changed, false);
-  // an empty export never wipes the notes (Drive may have answered with nothing)
-  s.docs.edit(id, '');
-  assert.strictEqual(s.call('notes', 'checkDoc', { projectId: p.id }).result.changed, false);
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, r.text);
-});
-
-test('notes Doc: both the Doc and the markdown changed: the markdown stays and the Doc text is a conflict copy', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'Boat', category: 'house' }).result;
-  s.call('notes', 'save', { projectId: p.id, text: 'Hull' });
-  s.call('notes', 'syncDoc', { projectId: p.id });
-  const id = s.docs.docs()[0].id;
-  const copies = () => Object.values(s.drive.files).filter((f) => /-conflict-.*-doc\.md$/.test(f.name));
-  // on opening: Doc edited, and the markdown changed since the mirror
-  s.docs.edit(id, 'Hull\n\nfrom the Doc');
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: 'Hull\nfrom the app' });
-  const r = s.call('notes', 'checkDoc', { projectId: p.id });
-  assert.strictEqual(r.result.conflict.kept, 'app');
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'Hull\nfrom the app', 'the markdown stays');
-  assert.strictEqual(copies().length, 1);
-  assert.strictEqual(copies()[0].content, 'Hull\nfrom the Doc', 'the Doc text is kept');
-  assert.strictEqual(s.drive.pathOf(copies()[0]), 'Focus Tracker/Personal/Notes/' + copies()[0].name);
-  assert.ok(r.conflicts && r.conflicts.length === 1);
-  assert.ok(json(s.run('bootstrap()')).data.log.some((l) => /notes Doc/.test(l.where_stopped)), 'and the Log says so');
-  s.call('notes', 'syncDoc', { projectId: p.id });
-  assert.strictEqual(s.docs.docs()[0].content, 'Hull\n\nfrom the app', 'the next sync puts the kept notes in the Doc');
-  // while editing was not finished yet: the Doc edited, then a sync with newer markdown keeps the Doc text first
-  s.docs.edit(id, 'Hull\n\nDoc edit nobody imported');
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: 'Hull\nnewer app text' });
-  const sync = s.call('notes', 'syncDoc', { projectId: p.id }).result;
-  assert.strictEqual(sync.conflict.kept, 'app');
-  assert.ok(copies().some((f) => f.content === 'Hull\nDoc edit nobody imported'), 'nothing written in the Doc is lost');
-  assert.strictEqual(s.docs.docs()[0].content, 'Hull\n\nnewer app text');
-  // a Doc deleted in Drive is made again on the next sync
-  delete s.drive.files[id];
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: 'Hull\nafter the Doc was deleted' });
-  const remade = s.call('notes', 'syncDoc', { projectId: p.id }).result;
-  assert.ok(remade.created && s.docs.docs().length === 1 && remade.url !== 'https://docs.google.com/document/d/' + id + '/edit');
-});
-
-test('notes keep their formatting in a cleaned HTML file beside the markdown, for as long as the markdown is unchanged', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'Rich', category: 'coding' }).result;
-  const htmlFiles = () => Object.values(s.drive.files).filter((f) => f.name.endsWith('.html'));
-  s.call('notes', 'save', { projectId: p.id, text: '## Big', html: '<h2>Big</h2><font color="#d64545" onclick="x()">red</font><script>bad()</script>' });
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html, '<h2>Big</h2><font color="#d64545">red</font>', 'cleaned');
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: '## Bigger', html: '<h2>Bigger</h2><span style="background-color: #fff176">hi</span>' });
-  const got = s.call('notes', 'get', { projectId: p.id }).result;
-  assert.strictEqual(got.text, '## Bigger');
-  assert.strictEqual(got.html, '<h2>Bigger</h2><span style="background-color: #fff176">hi</span>');
-  assert.strictEqual(htmlFiles().length, 1, 'second save updates the same html file');
-  assert.strictEqual(s.drive.pathOf(htmlFiles()[0]), 'Focus Tracker/Personal/Notes/' + htmlFiles()[0].name);
-  // exactly what Chrome's editor makes for a styled word, a heading, a quote and code
-  const chrome = '<h1>Big</h1><h3>Small</h3><blockquote>q</blockquote><p><font color="#d64545" style="background-color: rgb(255, 241, 118);"><b><i><u><strike>Hello</strike></u></i></b></font> <code>x</code> world</p>';
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: 'x', html: chrome });
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html, chrome.replace('118);"', '118)"'), 'editor output survives cleaning');
-  // markdown written without the editor's HTML (here a save without it; also text from the Doc or the sheet): the copy is out of date and left out
-  tick();
-  s.call('notes', 'save', { projectId: p.id, text: 'plain only' });
-  const plain = s.call('notes', 'get', { projectId: p.id }).result;
-  assert.deepStrictEqual([plain.text, plain.html], ['plain only', ''], 'an out of date copy is not shown');
-  assert.strictEqual(htmlFiles().length, 1, 'the file stays in Drive');
-});
-
-test('notes formatted copy: a versioned save with the same text keeps the copy, a conflict the other text won does not write it', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'Desk', category: 'coding' }).result;
-  const first = s.call('notes', 'save', { projectId: p.id, text: 'Legs', html: '<p>Legs</p>' }).result;
-  tick();
-  const second = s.call('notes', 'save', { projectId: p.id, text: 'Legs and top', html: '<p>Legs and top</p>', _base: first.updated, _editedAt: new Date().toISOString() }).result;
-  tick();
-  // a page on the older version only coloured a word: same markdown, so no conflict, and its colours are kept
-  const same = s.call('notes', 'save', { projectId: p.id, text: 'Legs and top', html: '<p><u>Legs</u> and top</p>', _base: first.updated, _editedAt: new Date().toISOString() }).result;
-  assert.ok(!same.conflict && same.updated === second.updated);
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html, '<p><u>Legs</u> and top</p>');
-  // an older edit from another page loses: its text goes to a conflict copy, the kept notes keep their own formatting
-  const lost = s.call('notes', 'save', { projectId: p.id, text: 'Old text', html: '<p>Old text</p>', _base: first.updated, _editedAt: '2000-01-01T00:00:00.000Z' }).result;
-  assert.strictEqual(lost.conflict.kept, 'server');
-  assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.html, '<p><u>Legs</u> and top</p>');
-});
-
-test('notes formatted copy: an edit brought back from the Doc leaves the copy out', () => {
-  const s = fresh();
-  const p = s.call('projects', 'create', { name: 'Kiln', category: 'house' }).result;
-  s.call('notes', 'save', { projectId: p.id, text: 'Fire', html: '<p><font color="#d64545">Fire</font></p>' });
-  s.call('notes', 'syncDoc', { projectId: p.id });
-  s.docs.edit(s.docs.docs()[0].id, 'Fire\n\nCool slowly');
-  assert.ok(s.call('notes', 'checkDoc', { projectId: p.id }).result.imported);
-  const got = s.call('notes', 'get', { projectId: p.id }).result;
-  assert.deepStrictEqual([got.text, got.html], ['Fire\nCool slowly', '']);
 });
 
 test('resources only accept https links and attach to a category or a project', () => {
@@ -1327,25 +1274,21 @@ test('project notes saved after waiting offline: the older text is kept as a con
   const p = s.call('projects', 'create', { name: 'Loft', category: 'house' }).result;
   const first = s.call('notes', 'save', { projectId: p.id, text: 'one' });
   assert.ok(first.result.updated && first.version === first.result.updated, 'save returns the version it wrote');
-  const mdFiles = () => Object.values(s.drive.files).filter((f) => f.name.endsWith('.md'));
   // No change elsewhere: saved quietly
+  tick();
   const second = s.call('notes', 'save', { projectId: p.id, text: 'two', _base: first.version, _editedAt: iso(0) });
   assert.strictEqual(second.conflicts, undefined);
-  assert.strictEqual(mdFiles().length, 1);
+  assert.strictEqual(s.docs.docs().length, 1);
   // Changed elsewhere after the browser looked, and that change is newer: stored text stays, offline text is copied
-  s.run(`new Table('Notes',['id']).update(new Table('Notes',['id']).all()[0].id, { updated: '${iso(60000)}' })`);
-  const lost = s.call('notes', 'save', { projectId: p.id, text: 'mine offline', _base: first.version, _editedAt: iso(0) });
+  const lost = s.call('notes', 'save', { projectId: p.id, text: 'mine offline', _base: first.version, _editedAt: iso(-60000) });
   assert.strictEqual(lost.conflicts[0].kept, 'server');
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'two');
-  const copy = mdFiles().find((f) => /conflict/.test(f.name));
-  assert.strictEqual(copy.content, 'mine offline');
-  // The offline text is newer: it replaces the file and the replaced text is copied
-  const now = s.call('notes', 'get', { projectId: p.id });
-  s.run(`new Table('Notes',['id']).update(new Table('Notes',['id']).all()[0].id, { updated: '${iso(-60000)}' })`);
-  const won = s.call('notes', 'save', { projectId: p.id, text: 'mine, later', _base: first.version, _editedAt: iso(0) });
+  assert.ok(s.docs.docs().some((d) => /conflict/.test(d.name) && s.docs.text(d.id) === 'mine offline'));
+  // The offline text is newer: it replaces the notes and the replaced text is copied
+  const won = s.call('notes', 'save', { projectId: p.id, text: 'mine, later', _base: first.version, _editedAt: iso(60000) });
   assert.strictEqual(won.conflicts[0].kept, 'yours');
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, 'mine, later');
-  assert.ok(mdFiles().some((f) => /conflict/.test(f.name) && f.content === 'two'));
+  assert.ok(s.docs.docs().some((d) => /conflict/.test(d.name) && s.docs.text(d.id) === 'two'));
   assert.ok(s.run('bootstrap()').data.log.some((l) => /Notes folder/.test(l.where_stopped)));
 });
 
@@ -1887,7 +1830,6 @@ test('the guide holds no ids or addresses from the sheet: only mode names and it
   const p = s.call('projects', 'create', { name: 'Secret robot', category: 'coding' }).result;
   s.call('resources', 'add', { projectId: p.id, category: 'coding', title: 'Robot repo', url: 'https://github.com/someone/secret-robot' });
   s.call('notes', 'save', { projectId: p.id, text: 'private plans' });
-  s.call('notes', 'syncDoc', { projectId: p.id });
   const b = json(s.run('bootstrap()'));
   const guide = s.docs.guide();
   assert.strictEqual(guide.length, 1);
@@ -1981,7 +1923,7 @@ test('assistant rows: the guide\'s worked example, typed as written, loads with 
   assert.ok(rowsOf(sh.Criteria).some((c) => c.project_id === p.id && c.text === 'Every bed gets water from the timer'));
   // the notes typed into the notes cell became the project's notes, and the cell holds the link again
   const notes = b.notes.find((n) => n.project_id === p.id);
-  assert.ok(notes, 'a notes file was made');
+  assert.ok(notes && notes.doc, 'a notes Doc was made');
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# Plan\nDrip lines on the two back beds.\n- Timer on the outside tap\n- Water butt as a backup');
   assert.strictEqual(rowsOf(sh.Projects).find((x) => x.id === p.id).notes, notes.url);
   // loading again changes nothing
@@ -1993,14 +1935,14 @@ test('assistant rows: the guide\'s worked example, typed as written, loads with 
 test('assistant rows: notes typed into the cell of a project that has a notes Doc go to the end of its notes', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
-  s.call('notes', 'save', { projectId: p.id, text: '# Shed\nFirst line' });
-  const doc = s.call('notes', 'syncDoc', { projectId: p.id }).result.url;
+  const doc = s.call('notes', 'save', { projectId: p.id, text: '# Shed\nFirst line' }).result.url;
   const sh = s.ss.sheets.Projects, col = sh.rows[0].indexOf('notes');
   sh.rows.find((r) => r.includes(p.id))[col] = '## 2026-11-03\nRoof felt ordered';
   json(s.run('bootstrap()'));
   assert.strictEqual(s.call('notes', 'get', { projectId: p.id }).result.text, '# Shed\nFirst line\n## 2026-11-03\nRoof felt ordered');
   assert.strictEqual(sh.rows.find((r) => r.includes(p.id))[col], doc, 'the Doc\'s link is back');
-  assert.ok(s.call('notes', 'syncDoc', { projectId: p.id }).result.url === doc && s.docs.docs()[0].content.includes('Roof felt ordered'), 'the Doc gets it on its next sync');
+  assert.strictEqual(s.docs.docs().length, 1);
+  assert.ok(s.docs.docs()[0].content.includes('<h2>2026-11-03</h2><p>Roof felt ordered</p>'), 'the text went to the end of the Doc, as headings and lines');
 });
 
 test('assistant rows that cannot be used are flagged with a reason, never guessed or deleted', () => {

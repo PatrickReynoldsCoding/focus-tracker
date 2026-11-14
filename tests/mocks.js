@@ -133,6 +133,8 @@ function makeDrive() {
       getMimeType: () => file.mime || 'application/octet-stream',
       getLastUpdated: () => file.updated || new Date('2026-10-01T09:00:00Z'),
       moveTo: (dest) => { place(file, dest); return file; },
+      setTrashed: (trashed) => { file.trashed = !!trashed; return file; },
+      isTrashed: () => !!file.trashed,
       // drive.failCopy = true makes copies fail, like a Drive quota or service error
       makeCopy: (copyName, dest) => {
         if (api.failCopy) throw new Error('Service error: Drive (fake failure)');
@@ -203,9 +205,13 @@ function blob(text, mime, name) {
 }
 
 /**
- * The Drive advanced service (v3) for Google Docs made from markdown: Files.create, update, get and export. A Doc is a
- * file in the fake DriveApp (so tests can see where it is) whose content is the markdown it was given; export returns it.
- * docs.edit(id, text) is a person or an assistant editing the Doc in Google Docs. docs.calls counts calls by name.
+ * The Drive advanced service (v3) for Google Docs: Files.create, update, get and export, converting like Drive does.
+ * A Doc is a file in the fake DriveApp (so tests can see where it is). Imported markdown (the guide for assistants) is
+ * kept as markdown; imported HTML (notes) keeps the body. Export as text/html wraps the body in a page with a style
+ * block, as Google's export does; export as text/markdown gives markdown back.
+ * docs.edit(id, text) is a person or an assistant editing the Doc in Google Docs (markdown, or HTML when it starts with
+ * <); docs.editExport(id, html) sets exactly what the next HTML export returns (for Google's own class-styled HTML).
+ * docs.text(id) is the Doc's text without tags. docs.calls counts calls by name.
  */
 function makeDocs(drive) {
   let clock = 0;
@@ -217,6 +223,20 @@ function makeDocs(drive) {
     return f;
   };
   const meta = (f) => ({ id: f.id, name: f.name, mimeType: f.mime, modifiedTime: f.modifiedTime, trashed: !!f.trashed });
+  /** What Drive keeps from an upload: the body of an HTML page, or the markdown as it is. */
+  const imported = (media) => {
+    const data = media ? media.getDataAsString() : '';
+    if ((media && media.getContentType() === 'text/html') || /^\s*</.test(data)) {
+      const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(data);
+      return { content: body ? body[1] : data, format: 'html' };
+    }
+    return { content: data, format: 'markdown' };
+  };
+  const markdownAsHtml = (md) => String(md || '').split('\n').filter((l) => l.trim()).map((l) => {
+    const h = /^(#{1,3})\s+(.*)$/.exec(l), li = /^\s*[-*]\s+(.*)$/.exec(l);
+    return h ? '<h' + h[1].length + '>' + h[2] + '</h' + h[1].length + '>' : li ? '<ul><li>' + li[1] + '</li></ul>' : '<p>' + l + '</p>';
+  }).join('');
+  const htmlAsText = (html) => String(html || '').replace(/<\/(p|h\d|li|blockquote)>/g, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
   const api = {
     calls,
     Files: {
@@ -224,7 +244,9 @@ function makeDocs(drive) {
         calls.create++;
         const parent = drive.folders[(resource.parents || [])[0]];
         if (!parent) throw new Error('GoogleJsonResponseException: File not found: ' + (resource.parents || [])[0]);
-        const f = parent.createFile(resource.name, media ? media.getDataAsString() : '', resource.mimeType);
+        const got = imported(media);
+        const f = parent.createFile(resource.name, got.content, resource.mimeType);
+        f.format = got.format;
         f.getUrl = () => 'https://docs.google.com/document/d/' + f.id + '/edit';
         f.modifiedTime = stamp();
         return meta(f);
@@ -233,18 +255,26 @@ function makeDocs(drive) {
         calls.update++;
         const f = doc(id);
         if (resource && resource.name) f.name = resource.name;
-        if (media) f.content = media.getDataAsString();
+        if (media) { const got = imported(media); f.content = got.content; f.format = got.format; delete f.exportOverride; }
         f.modifiedTime = stamp();
         return meta(f);
       },
       get(id) { calls.get++; return meta(doc(id)); },
       export(id, mime) {
         calls.export++;
-        if (mime !== 'text/markdown') throw new Error('Export only supports text/markdown here');
-        return blob(doc(id).content, mime);
+        const f = doc(id);
+        if (mime === 'text/markdown') return blob(f.format === 'html' ? htmlAsText(f.content) : f.content, mime);
+        if (mime !== 'text/html') throw new Error('Export supports text/markdown and text/html here');
+        if (f.exportOverride) return blob(f.exportOverride, mime);
+        const body = f.format === 'html' ? f.content : markdownAsHtml(f.content);
+        return blob('<html><head><meta content="text/html; charset=UTF-8" http-equiv="content-type"><style type="text/css">.c0{color:#000000;font-weight:400}</style></head><body class="c1 doc-content">' + body + '</body></html>', mime);
       }
     },
-    edit(id, text) { const f = doc(id); f.content = text; f.modifiedTime = stamp(); },
+    edit(id, text) { const f = doc(id); f.content = text; f.format = /^\s*</.test(text) ? 'html' : 'markdown'; delete f.exportOverride; f.modifiedTime = stamp(); },
+    editExport(id, html) { const f = doc(id); f.exportOverride = html; f.modifiedTime = stamp(); },
+    /** Google touching the Doc's modifiedTime without changing its text. */
+    touch(id) { doc(id).modifiedTime = stamp(); },
+    text(id) { const f = doc(id); return f.format === 'html' ? htmlAsText(f.content) : f.content; },
     // notes Docs; the guide for AI assistants (core/guide.js) is a Doc too, found with guide()
     docs: () => Object.values(drive.files).filter((f) => f.mime === 'application/vnd.google-apps.document' && !/guide for AI assistants$/.test(f.name)),
     guide: () => Object.values(drive.files).filter((f) => f.mime === 'application/vnd.google-apps.document' && /guide for AI assistants$/.test(f.name))

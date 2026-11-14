@@ -11,12 +11,13 @@
  * The headers below are the v2 layout as it was released; later changes are new steps, not edits here.
  */
 
-var SCHEMA_VERSION = 4;
+var SCHEMA_VERSION = 5;
 
 var SCHEMA_STEPS_ = [
   { to: 2, run: migrateToV2_ },
   { to: 3, run: migrateToV3_ },
-  { to: 4, run: migrateToV4_ }
+  { to: 4, run: migrateToV4_ },
+  { to: 5, run: migrateToV5_ }
 ];
 
 // Tabs that mean a spreadsheet already holds app data. A spreadsheet with none of them is new and starts at the latest version.
@@ -50,10 +51,14 @@ function schemaVersion_() {
   return Number(PropertiesService.getScriptProperties().getProperty(schemaVersionKey_()) || 1);
 }
 
+// Modes backed up during this run of the steps: a later step that changes data needs no second copy of the sheet.
+var schemaBackupsThisRun_ = {};
+
 /** Bring the active mode's spreadsheet up to SCHEMA_VERSION. One property read when it already is. */
 function ensureSchema_() {
   if (schemaVersion_() >= SCHEMA_VERSION) return;
   var props = PropertiesService.getScriptProperties();
+  schemaBackupsThisRun_ = {};
   withLock_(function () {
     var version = schemaVersion_();
     if (version >= SCHEMA_VERSION) return;
@@ -89,11 +94,15 @@ function migrateAllModes() {
   });
 }
 
-/** Copy the spreadsheet into the mode folder once per target version. Throws, changing nothing, if Drive refuses. */
+/**
+ * Copy the spreadsheet into the mode folder once per target version, unless an earlier step of this run already has
+ * one (made now, or by an earlier try that stopped). Throws, changing nothing, if Drive refuses.
+ */
 function backupBeforeMigration_(ss, label) {
   var props = PropertiesService.getScriptProperties();
   var key = 'SCHEMA_BACKUP.' + label + '.' + modeId_();
-  if (props.getProperty(key)) return;
+  if (schemaBackupsThisRun_[modeId_()]) return;
+  if (props.getProperty(key)) { schemaBackupsThisRun_[modeId_()] = true; return; } // an earlier try of this run made it
   var name = APP_NAME + ' - ' + activeMode_().label + ' - backup before ' + label + ' - ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   var copy;
   try {
@@ -102,6 +111,7 @@ function backupBeforeMigration_(ss, label) {
     throw new Error('The spreadsheet could not be backed up before updating it to the new layout, so nothing was changed. Try again in a minute. (' + (e && e.message ? e.message : e) + ')');
   }
   props.setProperty(key, copy.getId());
+  schemaBackupsThisRun_[modeId_()] = true;
 }
 
 function tmpTabName_(name) {
@@ -349,4 +359,13 @@ function migrateToV4_(ss) {
     var current = levelsUntilToday.length && /^\s*(\d+)\s*a\s*(?:day|week)\s*(?:,\s*(.*?))?\s*$/i.exec(levelsUntilToday[levelsUntilToday.length - 1].value);
     if (h && current) habits.update(h.id, { sessions: Number(current[1]), size: current[2] || '' });
   });
+}
+
+/**
+ * v4 to v5: project notes are their Google Docs only, with no markdown file or formatted copy beside them. The work is
+ * in the notes module (migrateNotesToDocs_ in modules/notes/server.js), as it needs the module's Doc conversion.
+ */
+function migrateToV5_(ss) {
+  if (typeof migrateNotesToDocs_ !== 'function' || !ss.getSheetByName('Notes')) return;
+  migrateNotesToDocs_(ss);
 }
