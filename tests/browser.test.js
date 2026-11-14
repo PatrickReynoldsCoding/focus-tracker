@@ -42,7 +42,7 @@ async function run(browser, size) {
 
   // Anything on screen that a click could change: the page, the dialog, the message, the page address.
   const signature = () => pg.evaluate(() => [document.getElementById('app').innerText, document.getElementById('dialogRoot').innerHTML.length,
-    document.getElementById('toast').hidden ? '' : document.getElementById('toast').innerText, location.href].join('|'));
+    document.getElementById('toast').hidden ? '' : document.getElementById('toast').innerText, location.href, document.querySelectorAll('#app .done').length].join('|'));
   const quick = async (label, locator, expectChange = true) => {
     await locator.scrollIntoViewIfNeeded();
     const before = await signature(), t0 = Date.now();
@@ -199,6 +199,59 @@ async function run(browser, size) {
   await settle();
   assert.ok(!todosNow().some((t) => t.title === 'Post parcel'), 'the delete reached the server');
   log('To-dos: tick, add and delete answer at once and reach the server');
+
+  if (size.mobile) {
+    const todoListId = todosPanel().slice('list-'.length);
+    const serverRpc = (module, fn, args) => srv('rpc(' + [module, fn, args].map((value) => JSON.stringify(value)).join(', ') + ').result');
+    const { longTodo, extraGroups } = await quickly(async () => {
+      const added = serverRpc('todos', 'add', { title: 'Supercalifragilisticexpialidociousantidisestablishmentarianism-without-a-break', day: today, listId: todoListId, note: 'A description long enough to need cutting short on a phone screen' });
+      const groups = ['Waiting on others', 'Someday'].map((name) => serverRpc('kanban', 'addColumn', { projectId: todoListId, name }));
+      await pg.evaluate(() => FT.reload()); await sleep(400);
+      return { longTodo: added, extraGroups: groups };
+    });
+    await showPanel(todosPanel());
+    const todoLayout = () => pg.evaluate(() => {
+      const panel = document.querySelector('#app .todos-panel'), screenWidth = document.documentElement.clientWidth;
+      const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }; };
+      const shown = (el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+      return {
+        pageWidth: document.documentElement.scrollWidth, screenWidth,
+        pastTheScreen: Array.from(panel.querySelectorAll('*')).filter((el) => shown(el) && (box(el).right > screenWidth + 1 || box(el).left < -1)).map((el) => el.className || el.tagName),
+        groups: Array.from(panel.querySelectorAll('.todogroup')).map(box),
+        ticks: Array.from(panel.querySelectorAll('.todos .tick')).map(box),
+        deletes: Array.from(panel.querySelectorAll('.todos .rm')).map(box),
+        addRow: Array.from(panel.querySelector('.todoadd').children).map((el) => Object.assign(box(el), { shown: shown(el) })),
+        panel: box(panel)
+      };
+    });
+    let layout = await todoLayout();
+    assert.ok(layout.pageWidth <= layout.screenWidth, '[' + size.name + '] the to-do panel makes no sideways scroll: ' + layout.pageWidth + ' > ' + layout.screenWidth);
+    assert.deepStrictEqual(layout.pastTheScreen, [], '[' + size.name + '] nothing in the to-do panel reaches past the screen');
+    assert.strictEqual(layout.groups.length, 3, 'three groups');
+    layout.groups.slice(1).forEach((group, i) => {
+      assert.ok(group.top >= layout.groups[i].bottom - 1 && Math.abs(group.left - layout.groups[i].left) < 1, '[' + size.name + '] groups stack on a phone, one under the other: ' + JSON.stringify(layout.groups));
+    });
+    layout.ticks.concat(layout.deletes).forEach((target) => {
+      assert.ok(target.width >= 44 && target.height >= 44, '[' + size.name + '] a tick box and a delete button are at least 44 px to tap: ' + JSON.stringify(target));
+    });
+    const [addBox, daySelect, addButton] = layout.addRow;
+    assert.ok(addBox.shown && !daySelect.shown && !addButton.shown, '[' + size.name + '] before typing, the add row is one box: ' + JSON.stringify(layout.addRow));
+    assert.ok(addBox.width > layout.panel.width * 0.7, '[' + size.name + '] and the box has room to type in: ' + addBox.width);
+    await quickly(() => pg.fill('#app .todos-panel .todoadd input >> nth=0', 'Book the van'));
+    layout = await todoLayout();
+    const [typedBox, shownSelect, shownButton] = layout.addRow;
+    assert.ok(shownSelect.shown && shownButton.shown, '[' + size.name + '] while typing, the day and Add show');
+    assert.ok(shownSelect.top >= typedBox.bottom && Math.abs(shownSelect.top - shownButton.top) < 1 && Math.abs(shownSelect.left - typedBox.left) < 1 && Math.abs(shownButton.right - typedBox.right) < 1,
+      '[' + size.name + '] on a line of their own under the box, lined up with it: ' + JSON.stringify(layout.addRow));
+    assert.deepStrictEqual(layout.pastTheScreen, [], '[' + size.name + '] still nothing past the screen');
+    await quickly(async () => {
+      await pg.fill('#app .todos-panel .todoadd input >> nth=0', '');
+      extraGroups.forEach((group) => serverRpc('kanban', 'deleteColumn', { id: group.id }));
+      serverRpc('todos', 'remove', { id: longTodo.id });
+      await pg.evaluate(() => FT.reload()); await sleep(400);
+    });
+    log('To-dos: on a phone the panel fits the screen, groups stack, ticks are 44 px and the add row opens under its box');
+  }
 
   // "Want to go further?": a weekly habit whose level was met in the two full weeks before this one
   const habit = JSON.parse(JSON.stringify(env.server.run('rpc')('habits', 'create', { name: 'Cardio', sessions: 2, per: 'week', size: '15 min', goal: '5 a week, 30 min', step_up_every: '2 weeks' }))).result;

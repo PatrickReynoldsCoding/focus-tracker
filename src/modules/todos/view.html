@@ -1,30 +1,52 @@
 <style>
+.todolist { --tick: 32px; --tick-box: 20px; --tick-cell: calc((var(--tick) + var(--tick-box)) / 2); container-type: inline-size; min-width: 0; }
 .todos { list-style: none; margin: 0; padding: 0; min-height: 6px; }
-.todos li { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.todos li { display: grid; grid-template-columns: var(--tick-cell) minmax(0, 1fr) var(--tick-cell); column-gap: 6px; align-items: start; padding: 4px 0; border-bottom: 1px solid var(--line); position: relative; }
 .todos li:last-child { border-bottom: 0; }
-.todos li.coloured { border-left: 4px solid var(--card); padding-left: 8px; }
-.todos input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; cursor: pointer; }
-.todos .t { min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+.todos li.coloured { margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 6px; background: color-mix(in srgb, var(--card) 10%, transparent); box-shadow: inset 4px 0 0 var(--card); }
+.todos .tick { display: flex; align-items: center; justify-content: center; width: var(--tick); height: var(--tick); margin: 0 0 0 calc((var(--tick-box) - var(--tick)) / 2); cursor: pointer; border-radius: 8px; }
+.todos .tick:hover { background: var(--surface-2); }
+.todos .tick input { width: var(--tick-box); height: var(--tick-box); accent-color: var(--accent); margin: 0; cursor: pointer; }
+.todos .t { min-width: 0; padding: calc((var(--tick) - 1.4em) / 2) 0; line-height: 1.4; overflow-wrap: anywhere; cursor: pointer; }
 .todos .t:hover .tt { text-decoration: underline; text-underline-offset: 3px; }
-.todos .tnote { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-.todos .when { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.todos .tmeta { display: flex; align-items: baseline; gap: 4px 10px; margin-top: 1px; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.todos .tmeta:empty { display: none; }
+.todos .when { flex: none; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.02em; white-space: nowrap; }
+.todos .when.today { color: var(--accent); }
+.todos .when.late { color: var(--warn); font-weight: 600; }
+.todos .tproj { flex: 0 1 auto; max-width: 50%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.todos .tproj::before { content: "\25CF\00a0"; font-size: 8px; vertical-align: 2px; }
+.todos .tnote { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .todos li.done .tt { text-decoration: line-through; color: var(--muted); }
-.todos .rm { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.todos .rm { width: var(--tick); height: var(--tick); margin-right: calc((var(--tick-box) - var(--tick)) / 2); border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; border-radius: 8px; }
 .todos .rm:hover { background: var(--surface-2); color: var(--ink); }
 .todos .kghost { opacity: 0.4; }
-.todoadd { display: flex; gap: 8px; margin-top: 10px; }
-.todoadd input { flex: 1 1 auto; min-width: 0; width: 0; } /* width 0: the box fills the row but never makes a narrow panel wider */
-.todoadd .btn { flex: none; }
-.todoadd select { flex: none; width: auto; }
-/* A to-do list with one group shows no group header: it looks like a plain list. */
-.todoboard.single > .col { background: transparent; padding: 0; min-height: 0; }
-.todoboard .col { min-height: 0; }
-.todos-panel .tophead { flex-wrap: wrap; }
+.todoadd { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin-top: 10px; }
+.todoadd select { width: auto; }
+@container (max-width: 380px) {
+  .todoadd { grid-template-columns: minmax(0, 1fr) auto; }
+  .todoadd input { grid-column: 1 / -1; }
+  .todoadd select { width: 100%; }
+  .todoadd select, .todoadd .btn { display: none; }
+  .todoadd:focus-within select, .todoadd:focus-within .btn, .todoadd:has(input:not(:placeholder-shown)) select, .todoadd:has(input:not(:placeholder-shown)) .btn { display: block; }
+}
+.board.todoboard { gap: 10px; padding-bottom: 0; }
+.board.todoboard > .col { min-height: 0; padding: 6px 10px 10px; }
+.board.todoboard.single > .col { background: transparent; padding: 0; }
+.todoboard .colhead { margin-bottom: 2px; }
+.todoboard .colname { font-family: var(--font-body); font-size: 14.5px; font-weight: 600; text-transform: none; letter-spacing: 0; }
 .todoboard .addcol { min-height: 40px; }
-.todoboard.single .addcol { margin-top: 8px; border-width: 1px; }
-@media (max-width: 760px) { .todos input[type="checkbox"] { width: 28px; height: 28px; } .todos .rm { min-width: 44px; min-height: 44px; } }
-:root[data-theme="eink"] .todos input[type="checkbox"] { width: 36px; height: 36px; }
-:root[data-theme="eink"] .todos li.coloured { border-left: 4px double #000; }
+.board.todoboard.single > .addcol { align-self: flex-start; width: auto; min-height: 32px; margin-top: 4px; padding: 4px 8px; margin-left: -8px; border: 0; font-size: 13.5px; }
+.todos-panel .tophead { flex-wrap: wrap; }
+.dialog label.toggle { display: inline-flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--ink); font-size: 15px; }
+.dialog label.toggle input { width: 22px; height: 22px; }
+@media (max-width: 760px) {
+  .todolist { --tick: 44px; --tick-box: 24px; }
+  .board.todoboard.single > .addcol { min-height: 44px; }
+  .dialog label.toggle { min-height: 44px; }
+}
+:root[data-theme="eink"] .todolist { --tick: 44px; --tick-box: 36px; }
+:root[data-theme="eink"] .todos li.coloured { background: none; box-shadow: inset 4px 0 0 #000; }
 </style>
 <script>
 /**
@@ -88,13 +110,25 @@
     }).sort(sortTodos);
   }
 
-  function itemHtml(t, today) {
+  /**
+   * The day under a to-do's title: none once it is ticked, and none for today on Today (where every open to-do is due);
+   * a passed day stands out.
+   */
+  function dayBadgeHtml(t, today, where) {
+    if (t.done || (where === ON_TODAY && t.day === today)) return '';
+    var dayClass = t.day === today ? ' today' : t.day && t.day < today ? ' late' : '';
+    return '<span class="when' + dayClass + '">' + FT.esc(dayWord(t.day, today)) + '</span>';
+  }
+
+  function itemHtml(t, today, where) {
     var id = FT.esc(t.id), done = !!t.done;
     var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
-    return '<li class="' + (done ? 'done' : '') + (t.color ? ' coloured' : '') + '" data-id="' + id + '"' + color + '><input type="checkbox" aria-label="Done: ' + FT.esc(t.title) + '"' + (done ? ' checked' : '') + ' data-change="todos.tick" data-id="' + id + '">' +
+    var project = t.project ? '<span class="tproj">' + FT.esc(t.project) + '</span>' : '';
+    var note = t.note ? '<span class="tnote">' + FT.linkify(t.note.slice(0, 120)) + '</span>' : '';
+    return '<li class="' + (done ? 'done' : '') + (t.color ? ' coloured' : '') + '" data-id="' + id + '"' + color + '>' +
+      '<label class="tick"><input type="checkbox" aria-label="Done: ' + FT.esc(t.title) + '"' + (done ? ' checked' : '') + ' data-change="todos.tick" data-id="' + id + '"></label>' +
       '<span class="t" role="button" tabindex="0" data-act="todos.open" data-id="' + id + '" title="Open this to-do"><span class="tt">' + FT.linkify(t.title) + '</span>' +
-      (t.note ? '<span class="tnote">' + FT.linkify(t.note.slice(0, 120)) + '</span>' : '') + '</span>' +
-      '<span class="when">' + (done ? 'Done · ' : '') + FT.esc(dayWord(t.day || (done ? today : ''), today)) + '</span>' +
+      '<span class="tmeta">' + dayBadgeHtml(t, today, where) + project + note + '</span></span>' +
       '<button class="rm" data-act="todos.remove" data-id="' + id + '" aria-label="Delete to-do ' + FT.esc(t.title) + '">×</button></li>';
   }
 
@@ -114,7 +148,7 @@
     var head = named && FT.kanban ? FT.kanban.columnHeadHtml(group, mine.filter(function (t) { return !t.done; }).length, true, 'group') : '';
     var empty = !named && !items.length ? '<p class="empty" style="padding:4px 0">' + (where === ON_TODAY ? 'Nothing to do today. Add one below, or plan the week.' : 'Nothing on this list. Add one below.') + '</p>' : '';
     return '<div class="col todogroup" data-colid="' + FT.esc(group.id) + '">' + head + empty +
-      '<ul class="todos" data-todo-group="' + FT.esc(group.id) + '" data-list="' + FT.esc(l.id) + '">' + mine.map(function (t) { return itemHtml(t, today); }).join('') + '</ul>' +
+      '<ul class="todos" data-todo-group="' + FT.esc(group.id) + '" data-list="' + FT.esc(l.id) + '">' + mine.map(function (t) { return itemHtml(t, today, where); }).join('') + '</ul>' +
       addHtml(l, group, named) + '</div>';
   }
 
@@ -122,11 +156,12 @@
   function bodyHtml(l, where) {
     var groups = groupsOf(l.id), items = shownOn(where, l.id);
     if (!groups.length) {
-      return '<ul class="todos" data-list="' + FT.esc(l.id) + '">' + items.map(function (t) { return itemHtml(t, slice().day); }).join('') + '</ul>' + addHtml(l, null, false);
+      return '<div class="todolist"><ul class="todos" data-list="' + FT.esc(l.id) + '">' + items.map(function (t) { return itemHtml(t, slice().day, where); }).join('') + '</ul>' +
+        addHtml(l, null, false) + '</div>';
     }
-    return '<div class="board vertical todoboard' + (groups.length > 1 ? '' : ' single') + '" data-owner="' + FT.esc(l.id) + '" data-word="group">' +
+    return '<div class="todolist"><div class="board vertical todoboard' + (groups.length > 1 ? '' : ' single') + '" data-owner="' + FT.esc(l.id) + '" data-word="group">' +
       groups.map(function (group) { return groupHtml(l, group, items, groups, where); }).join('') +
-      (FT.kanban ? '<button class="col addcol" data-act="kanban.add-col">+ Add group</button>' : '') + '</div>';
+      (FT.kanban ? '<button class="col addcol" data-act="kanban.add-col">+ Add group</button>' : '') + '</div></div>';
   }
 
   /** How many to-dos a list has open for today: the count on its pill. */
@@ -275,7 +310,7 @@
   function makeSortable(listEl) {
     return window.Sortable.create(listEl, {
       group: 'todos-' + listEl.dataset.list, animation: 150, delay: 180, delayOnTouchOnly: true,
-      filter: 'input, .rm', preventOnFilter: false, ghostClass: 'kghost', chosenClass: 'kchosen',
+      filter: 'input, .tick, .rm', preventOnFilter: false, ghostClass: 'kghost', chosenClass: 'kchosen',
       onStart: function () { FT.state.dragging = true; },
       onEnd: function (evt) {
         lastDragEnd = Date.now();
