@@ -135,6 +135,8 @@ input.nx-name:hover, input.nx-name:focus { border-color: var(--line-strong) !imp
   .nx-text { -webkit-line-clamp: 5; font-size: 12.5px; }
   .nx-items { font-size: 12.5px; }
   .nx-tick { margin-left: -10px; }
+  .nx-line:has(> .nx-day) { display: flex; flex-direction: column-reverse; align-items: flex-start; }
+  .nx-day { float: none; margin: 2px 0 0; }
   .nx-fab { display: grid; place-items: center; position: fixed; z-index: 34; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
     width: 56px; height: 56px; border: 0; border-radius: 18px; background: var(--accent); color: var(--accent-ink); font-size: 28px; line-height: 1; box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5); cursor: pointer; }
   .nx-menu.nx-fabmenu { position: fixed; top: auto; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 66px); }
