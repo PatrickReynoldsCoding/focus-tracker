@@ -871,6 +871,45 @@ test('a phone order is saved per page apart from the desktop grid, readable in S
   assert.ok(!saved.today && !saved['today.phone'], 'reset clears both');
 });
 
+test('a page\'s view choices are merged into one readable Settings row per page and mode, validated, and kept by a layout reset', () => {
+  const s = fresh();
+  s.call('layout', 'save', { page: 'projects', items: [{ id: 'projects', x: 0, y: 0, w: 12 }] });
+  s.call('layout', 'saveView', { page: 'projects', view: { status: ['active', 'paused'] } });
+  s.call('layout', 'saveView', { page: 'project', view: { nextAction: 'hidden' } });
+  s.call('layout', 'saveView', { page: 'projects', view: { sort: 'name' } });
+  let saved = json(s.run('bootstrap()')).data.layout;
+  assert.deepStrictEqual(saved['projects.view'], { status: ['active', 'paused'], sort: 'name' }, 'a second choice is added, not swapped in');
+  assert.deepStrictEqual(saved['project.view'], { nextAction: 'hidden' });
+  assert.strictEqual(s.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.projects.view')[1], '{"status":["active","paused"],"sort":"name"}');
+  s.call('layout', 'saveView', { page: 'projects', view: { sort: null, status: [] } });
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.layout['projects.view'], { status: [] }, 'null forgets a choice; an empty list is a choice');
+  assert.strictEqual(json(s.run("bootstrap('work')")).data.layout['projects.view'], undefined, 'each mode has its own');
+  assert.throws(() => s.call('layout', 'saveView', { page: 'Projects!', view: {} }), /Unknown page/);
+  assert.throws(() => s.call('layout', 'saveView', { page: 'projects', view: ['active'] }), /Bad view settings/);
+  assert.throws(() => s.call('layout', 'saveView', { page: 'projects', view: { 'bad key': 'x' } }), /Bad view setting/);
+  assert.throws(() => s.call('layout', 'saveView', { page: 'projects', view: { status: 'x'.repeat(61) } }), /too long/);
+  assert.throws(() => s.call('layout', 'saveView', { page: 'projects', view: { status: Array(11).fill('active') } }), /too long/);
+  s.call('layout', 'reset', { page: 'projects' });
+  saved = json(s.run('bootstrap()')).data.layout;
+  assert.ok(!saved.projects, 'the grid is reset');
+  assert.deepStrictEqual(saved['projects.view'], { status: [] }, 'the view choices are not layout, so they stay');
+});
+
+test('a category picked in the app is made with the browser\'s id and a palette colour, given to the project in one call, and undone together', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Raised beds', category: 'house' }).result;
+  const r = s.call('projects', 'update', { id: p.id, newCategory: 'Allotment', newCategoryColor: '5', newCategoryId: 'abcd0123' });
+  assert.strictEqual(r.result.category, 'abcd0123');
+  assert.deepStrictEqual(r.slices.categories.find((c) => c.id === 'abcd0123'), { label: 'Allotment', color: '5', id: 'abcd0123', order: 4 });
+  assert.throws(() => s.call('projects', 'update', { id: p.id, newCategory: 'Orchard', newCategoryColor: 'pink' }), /Unknown colour/);
+  assert.throws(() => s.call('projects', 'update', { id: p.id, newCategory: 'Orchard', newCategoryId: '<b>' }), /Bad id/);
+  assert.strictEqual(json(s.run('undo')()).undone, 'projects.update');
+  const data = json(s.run('bootstrap()')).data;
+  assert.ok(!data.categories.some((c) => c.label === 'Allotment'), 'the category goes');
+  assert.strictEqual(data.projects.find((x) => x.id === p.id).category, 'house', 'and the project has its old one');
+  assert.strictEqual(s.call('categories', 'add', { label: 'Pond' }).result.id.length, 8, 'without an id one is made');
+});
+
 test('a pending import runs once, in its own mode, when that mode is first opened', () => {
   const s = fresh();
   s.run(`function pendingImportData_() { return {

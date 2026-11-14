@@ -13,8 +13,9 @@
 </style>
 <script>
 /**
- * "Linked projects" on each project page: what blocks it, what it blocks and what it relates to, each a link to that
- * project. "+ Link" adds one and Remove takes one away; both show at once and save in the background, with Undo.
+ * "Linked projects", a section that opens in the project's top panel (the projects module's 'project.header' slot): what
+ * blocks it, what it blocks and what it relates to, each a link to that project. "+ Link" adds one and Remove takes one
+ * away; both show at once and save in the background, with Undo.
  * The checks the server makes (not itself, not twice, no circle of blocking links) run here first, so the dialog can say why.
  */
 (function () {
@@ -49,14 +50,17 @@
       '<button class="lkrm" data-act="links.remove" data-id="' + FT.esc(x.link.id) + '" aria-label="Remove link: ' + FT.esc(x.words + ' ' + name) + '">Remove</button></li>';
   }
 
-  function panel(p) {
+  /** The section's count (shown on its button while it is closed) and its content. */
+  function section(p) {
     var lines = linesFor(p.id);
-    return '<section class="panel"><div class="label">Linked projects</div>' +
-      (lines.length ? '<ul class="lklist">' + lines.map(lineHtml).join('') + '</ul>' : '<p class="empty">No linked projects.</p>') +
-      '<div class="lkfoot"><button class="btn sm" data-act="links.add" data-project="' + FT.esc(p.id) + '">+ Link</button></div></section>';
+    return {
+      count: lines.length,
+      html: (lines.length ? '<ul class="lklist">' + lines.map(lineHtml).join('') + '</ul>' : '<p class="empty">No linked projects.</p>') +
+        '<div class="lkfoot"><button class="btn sm" data-act="links.add" data-project="' + FT.esc(p.id) + '">+ Link</button></div>'
+    };
   }
 
-  FT.module({ id: 'links', slots: { 'project.page': [{ id: 'linked', title: 'Linked projects', description: 'Projects this one waits on, blocks or relates to.', order: 22, span: 'half', render: panel }] } });
+  FT.module({ id: 'links', slots: { 'project.header': [{ id: 'linked', title: 'Linked projects', order: 10, render: section }] } });
 
   /** Does following blocking links from start reach goal? */
   function reaches(start, goal) {

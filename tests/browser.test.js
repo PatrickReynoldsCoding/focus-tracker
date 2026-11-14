@@ -57,7 +57,12 @@ async function run(browser, size) {
   const quickly = async (fn) => { env.latency = 0; try { return await fn(); } finally { env.latency = LATENCY; } }; // set up without waiting for the slow server
   const openMenuIfPhone = async () => { if (size.mobile) await pg.click('#menuBtn'); };
   const gotoTab = (name) => quickly(async () => { await openMenuIfPhone(); await pg.click('.tab:text("' + name + '")'); await sleep(250); });
-  const openFirstProject = () => quickly(async () => { await gotoTab('Projects'); await pg.click('.rowlink >> nth=0'); await sleep(400); });
+  // The Projects tab reopens the project last shown in it; "‹ All projects" goes to the list.
+  const openFirstProject = () => quickly(async () => {
+    await gotoTab('Projects');
+    if (await pg.isVisible('#app [data-act="core.tab"][data-list]')) { await pg.click('#app [data-act="core.tab"][data-list]'); await sleep(250); }
+    await pg.click('.rowlink >> nth=0'); await sleep(400);
+  });
   const todayState = () => env.server.run('bootstrap()').data.today;
   const projectRow = (id) => env.server.run('bootstrap()').data.projects.find((p) => p.id === id);
   const status = () => pg.evaluate(() => FT.project(FT.state.projectId).status);
@@ -262,7 +267,40 @@ async function run(browser, size) {
   log('Project: Mark done, Reopen, Pause and Resume answer at once and reach the server');
 
   await quick('Project: Edit dialog', pg.locator('[data-act="projects.edit"]')); await closeDialog();
-  await quick('Project: Lock dialog', pg.locator('[data-act="projects.lock"]')); await closeDialog();
+  await quick('Project: ⋯ More menu', pg.locator('.phead [data-act="projects.more"]'));
+  await quick('Project: Lock dialog (from More)', pg.locator('#pj-menu [data-act="projects.lock"]')); await closeDialog();
+  // Hide next action (More) shows at once and reaches the mode's Settings; Show brings it back
+  const projectView = () => env.server.run('bootstrap()').data.layout['project.view'] || {};
+  await quick('Project: More', pg.locator('.phead [data-act="projects.more"]'));
+  await quick('Project: Hide next action', pg.locator('#pj-menu [data-act="projects.toggleNextAction"]'));
+  assert.ok(!(await pg.isVisible('#app .phead ~ .next')), 'the next action goes at once');
+  await settle();
+  assert.strictEqual(projectView().nextAction, 'hidden', 'and that reached the server');
+  await quickly(async () => { await pg.click('.phead [data-act="projects.more"]'); await pg.click('#pj-menu [data-act="projects.toggleNextAction"]'); await sleep(150); });
+  await settle();
+  assert.ok(await pg.isVisible('#app .phead ~ .next') && !projectView().nextAction, 'shown again');
+  log('Project: ⋯ More opens at once; Lock and Hide next action answer at once and reach the server');
+  // the category picker: a pick shows at once and reaches the server; New category… is made and given at once
+  const categoryOnServer = () => projectRow(id).category;
+  const startCategory = await pg.evaluate(() => FT.project(FT.state.projectId).category);
+  const otherCategory = await pg.evaluate((c) => FT.categories().find((x) => x.id !== c).id, startCategory);
+  await quick('Project: category picker', pg.locator('.phead [data-act="projects.pickCategory"]'));
+  await quick('Project: pick a category', pg.locator('#pj-menu [data-category="' + otherCategory + '"]'));
+  assert.strictEqual(await pg.evaluate(() => FT.project(FT.state.projectId).category), otherCategory, 'shown at once');
+  assert.strictEqual(categoryOnServer(), startCategory, 'before the slow server has it');
+  await settle();
+  assert.strictEqual(categoryOnServer(), otherCategory, 'the pick reached the server');
+  await quickly(async () => { await pg.click('.phead [data-act="projects.pickCategory"]'); await pg.click('#pj-menu [data-act="projects.newCategory"]'); await pg.fill('#dlg-catlabel', 'Allotment'); });
+  await quick('Project: New category (save)', pg.locator('#dlg-submit'));
+  assert.ok(!(await pg.isVisible('.dialog')), 'the dialog closes at once');
+  assert.strictEqual(await pg.locator('.phead .pill').innerText(), 'Allotment', 'and the project shows it at once');
+  await settle();
+  const allotment = env.server.run('bootstrap()').data.categories.find((c) => c.label === 'Allotment');
+  assert.ok(allotment && categoryOnServer() === allotment.id, 'made and given on the server');
+  await quickly(async () => { await pg.click('.phead [data-act="projects.pickCategory"]'); await pg.click('#pj-menu [data-category="' + startCategory + '"]'); await sleep(150); });
+  await settle();
+  assert.strictEqual(categoryOnServer(), startCategory);
+  log('Category picker: a pick and New category… show at once and reach the server');
   await quick('Project: Delete asks first', pg.locator('[data-act="projects.delete"]')); await closeDialog();
   await quick('Kanban: open a card', pg.locator('[data-act="kanban.open-card"]').first()); await closeDialog();
   await quick('Kanban: add a column dialog or field', pg.locator('[data-act="kanban.add-col"]')); await closeDialog();
@@ -295,6 +333,7 @@ async function run(browser, size) {
   }
   // linked projects: + Link opens its dialog at once, the new link shows before the slow server has it, and Remove goes at once
   const projectLinks = () => env.server.run('bootstrap()').data.links.filter((l) => l.from_id === id || l.to_id === id);
+  await quick('Links: open the Linked projects section', pg.locator('.psectbtn[data-id="linked"]'));
   await quick('Links: + Link dialog', pg.locator('[data-act="links.add"]'));
   await quick('Links: Link (save)', pg.locator('#dlg-submit'));
   assert.ok(!(await pg.isVisible('.dialog')), 'the dialog closes at once');
@@ -311,6 +350,7 @@ async function run(browser, size) {
   await quick('Resources: add a link dialog', pg.locator('[data-act="resources.add"]').first()); await closeDialog();
   await quick('Sticky: + Note', pg.locator('[data-act="stickies.add"]'));
   await settle();
+  await quickly(async () => { await pg.locator('.sticky [data-act="stickies.remove"]').last().click(); await settle(); }); // it floats where the resources are tested next
   // adding and editing a resource close the dialog and show the change before the slow server answers
   const spec = () => env.server.run('bootstrap()').data.resources.find((r) => r.title === 'Spec sheet');
   await quickly(async () => {

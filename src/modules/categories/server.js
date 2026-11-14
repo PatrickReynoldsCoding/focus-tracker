@@ -53,9 +53,11 @@ function categoriesModule() {
 
       ids: function () { return list_().map(function (c) { return c.id; }); },
 
+      /** a.id: the browser's id, so the category shows (and can be picked) before the answer. a.color: a palette slot, or the least used one. */
       add: function (a, ctx) {
         var rows = list_();
         var row = T.insert({
+          id: clientId_(a.id),
           label: label_(a.label),
           color: a.color ? color_(a.color) : leastUsedColor_(rows),
           order: rows.reduce(function (m, r) { return Math.max(m, r.order); }, 0) + 1

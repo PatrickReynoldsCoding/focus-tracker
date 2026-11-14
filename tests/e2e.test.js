@@ -62,6 +62,12 @@ async function waitFor(fn, label, ms = 3000) {
   const setVal = (el, v, type = 'input') => { el.value = v; el.dispatchEvent(new w.Event(type, { bubbles: true })); };
   const tab = (name) => $$('.tab').find((t) => t.textContent === name);
   const subtab = (name) => $$('.subtab').find((t) => t.textContent === name);
+  // The Projects tab reopens the project last shown in it; "‹ All projects" then goes to the list.
+  const showAllProjects = () => {
+    click(tab('Projects'));
+    const allProjects = $('[data-act="core.tab"][data-list]');
+    if (allProjects) click(allProjects);
+  };
 
   let passed = 0;
   async function step(name, fn) { await fn(); passed++; console.log('  ok  ' + name); }
@@ -84,9 +90,17 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(w.localStorage.getItem('ft.wide'), '0');
   });
 
-  await step('projects tab lists every project, and no empty shared resource panels', async () => {
-    click(tab('Projects'));
-    await waitFor(() => $$('tr.row').length === 7, '7 rows');
+  const personalData = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data));
+
+  await step('projects tab shows active projects first time; Clear shows every project, and the choice reaches the mode\'s Settings', async () => {
+    showAllProjects();
+    await waitFor(() => $$('tr.row').length === 6, '6 active rows');
+    assert.strictEqual($('#pj-status').textContent.replace('▾', ''), 'active', 'Active is picked by default');
+    assert.ok(!$$('tr.row').some((r) => r.textContent.includes('Garden fence repair')), 'the paused project is filtered out');
+    click($('[data-act="projects.clear"]'));
+    assert.strictEqual($$('tr.row').length, 7, 'every project at once');
+    await waitFor(() => personalData().layout['projects.view'] && personalData().layout['projects.view'].status.length === 0, 'all statuses saved for the mode');
+    assert.strictEqual(server.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.projects.view')[1], '{"status":[]}', 'one readable Settings row');
     assert.strictEqual($$('.cats .panel').length, 0, 'no category has shared resources yet');
     assert.strictEqual($$('[data-act="resources.add"][data-shared]').length, 1, 'one add control instead');
   });
@@ -160,7 +174,9 @@ async function waitFor(fn, label, ms = 3000) {
     assert.deepStrictEqual([...new Set(statusOf())].sort(), ['active', 'paused']);
     assert.ok(projectNames().length > 1 && projectNames().length <= all);
     assert.strictEqual($('#pj-status').textContent.replace('▾', ''), 'active, paused');
-    assert.strictEqual(w.localStorage.getItem('ft.projects.status.personal'), '["active","paused"]', 'remembered for this mode');
+    await waitFor(() => JSON.stringify(personalData().layout['projects.view'].status) === '["active","paused"]', 'remembered for this mode, on the server');
+    assert.strictEqual(personalData().layout['projects.view'].status.join(), 'active,paused');
+    assert.strictEqual(JSON.parse(JSON.stringify(server.run("bootstrap('work')").data.layout))['projects.view'], undefined, 'not for the other mode');
     d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.strictEqual($('#pj-status-pop'), null, 'Escape closes it');
     assert.strictEqual(d.activeElement, $('#pj-status'), 'and puts focus back on the button');
@@ -170,7 +186,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!$('[data-act="projects.clear"]').disabled);
     click($('[data-act="projects.clear"]'));
     assert.strictEqual(projectNames().length, all);
-    assert.strictEqual(w.localStorage.getItem('ft.projects.status.personal'), null, 'Clear forgets it');
+    await waitFor(() => personalData().layout['projects.view'].status.length === 0, 'Clear shows every status, remembered too');
   });
 
   await step('opening a project shows header, kanban, notes and resources', async () => {
@@ -313,12 +329,19 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(onServer());
   });
 
-  await step('linked projects: + Link shows the link at once, the project waits, a click opens the other, Remove has Undo', async () => {
+  await step('linked projects: a section of the top panel; + Link shows the link at once, the project waits, a click opens the other, Remove has Undo', async () => {
     const fan = w.FT.state.projectId, cv = w.FT.store.projects.find((p) => p.name === 'CV and portfolio').id;
     const serverLinks = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.links));
     const lines = () => $$('.lklist li').map((li) => li.querySelector('span').textContent.trim());
-    assert.ok($$('.lcell .label').some((l) => l.textContent === 'Linked projects'), 'the panel is on the project page');
-    assert.ok($('.lklist') === null && $$('.panel .empty').some((e) => e.textContent === 'No linked projects.'));
+    const toggle = () => $('[data-panel="header"] .psectbtn[data-id="linked"]');
+    assert.ok(!$$('.lcell .label').some((l) => l.textContent === 'Linked projects'), 'no Linked projects panel of its own');
+    assert.ok(toggle(), 'a Linked projects section in the top panel');
+    assert.strictEqual(toggle().getAttribute('aria-expanded'), 'false', 'closed at first');
+    assert.ok($('#ps-linked').hidden);
+    click(toggle());
+    assert.strictEqual(toggle().getAttribute('aria-expanded'), 'true');
+    assert.ok(!$('#ps-linked').hidden, 'opens in place');
+    assert.ok($('.lklist') === null && $('#ps-linked .empty').textContent === 'No linked projects.');
     click($('[data-act="links.add"]'));
     await waitFor(() => $('.dialog'), 'link dialog');
     assert.deepStrictEqual(Array.from($('#dlg-relation').options).map((o) => o.textContent), ['blocks', 'is blocked by', 'relates to']);
@@ -328,6 +351,7 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog'), 'the dialog closes');
     assert.deepStrictEqual(lines(), ['Blocked by CV and portfolio (active)'], 'and the link shows');
+    assert.strictEqual(toggle().querySelector('.pcount').textContent, '1', 'the button counts the links');
     assert.ok($('.waitbox') && $('.waitbox').textContent.includes('Waiting on CV and portfolio'), 'the header says what it waits on');
     await waitFor(() => serverLinks().some((l) => l.from_id === cv && l.to_id === fan && l.type === 'blocks'), 'saved on the server');
     assert.ok(JSON.parse(JSON.stringify(server.run('bootstrap()').data.today)).ranked.indexOf(fan) === -1, 'and it is out of the focus pick');
@@ -336,13 +360,13 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!Array.from($('#dlg-other').options).some((o) => o.value === cv), 'a project already linked is not offered again');
     click($('#dlg-cancel'));
 
-    click(tab('Projects'));
+    click($('[data-act="core.tab"][data-list]'));
     await waitFor(() => $$('tr.row').length, 'project rows');
     const row = $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan'));
     assert.ok(row.querySelector('.waitmark') && row.querySelector('.waitmark').textContent === 'Waiting', 'the Projects tab marks it');
     assert.strictEqual($$('.waitmark').length, 1);
     click(row);
-    await waitFor(() => $('.lklist'), 'back on the project');
+    await waitFor(() => $('.lklist') && !$('#ps-linked').hidden, 'back on the project, the section still open');
     click($('.lklist [data-act="links.open"]'));
     await waitFor(() => w.FT.state.projectId === cv && $('.lklist'), 'the blocker opens');
     assert.deepStrictEqual(lines(), ['Blocks Bathroom extractor fan']);
@@ -358,6 +382,8 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => lines().length === 1 && serverLinks().length === 1, 'back after undo');
     click($('.lklist [data-act="links.remove"]'));
     await waitFor(() => !serverLinks().length && w.FT.pendingSaves() === 0, 'removed again');
+    click(toggle());
+    assert.ok($('#ps-linked').hidden, 'and closes again');
   });
 
   // The project's own resources panel, and the resources in it as the server has them
@@ -530,7 +556,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title');
     assert.ok(playedTypes.includes('sawtooth') && !playedTypes.includes('triangle'), 'the chicken plays when work ends');
     playedTypes.length = 0;
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => d.title.startsWith('⏰ Break time'), 'alert title stays on other tabs', 2500);
     click(tab('Today'));
     await waitFor(() => $('#pomo.over'), 'back on Today');
@@ -622,6 +648,31 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.next') && $('.next').textContent.includes('Send to two friends') && $('.lastnote').textContent.includes('Rewrote the intro'), 'Today follows the edit');
   });
 
+  await step('coming back to the Projects tab reopens the project left open there; ‹ All projects goes to the list, which the tab then keeps', async () => {
+    const opened = w.FT.store.projects.find((p) => p.name === 'Bathroom extractor fan');
+    showAllProjects();
+    click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes(opened.name)), 'its row'));
+    await waitFor(() => w.FT.state.view === 'project' && w.FT.state.projectId === opened.id, 'the project is open');
+    click(tab('Today'));
+    await waitFor(() => $('.focus-name'), 'Today');
+    click(tab('Projects'));
+    await waitFor(() => w.FT.state.view === 'project' && w.FT.state.projectId === opened.id && $('.phead h2').textContent === opened.name, 'the same project again, not the list');
+    assert.strictEqual(tab('Projects').getAttribute('aria-current'), 'page');
+    assert.strictEqual(w.localStorage.getItem('ft.projects.open.personal'), opened.id, 'kept on this device for this mode');
+    click(tab('Projects'));
+    await waitFor(() => w.FT.state.view === 'projects' && $$('tr.row').length, 'the tab pressed again on the project goes to the list');
+    click(tab('Today'));
+    click(tab('Projects'));
+    await waitFor(() => w.FT.state.view === 'projects', 'the list was the last thing shown, so it stays the list');
+    click($$('tr.row').find((r) => r.textContent.includes(opened.name)));
+    await waitFor(() => w.FT.state.view === 'project', 'open again');
+    click($('[data-act="core.tab"][data-list]'));
+    await waitFor(() => w.FT.state.view === 'projects' && w.localStorage.getItem('ft.projects.open.personal') === '', '‹ All projects shows the list and forgets the project');
+    click(tab('Today'));
+    click(tab('Projects'));
+    assert.strictEqual(w.FT.state.view, 'projects');
+  });
+
   await step('swap focus lets you pick the project and a reminder, and the skip shows on the project', async () => {
     click(tab('Today'));
     const before = await waitFor(() => $('.focus-name') && $('.focus-name').textContent, 'focus');
@@ -635,7 +686,7 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && $('.focus-name').textContent === 'Bathroom extractor fan', 'picked project is the focus');
     const skipped = JSON.parse(JSON.stringify(server.run('bootstrap()').data.projects)).find((p) => p.name === before);
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes(before)), 'row'));
     await waitFor(() => $('.phead') && $('.phead').textContent.includes('Skipped 1 time'), 'skip count on the project');
     assert.ok(skipped);
@@ -937,7 +988,7 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('deleting a project from its page removes it everywhere', async () => {
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => $$('tr.row').length === 7, 'rows');
     click($$('tr.row').find((r) => r.textContent.includes('Garden fence repair')));
     await waitFor(() => $('[data-act="projects.delete"]'), 'delete button');
@@ -945,6 +996,21 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.dialog'), 'confirm');
     click($('#dlg-submit'));
     await waitFor(() => $$('tr.row').length === 6, '6 rows');
+  });
+
+  await step('the Projects tab has no Categories panel at first; Edit layout → Add feature puts it there for the mode', async () => {
+    const projectsLayout = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.layout)).projects || {};
+    assert.strictEqual($$('.catrow').length, 0, 'not on the page by default');
+    click($('#layoutBtn'));
+    click($('.editbar [data-act="core.addFeature"]'));
+    const offered = $$('#dlg-features li').find((li) => li.querySelector('b').textContent === 'Categories');
+    assert.ok(offered && /rename, recolour/.test(offered.textContent), 'offered in Add feature, with its description');
+    click(offered.querySelector('[data-act="core.addFeatureItem"]'));
+    assert.ok(!$$('#dlg-features li').some((li) => li.querySelector('b').textContent === 'Categories'), 'offered no more');
+    click($('#dlg-submit'));
+    click($('.editbar [data-act="core.layout"]'));
+    assert.deepStrictEqual($$('.catrow input').map((i) => i.value), ['Coding', 'Job search', 'House'], 'on the page at once');
+    await waitFor(() => projectsLayout().categorylist && !projectsLayout().categorylist.hidden, 'its place reached the server');
   });
 
   await step('categories can be added from the Projects tab and show in the project form', async () => {
@@ -1015,6 +1081,101 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => backlogTitles().join('|') === 'Write a blog|Shed roof|Learn Rust', 'in its place again');
   });
 
+  const serverProject = (id) => JSON.parse(JSON.stringify(server.run('bootstrap()').data.projects)).find((p) => p.id === id);
+  const serverCategories = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.categories));
+  const key = (el, k) => el.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true }));
+
+  await step('the category in the projects table opens a picker: arrow keys move, Escape closes, a pick changes it at once and on the server', async () => {
+    showAllProjects();
+    const fan = w.FT.store.projects.find((p) => p.name === 'Bathroom extractor fan');
+    const pickerButton = () => $(`[data-act="projects.pickCategory"][data-id="${fan.id}"]`);
+    assert.strictEqual(pickerButton().getAttribute('aria-haspopup'), 'menu');
+    click(pickerButton());
+    assert.strictEqual(pickerButton().getAttribute('aria-expanded'), 'true');
+    const items = $$('#pj-menu [role^="menuitem"]');
+    assert.deepStrictEqual(items.map((i) => i.textContent), w.FT.categories().map((c) => c.label).concat(['New category…']), 'every category, then New category…');
+    assert.strictEqual(d.activeElement, $('#pj-menu [aria-checked="true"]'), 'focus on the current category');
+    assert.strictEqual(d.activeElement.dataset.category, 'house');
+    key(d.activeElement, 'End');
+    assert.strictEqual(d.activeElement.textContent, 'New category…');
+    key(d.activeElement, 'ArrowDown');
+    assert.strictEqual(d.activeElement, items[0], 'wraps round');
+    key(d.activeElement, 'Escape');
+    assert.ok(!$('#pj-menu') && d.activeElement === pickerButton(), 'Escape closes it and focus goes back');
+    assert.strictEqual(w.FT.state.view, 'projects', 'and the row did not open');
+    click(pickerButton());
+    click($('#pj-menu [data-category="coding"]'));
+    assert.ok(!$('#pj-menu'), 'the menu closes');
+    assert.strictEqual(w.FT.state.view, 'projects', 'the row does not open');
+    assert.ok($$('tr.row').find((r) => r.textContent.includes(fan.name)).children[1].textContent.startsWith('Coding'), 'shown at once');
+    await waitFor(() => serverProject(fan.id).category === 'coding', 'saved');
+    click(pickerButton());
+    click($('#pj-menu [data-category="house"]'));
+    await waitFor(() => serverProject(fan.id).category === 'house' && w.FT.pendingSaves() === 0, 'and back');
+    click(pickerButton());
+    click($('.tophead .label'));
+    assert.ok(!$('#pj-menu'), 'a click elsewhere closes it');
+  });
+
+  await step('New category… from the project\'s top panel: a name and a palette colour, made through the categories api and given to the project at once', async () => {
+    click($$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')));
+    await waitFor(() => $('.phead'), 'project page');
+    const id = w.FT.state.projectId;
+    click($('.phead [data-act="projects.pickCategory"]'));
+    click($('#pj-menu [data-act="projects.newCategory"]'));
+    await waitFor(() => $('#dlg-catlabel'), 'new category dialog');
+    assert.strictEqual($$('input[name="dlg-catcolor"]').length, 8, 'the eight palette colours');
+    assert.ok($('input[name="dlg-catcolor"]:checked'), 'one picked to start with');
+    click($('#dlg-submit'));
+    await waitFor(() => $('#dlg-err').textContent.includes('needs a name'), 'a name is needed');
+    setVal($('#dlg-catlabel'), 'Allotment');
+    const purple = $('input[name="dlg-catcolor"][value="5"]');
+    purple.checked = true;
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closes');
+    assert.ok($('.phead .pill').textContent === 'Allotment', 'the project shows it at once');
+    const made = () => serverCategories().find((c) => c.label === 'Allotment');
+    await waitFor(() => made() && serverProject(id).category === made().id, 'made and assigned on the server');
+    assert.strictEqual(made().color, '5');
+    assert.strictEqual(made().id, w.FT.categories().find((c) => c.label === 'Allotment').id, 'with the id the page gave it');
+    click($('#toast .toastbtn'));
+    await waitFor(() => !serverCategories().some((c) => c.label === 'Allotment') && serverProject(id).category === 'house', 'Undo takes both back');
+    await waitFor(() => $('.phead .pill').textContent === 'House', 'and the page follows');
+  });
+
+  await step('the top panel: ⋯ More holds Lock and Hide next action (kept for the mode), and the panel cannot be hidden', async () => {
+    const more = () => $('.phead [data-act="projects.more"]');
+    assert.strictEqual(more().textContent, '⋯');
+    assert.ok(!$('#app [data-panel="header"] .actions [data-act="projects.lock"]') && !$('.grid-stack-item[gs-id="header"] .actions [data-act="projects.lock"]'), 'Lock is not a button of its own');
+    click(more());
+    assert.deepStrictEqual($$('#pj-menu [role="menuitem"]').map((i) => i.textContent), ['Lock…', 'Hide next action']);
+    assert.strictEqual(d.activeElement, $('#pj-menu [role="menuitem"]'));
+    key(d.activeElement, 'ArrowDown');
+    click(d.activeElement);
+    assert.ok(!$('.phead ~ .next'), 'the next action is hidden at once');
+    await waitFor(() => (JSON.parse(JSON.stringify(server.run('bootstrap()').data.layout))['project.view'] || {}).nextAction === 'hidden', 'and that reached the mode\'s Settings');
+    click(more());
+    assert.strictEqual($$('#pj-menu [role="menuitem"]')[1].textContent, 'Show next action');
+    click($$('#pj-menu [role="menuitem"]')[1]);
+    assert.ok($('.phead ~ .next'), 'shown again');
+    click(more());
+    click($('#pj-menu [data-act="projects.lock"]'));
+    await waitFor(() => $('#lk-date'), 'the lock dialog');
+    assert.ok(!$('#pj-menu'), 'the menu closed first');
+    click($('#dlg-cancel'));
+    click($('#layoutBtn'));
+    assert.ok(!$('#app [data-panel="header"] [data-act="core.hidePanel"]'), 'no Hide on the top panel');
+    assert.ok($('#app [data-panel="kanban"] [data-act="core.hidePanel"]'), 'other panels still have it');
+    click($('.editbar [data-act="core.layout"]'));
+    const layoutBefore = w.FT.store.layout.project;
+    w.FT.store.layout.project = { header: { x: 0, y: 10000, w: 12, hidden: true } };
+    w.FT.render();
+    assert.ok($('#app [data-panel="header"] .phead'), 'a top panel hidden before this change shows again');
+    w.FT.store.layout.project = layoutBefore;
+    w.FT.render();
+    await waitFor(() => w.FT.pendingSaves() === 0, 'saved');
+  });
+
   await step('lists: create one, add groups and items like a vertical board, and show it on Today', async () => {
     click(tab('Lists'));
     await waitFor(() => $('[data-act="lists.add"]'), 'lists tab');
@@ -1079,7 +1240,7 @@ async function waitFor(fn, label, ms = 3000) {
   await step('deleting a category closes the dialog, says so with Undo at once, and Undo brings it back', async () => {
     const onServer = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.categories)).some((c) => c.label === 'Garden');
     const garden = () => $$('.catrow').find((r) => r.querySelector('input').value === 'Garden');
-    click(tab('Projects'));
+    showAllProjects();
     click((await waitFor(() => garden(), 'Garden row')).querySelector('[data-act="categories.remove"]'));
     await waitFor(() => $('.dialog'), 'confirm');
     click($('#dlg-submit'));
@@ -1093,7 +1254,7 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('the Add project form can make a new category, and Enter submits it', async () => {
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $('[data-act="projects.add"]'), 'add button'));
     await waitFor(() => $('#dlg-category'), 'project dialog');
     assert.ok($('#dlg-newcategory').hidden, 'name box hidden until asked for');
@@ -1103,7 +1264,7 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-newcategory'), 'Outdoor');
     $('#dlg-newcategory').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await waitFor(() => !$('.dialog') && $('.phead') && $('.phead').textContent.includes('Outdoor'), 'project with new category');
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => $$('.catrow input').some((i) => i.value === 'Outdoor'), 'category listed');
   });
 
@@ -1179,7 +1340,7 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('acceptance criteria sit above the Kanban: add with Enter, tick, hide checked, edit', async () => {
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
     await waitFor(() => $('#crit-new'), 'criteria panel');
     const labels = $$('.lcell .label').map((l) => l.textContent);
@@ -1232,7 +1393,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#timer') && $('[data-act="today.pomodoro"]'), 'session on the project page');
     click($('[data-act="today.pomodoro"]'));
     await waitFor(() => $('#pomo') && /Work 2[45]:\d\d left/.test($('#pomo').textContent), 'pomodoro on the project page');
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $$('tr.row').find((r) => !r.textContent.includes(focusName)), 'another project'));
     await waitFor(() => $('.phead'), 'other project page');
     assert.strictEqual($('#timer'), null, 'no session on other projects');
@@ -1365,7 +1526,7 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('sticky notes: add, type, recolour, hide with a count badge, show, delete with undo', async () => {
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
     await waitFor(() => $('[data-act="stickies.add"]'), 'note button on the project page');
     click($('[data-act="stickies.add"]'));
@@ -1533,7 +1694,7 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('whiteboards: make two named boards, rename one, remove one with Undo', async () => {
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
     for (const name of ['Duct route', 'Wiring']) {
       click(await waitFor(() => $('[data-act="whiteboard.new"]'), 'new button'));
@@ -1648,10 +1809,11 @@ async function waitFor(fn, label, ms = 3000) {
     const workFolder = await driveLinkInSettings();
     assert.notStrictEqual(workFolder.href, personalFolder);
     assert.ok(workFolder.text.includes('Work folder'));
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => $('[data-act="projects.add"]'), 'work projects tab');
     assert.strictEqual($$('tr.row').length, 0);
-    assert.deepStrictEqual($$('.catrow input').map((i) => i.value), ['Delivery', 'Ops', 'Learning', 'Career', 'Admin']);
+    assert.strictEqual($$('.catrow').length, 0, 'the Categories panel was added in Personal only');
+    assert.deepStrictEqual(w.FT.categories().map((c) => c.label), ['Delivery', 'Ops', 'Learning', 'Career', 'Admin']);
     click($('[data-act="projects.add"]'));
     await waitFor(() => $('#dlg-name'), 'add dialog');
     setVal($('#dlg-name'), 'Wiz tickets');
@@ -1662,25 +1824,26 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!$('.habits-panel .habit'), 'work mode has no habits');
     setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name') && $('.focus-name').textContent !== 'Wiz tickets', 'personal back');
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => $$('tr.row').length === 7, 'personal projects unchanged');
 
-    // the status filter is kept per mode
+    // the status filter is kept per mode, in each mode's Settings
     pickStatus('paused', true);
     const paused = projectNames();
     assert.ok(paused.length < 7);
-    w.localStorage.setItem('ft.projects.status.work', '["done","nonsense"]');
+    await waitFor(() => w.FT.pendingSaves() === 0, 'saved');
+    server.run('rpc')('layout', 'saveView', { page: 'projects', view: { status: ['done', 'nonsense'] } }, 'work');
     setVal($('#modeSelect'), 'work', 'change');
     await waitFor(() => d.body.dataset.mode === 'work' && $('.focus-name'), 'work again');
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => $('#pj-status'), 'work projects tab');
     assert.strictEqual($('#pj-status').textContent.replace('▾', ''), 'done', 'work has its own saved choice, unknown statuses dropped');
     assert.ok($('.panel .empty').textContent.includes('No projects match'), 'Wiz tickets is active, so hidden');
     click($('[data-act="projects.clear"]'));
-    assert.strictEqual(w.localStorage.getItem('ft.projects.status.work'), null);
+    await waitFor(() => JSON.parse(JSON.stringify(server.run("bootstrap('work')").data.layout))['projects.view'].status.length === 0, 'cleared in work only');
     setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && $('.focus-name'), 'personal again');
-    click(tab('Projects'));
+    showAllProjects();
     await waitFor(() => $$('tr.row').length === paused.length, 'personal choice read back');
     assert.deepStrictEqual(projectNames(), paused);
     click($('[data-act="projects.clear"]'));
@@ -1700,9 +1863,9 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(d.body.dataset.accent, '5');
     assert.strictEqual($('#modeSelect').value, 'side-projects');
     assert.ok((await driveLinkInSettings()).text.includes('Side projects folder'));
-    click(tab('Projects'));
-    await waitFor(() => $$('.catrow input').length === 1, 'starts with one category');
-    assert.strictEqual($$('.catrow input')[0].value, 'General');
+    showAllProjects();
+    await waitFor(() => $('[data-act="projects.add"]'), 'its projects tab');
+    assert.deepStrictEqual(w.FT.categories().map((c) => c.label), ['General'], 'starts with one category');
     assert.strictEqual($$('tr.row').length, 0);
     setVal($('#modeSelect'), 'personal', 'change');
     await waitFor(() => d.body.dataset.mode === 'personal' && !d.body.dataset.accent, 'back to personal');
@@ -1723,7 +1886,7 @@ async function waitFor(fn, label, ms = 3000) {
       assert.strictEqual(line[h.indexOf('problem')] || '', '', t + ' row has no problem: ' + line.join('|'));
       assert.ok(/^[0-9a-f]{8}$/.test(line[h.indexOf('id')]), t + ' row has an id');
     });
-    click(tab('Projects'));
+    showAllProjects();
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Garden irrigation')), 'the project in the table'));
     await waitFor(() => $('.board') && $$('.kcard').length === 3, 'its board with three cards');
     const cards = {};
@@ -1846,7 +2009,6 @@ async function waitFor(fn, label, ms = 3000) {
   // ---------- pop-out windows (src/ui/popout.html) ----------
   const popWin = (panel) => $$('#popRoot .popwin').find((el) => el.dataset.key.endsWith(':' + panel));
   const popSaved = () => JSON.parse(w.localStorage.getItem('ft.popout.personal') || '{"windows":[]}').windows;
-  const key = (el, k) => el.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true }));
 
   await step('pop out: a Today panel becomes a free window on top, live, with a placeholder on its page', async () => {
     click(tab('Today'));
