@@ -172,12 +172,20 @@
       FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
   }
 
-  /** On Today, each list shows as its own panel, without the list controls. */
+  /** A list as a panel on Today, without the list controls. */
+  function todayPanel(l) {
+    if (l.display === 'one') return { id: 'list-' + l.id, kind: 'list', title: l.name, description: 'One item of this list at a time.', w: 5, html: quotePanelHtml(l) };
+    return { id: 'list-' + l.id, kind: 'list', title: l.name, description: 'A list from the Lists tab.', w: 6, html: compactPanel(l) };
+  }
+
+  /** On Today, each list marked for it shows as its own panel. */
   function todayPanels() {
-    return lists().filter(function (l) { return l.show_today; }).map(function (l) {
-      if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, description: 'One item of this list at a time.', w: 5, html: quotePanelHtml(l) };
-      return { id: 'list-' + l.id, title: l.name, description: 'A list from the Lists tab.', w: 6, html: compactPanel(l) };
-    });
+    return lists().filter(function (l) { return l.show_today; }).map(todayPanel);
+  }
+
+  /** A phone's pill can hold any list, also one not on Today. */
+  function pillPanels() {
+    return lists().filter(function (l) { return !l.show_today; }).map(todayPanel);
   }
 
   /** On a project's page, the lists linked to it: one panel each, with a stable id so its place can be saved. */
@@ -219,7 +227,7 @@
     id: 'lists',
     tab: { title: 'Lists', order: 25, render: tabHtml },
     slots: {
-      'today.panels': [{ order: 10, render: todayPanels }], 'project.page': [{ order: 30, render: projectPanels }],
+      'today.panels': [{ order: 10, render: todayPanels }], 'today.pillPanels': [{ order: 10, render: pillPanels }], 'project.page': [{ order: 30, render: projectPanels }],
       'addable.today': [{ order: 10, render: addableToday }], 'addable.project': [{ order: 10, render: addableProject }]
     }
   });

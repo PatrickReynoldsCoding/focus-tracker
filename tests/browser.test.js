@@ -470,7 +470,7 @@ async function run(browser, size) {
   await pg.waitForSelector('#wb-shell', { state: 'detached', timeout: 10000 });
   await settle();
   log('Whiteboards: the tab\'s buttons and "+ Today" answer at once, and a board on Today opens from its thumbnail');
-  // ---------- Moving panels: by the title (desktop), the phone's pager and press-and-hold (phone) ----------
+  // ---------- Moving panels by the title (desktop); Today's pills and Today settings (phone) ----------
   await gotoTab('Today');
   const layoutNow = () => JSON.parse(JSON.stringify(env.server.run('bootstrap()').data.layout));
   const panelOnPage = (id) => `#app .grid-stack-item[gs-id="${id}"], #app .lcell[data-panel="${id}"]`;
@@ -518,34 +518,58 @@ async function run(browser, size) {
     const finger = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
     const chipIds = () => pg.evaluate(() => [...document.querySelectorAll('#app .pchip')].map((c) => c.dataset.id));
     const chosen = () => pg.evaluate(() => document.querySelector('#app .pchip[aria-selected="true"]').dataset.id);
-    assert.ok(await pg.isVisible('#app .ppager > .ppinned:first-child + .pchips'), 'the focus is pinned at the top, above the chips');
+    assert.ok(await pg.isVisible('#app .ppager > .ppinned:first-child + .pchips'), 'the focus is pinned at the top, above the pills');
+    assert.ok(await pg.isVisible('#app .pchips > .pgear'), '⚙ at the end of the pills');
+    const gear = await box('#app .pgear');
+    assert.ok(gear.x + gear.w <= size.viewport.width, 'however many pills there are, ⚙ stays on screen (the pills scroll): ' + JSON.stringify(gear));
     const ids = await chipIds();
-    assert.ok(ids.length >= 3 && !ids.includes('focus'), 'a chip for each other panel: ' + ids.join(','));
-    await quick('Today pager: tap a chip', pg.locator(`#app .pchip[data-id="${ids[0]}"]`));
+    assert.ok(ids.length >= 3 && !ids.includes('focus'), 'a pill for each other panel: ' + ids.join(','));
+    await quick('Today pills: tap a pill', pg.locator(`#app .pchip[data-id="${ids[0]}"]`));
     assert.strictEqual(await chosen(), ids[0]);
     await pg.evaluate(() => window.scrollTo(0, 0));
-    const area = await box('#app .ppanel:not([hidden])');
+    const area = await box('#app .ppanel');
     const swipeY = area.y + Math.min(area.h / 2, 120);
     await finger('touchStart', 330, swipeY);
     for (const x of [300, 250, 200, 150, 100]) await finger('touchMove', x, swipeY + 2);
     await finger('touchEnd', 100, swipeY + 2);
     await sleep(300);
-    assert.strictEqual(await chosen(), ids[1], 'a swipe on the panel shows the next one');
+    assert.strictEqual(await chosen(), ids[1], 'a swipe on the panels shows the next pill');
     assert.strictEqual(await pg.evaluate(() => FT.state.view), 'today', 'and stays on Today');
-    log('Today pager: the pinned focus, a chip answers at once, a swipe changes the panel and not the tab');
+    log('Today pills: the pinned focus, a pill answers at once, a swipe changes the pill and not the tab');
 
-    const chip0 = await box(`#app .pchip[data-id="${ids[0]}"]`), chip1 = await box(`#app .pchip[data-id="${ids[1]}"]`);
-    await finger('touchStart', chip0.x + chip0.w / 2, chip0.y + chip0.h / 2);
-    await sleep(600);
-    assert.ok(await pg.isVisible('#app .pchip.lifted'), 'held, the chip lifts');
-    for (const step of [0.3, 0.6, 1]) await finger('touchMove', chip0.x + chip0.w / 2 + (chip1.x + chip1.w - 4 - chip0.x - chip0.w / 2) * step, chip0.y + chip0.h / 2);
-    await finger('touchEnd', chip1.x + chip1.w - 4, chip0.y + chip0.h / 2);
+    assert.strictEqual(await pg.evaluate(() => window.scrollX), 0, 'changing pill never moves the page sideways');
+    await quick('Today pills: ⚙ opens Today settings', pg.locator('#app .pgear'));
+    assert.ok(await pg.isVisible('#app .tsettings'), 'Today settings shows in the page\'s place');
+    const cards = () => pg.evaluate(() => [...document.querySelectorAll('#app .ts-pill')].map((c) => c.dataset.id));
+    const start = await cards();
+    const grip = await box(`#app .ts-pill[data-id="${start[0]}"] .ts-grip`), second = await box(`#app .ts-pill[data-id="${start[1]}"]`);
+    const from = { x: grip.x + grip.w / 2, y: grip.y + grip.h / 2 }, to = second.y + second.h - 4;
+    await finger('touchStart', from.x, from.y);
+    for (const step of [0.3, 0.6, 1]) await finger('touchMove', from.x, from.y + (to - from.y) * step);
+    await finger('touchEnd', from.x, to);
     await sleep(100);
-    const want = [ids[1], ids[0]].concat(ids.slice(2));
-    assert.deepStrictEqual(await chipIds(), want, 'dropped after the next chip at once');
+    const reordered = [start[1], start[0]].concat(start.slice(2));
+    assert.deepStrictEqual(await cards(), reordered, 'dragged by ⠿ with a finger, the pill moves at once');
     await settle();
-    assert.deepStrictEqual((layoutNow()['today.phone'] || []).filter((id) => want.includes(id)), want, 'the phone order reached the server');
-    log('Press and hold a chip, then drag it: the order changes at once and reaches the server');
+    assert.deepStrictEqual((layoutNow()['today.pills'] || []).map((p) => p.id), reordered, 'the new order reached the server');
+    log('Today settings: a pill dragged by ⠿ with a finger moves at once and the order reaches the server');
+
+    await quick('Today settings: + New pill', pg.locator('#app [data-act="layout.pillNew"]'));
+    assert.ok(await pg.isVisible('.dialog.sheet'), 'the pill opens in a sheet');
+    await quickly(() => pg.fill('#dlg-pname', 'Errands'));
+    await quick('Pill sheet: add Habits', pg.locator('#ps-add [data-id="habits"]'));
+    await quick('Pill sheet: add a list not on Today', pg.locator(`#ps-add [data-id="list-${listId}"]`));
+    await quick('Pill sheet: Add pill', pg.locator('#dlg-submit'));
+    assert.ok(await pg.isVisible('#app .ts-pill:has-text("Errands")'), 'the new pill is in the list at once');
+    await settle();
+    const errands = (layoutNow()['today.pills'] || []).find((p) => p.name === 'Errands');
+    assert.ok(errands && errands.panels.join() === 'habits,list-' + listId, 'the pill reached the server: ' + JSON.stringify(errands));
+    await quick('Today settings: Done', pg.locator('#app .ts-bar .btn[data-act="layout.pillsDone"]'));
+    await quick('Today pills: the new pill', pg.locator(`#app .pchip[data-id="${errands.id}"]`));
+    const stacked = await pg.evaluate(() => [...document.querySelectorAll('#app .ppanel .pitem')].map((el) => ({ id: el.dataset.panel, top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
+    assert.deepStrictEqual(stacked.map((p) => p.id), ['habits', 'list-' + listId], 'the pill shows both panels');
+    assert.ok(stacked[1].top >= stacked[0].top + stacked[0].height && stacked.every((p) => p.height > 40), 'one under the other: ' + JSON.stringify(stacked));
+    log('Today settings: a new pill is added in a sheet at once, reaches the server, and shows its panels stacked');
   }
 
   // ---------- Edit layout: the header button (desktop) or menu item (phone), ▲ ▼ on a phone, Remove and Add feature ----------
@@ -553,6 +577,10 @@ async function run(browser, size) {
     await quickly(() => pg.click('#menuBtn'));
     assert.strictEqual(await pg.innerText('#menuLayoutBtn'), 'Edit layout', 'the phone menu has Edit layout');
     await quick('Menu: Edit layout', pg.locator('#menuLayoutBtn'));
+    assert.ok(await pg.isVisible('.editbar [data-act="core.pagerSettings"]') && !(await pg.isVisible('.editbar [data-act="core.addFeature"]')), 'on a phone\'s Today it points to Today settings');
+    await quickly(() => pg.click('.editbar [data-act="core.layout"]'));
+    await openFirstProject();
+    await quickly(async () => { await pg.click('#menuBtn'); await pg.click('#menuLayoutBtn'); });
   } else {
     assert.strictEqual(await pg.innerText('#layoutBtn'), 'Edit layout', 'the header has a text button');
     await quick('Header: Edit layout', pg.locator('#layoutBtn'));
@@ -560,37 +588,49 @@ async function run(browser, size) {
   assert.ok(await pg.isVisible('.editbar [data-act="core.addFeature"]'), 'Edit layout shows Add feature');
   if (size.mobile) {
     const order = () => pg.evaluate(() => [...document.querySelectorAll('#app .lcell')].map((c) => c.dataset.panel));
-    const start = await order(), swapped = [start[0], start[2], start[1]].concat(start.slice(3));
-    assert.strictEqual(start[0], 'focus', 'the pinned focus is first');
-    await quick('Edit layout: ▼', pg.locator(`.lcell[data-panel="${start[1]}"] [data-act="core.movePanel"][data-d="1"]`));
+    const start = await order(), swapped = [start[1], start[0]].concat(start.slice(2));
+    await quick('Edit layout: ▼', pg.locator(`.lcell[data-panel="${start[0]}"] [data-act="core.movePanel"][data-d="1"]`));
     assert.deepStrictEqual(await order(), swapped, 'moved down at once');
     await settle();
-    const savedPair = () => (layoutNow()['today.phone'] || []).filter((id) => id === start[1] || id === start[2]);
-    assert.deepStrictEqual(savedPair(), [start[2], start[1]], 'the phone order reached the server');
-    await quick('Edit layout: ▲', pg.locator(`.lcell[data-panel="${start[1]}"] [data-act="core.movePanel"][data-d="-1"]`));
+    const savedPair = () => (layoutNow()['project.phone'] || []).filter((id) => id === start[0] || id === start[1]);
+    assert.deepStrictEqual(savedPair(), [start[1], start[0]], 'the phone order reached the server');
+    await quick('Edit layout: ▲', pg.locator(`.lcell[data-panel="${start[0]}"] [data-act="core.movePanel"][data-d="-1"]`));
     assert.deepStrictEqual(await order(), start, 'moved back up at once');
     await settle();
-    assert.deepStrictEqual(savedPair(), [start[1], start[2]], 'and that reached the server');
-    log('Edit layout: ▲ ▼ move a panel at once and the phone order reaches the server');
+    assert.deepStrictEqual(savedPair(), [start[0], start[1]], 'and that reached the server');
+    const removable = start.find((id) => id !== 'header');
+    await quick('Edit layout: Remove', pg.locator(`#app [data-act="core.removePanel"][data-id="${removable}"]`));
+    assert.ok(!(await pg.isVisible(panelOnPage(removable))), 'the panel goes at once');
+    await settle();
+    assert.ok(layoutNow().project[removable].removed, 'the remove reached the server');
+    await quick('Edit layout: Add feature', pg.locator('.editbar [data-act="core.addFeature"]'));
+    await quick('Add feature: Add a removed panel', pg.locator('#dlg-features [data-act="core.addFeatureItem"] >> nth=0'));
+    assert.ok(await pg.isVisible(panelOnPage(removable)), 'it is back at once');
+    await settle();
+    assert.ok(!layoutNow().project[removable].removed, 'the add reached the server');
+    await quickly(async () => { await pg.click('#dlg-submit'); await pg.click('.editbar [data-act="core.layout"]'); });
+    await gotoTab('Today');
+    log('Edit layout: on a phone\'s Today it points to Today settings; on a project page ▲ ▼, Remove and Add feature answer at once and reach the server');
+  } else {
+    await quick('Edit layout: Remove', pg.locator('#app [data-act="core.removePanel"][data-id="rotation"]'));
+    assert.ok(!(await pg.isVisible(panelOnPage('rotation'))), 'the panel goes at once');
+    await settle();
+    assert.ok(layoutNow().today.rotation.removed, 'the remove reached the server');
+    await quick('Edit layout: Add feature', pg.locator('.editbar [data-act="core.addFeature"]'));
+    assert.ok(await pg.isVisible('#dlg-features li:has-text("Weekly rotation")'), 'the removed panel is offered');
+    assert.ok(await pg.isVisible('#dlg-features li.on:has-text("Habits")'), 'in one list with the panels already on the page');
+    await quick('Add feature: Add a removed panel', pg.locator('#dlg-features [aria-label="Add Weekly rotation"]'));
+    assert.ok(await pg.isVisible(panelOnPage('rotation')), 'it is back at once');
+    await settle();
+    assert.ok(!layoutNow().today.rotation.removed, 'the add reached the server');
+    await quick('Add feature: Add a list to Today', pg.locator('#dlg-features [aria-label="Add Shopping"]'));
+    assert.ok(await pg.isVisible(panelOnPage('list-' + listId)), 'the list is on Today at once');
+    await settle();
+    assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).show_today, 'yes', 'show_today reached the server');
+    await quickly(async () => { await pg.click('#dlg-submit'); await pg.click('.editbar [data-act="core.layout"]'); });
+    assert.ok(!(await pg.isVisible('.editbar')), 'Done leaves Edit layout');
+    log('Edit layout: the button, Remove, Add feature and its Add answer at once and reach the server');
   }
-  await quick('Edit layout: Remove', pg.locator('#app [data-act="core.removePanel"][data-id="rotation"]'));
-  assert.ok(!(await pg.isVisible(panelOnPage('rotation'))), 'the panel goes at once');
-  await settle();
-  assert.ok(layoutNow().today.rotation.removed, 'the remove reached the server');
-  await quick('Edit layout: Add feature', pg.locator('.editbar [data-act="core.addFeature"]'));
-  assert.ok(await pg.isVisible('#dlg-features li:has-text("Weekly rotation")'), 'the removed panel is offered');
-  assert.ok(await pg.isVisible('#dlg-features li.on:has-text("Habits")'), 'in one list with the panels already on the page');
-  await quick('Add feature: Add a removed panel', pg.locator('#dlg-features [aria-label="Add Weekly rotation"]'));
-  assert.ok(await pg.isVisible(panelOnPage('rotation')), 'it is back at once');
-  await settle();
-  assert.ok(!layoutNow().today.rotation.removed, 'the add reached the server');
-  await quick('Add feature: Add a list to Today', pg.locator('#dlg-features [aria-label="Add Shopping"]'));
-  assert.ok(await pg.isVisible(panelOnPage('list-' + listId)), 'the list is on Today at once');
-  await settle();
-  assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).show_today, 'yes', 'show_today reached the server');
-  await quickly(async () => { await pg.click('#dlg-submit'); await pg.click('.editbar [data-act="core.layout"]'); });
-  assert.ok(!(await pg.isVisible('.editbar')), 'Done leaves Edit layout');
-  log('Edit layout: the button, Remove, Add feature and its Add answer at once and reach the server');
 
 
   // ---------- 3: a save the server refuses ----------

@@ -1,4 +1,349 @@
+<style>
+/* Today settings (a phone): the pills, Quick add, the focus card's size and the pill row's switches. */
+.tsettings { display: grid; gap: 18px; padding-bottom: 24px; }
+.ts-bar { display: flex; align-items: center; gap: 8px; position: sticky; top: 61px; z-index: 12; background: var(--bg); padding: 6px 0; }
+.ts-bar h2 { flex: 1 1 auto; margin: 0; font-size: 19px; }
+.ts-bar .iconbtn { width: 44px; height: 44px; font-size: 22px; }
+.ts-sect { display: grid; gap: 8px; }
+.ts-sect > .label { margin: 0; padding-left: 2px; }
+.ts-card { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.ts-pill { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 2px; }
+.ts-pill.lifted { background: var(--surface); }
+.ts-pill + .ts-pill, .ts-row + .ts-row { border-top: 1px solid var(--line); }
+.ts-grip { flex: none; display: grid; place-items: center; width: 36px; min-height: 44px; color: var(--muted); font-size: 18px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.ts-grow { flex: 1 1 auto; min-width: 0; }
+.ts-name { font-weight: 600; }
+.ts-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.ts-tag { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.ts-mini { flex: none; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: 14px; cursor: pointer; }
+.ts-mini:disabled { opacity: 0.35; cursor: default; }
+.ts-addpill { border: 1.5px dashed var(--line-strong); border-radius: 12px; background: transparent; min-height: 48px; padding: 12px; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }
+.ts-addpill:disabled { color: var(--muted); cursor: default; }
+.ts-note { margin: 0; color: var(--muted); font-size: 13px; }
+.ts-templates { display: flex; flex-wrap: wrap; gap: 8px; }
+.ts-row { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px; }
+.ts-row > label, .ts-row > .ts-grow { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--ink); font-size: 15px; }
+.ts-row small { display: block; color: var(--muted); font-size: 12.5px; }
+.ts-seg { display: flex; flex: none; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.ts-seg button { border: 0; background: var(--surface); color: var(--ink); min-height: 44px; padding: 0 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.ts-seg button + button { border-left: 1px solid var(--line-strong); }
+.ts-seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); font-weight: 600; }
+.ts-switch { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 48px; height: 28px; margin: 8px 0; border-radius: 99px; background: var(--line-strong); cursor: pointer; transition: background 0.15s; }
+.ts-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); transition: transform 0.15s; }
+.ts-switch:checked { background: var(--accent); }
+.ts-switch:checked::after { transform: translateX(20px); }
+@media (prefers-reduced-motion: reduce) { .ts-switch, .ts-switch::after { transition: none; } }
+/* The pill's sheet: name, icon, its panels in order, and what can be added. */
+.ps-head { margin: 16px 0 6px; }
+.ps-icons { display: flex; flex-wrap: wrap; gap: 6px; }
+.ps-icons button { width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font-size: 18px; cursor: pointer; }
+.ps-icons button[aria-pressed="true"] { border: 2px solid var(--accent); background: var(--accent-soft); }
+.ps-in .ts-row { gap: 4px; padding: 6px 6px 6px 12px; }
+.ps-kind { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 8px 0 4px; }
+.ps-add { display: flex; flex-wrap: wrap; gap: 6px; }
+.ps-add button { border: 1px dashed var(--line-strong); border-radius: 99px; background: var(--surface); color: var(--ink); min-height: 44px; padding: 0 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.ps-add .plus { color: var(--accent); font-weight: 700; }
+:root[data-theme="eink"] .ts-card, :root[data-theme="eink"] .ts-mini, :root[data-theme="eink"] .ts-seg, :root[data-theme="eink"] .ps-icons button,
+:root[data-theme="eink"] .ps-add button, :root[data-theme="eink"] .ts-addpill { border: 2px solid #000; background: #fff; color: #000; }
+:root[data-theme="eink"] .ts-card { border-width: 3px; }
+:root[data-theme="eink"] .ts-pill + .ts-pill, :root[data-theme="eink"] .ts-row + .ts-row { border-top: 2px solid #000; }
+:root[data-theme="eink"] .ts-tag { background: #fff; color: #000; border: 1px solid #000; }
+:root[data-theme="eink"] .ts-seg button + button { border-left: 2px solid #000; }
+:root[data-theme="eink"] .ts-seg button[aria-pressed="true"], :root[data-theme="eink"] .ps-icons button[aria-pressed="true"] { background: #000; color: #fff; }
+:root[data-theme="eink"] .ts-switch { background: #fff; border: 2px solid #000; }
+:root[data-theme="eink"] .ts-switch::after { top: 2px; left: 2px; background: #000; }
+:root[data-theme="eink"] .ts-switch:checked { background: #000; }
+:root[data-theme="eink"] .ts-switch:checked::after { background: #fff; }
+</style>
 <script>
-/** Layout is drawn by the shell (FT.layout); this module only saves where panels go. */
+/**
+ * Layout is drawn by the shell (FT.layout); this module saves where panels go, and on a phone draws Today settings:
+ * the pills of a page with a pager (FT.pills in shell.html), Quick add, the focus card's size and the pill row's
+ * switches. A pill is edited in a sheet (FT.dialog). Every change shows at once and is saved behind; a pill's change
+ * and delete can be undone.
+ */
+(function () {
+  var PILL_ICONS = ['☀️', '✅', '📝', '🛒', '🏠', '💼', '🎯', '🌙', '📋', '🌱'];
+  var KIND_GROUPS = [['panel', 'Panels'], ['list', 'Lists'], ['whiteboard', 'Whiteboards']];
+  var FOCUS_CARD_SIZES = [['compact', 'Compact'], ['full', 'Full'], ['hidden', 'Hidden']];
+  var PILL_ROW_SWITCHES = [
+    { name: 'pillCounts', label: 'Show counts on pills', hint: 'To-dos left, habits done' },
+    { name: 'pillSwipe', label: 'Swipe between pills', hint: '' },
+    { name: 'pillLast', label: 'Open on the pill I used last', hint: 'Otherwise always the first one' }
+  ];
+  var SWITCH_ON = 'on', SWITCH_OFF = 'off', NEW_PILL_NAME = 'New pill';
+  var draft = null; // the pill open in the sheet: { page, id, name, icon, panels, isNew }
+  var dragged = null; // a pill card dragged by its grip: { item, page }
+
+  function $(id) { return document.getElementById(id); }
+  function pageOf(el) { var root = el.closest('[data-page]'); return root ? root.dataset.page : ''; }
+  function pillLabel(pill) { return (pill.icon ? pill.icon + ' ' : '') + pill.name; }
+  function quoted(name) { return '“' + name + '”'; }
+
+  function choiceById(page, id) {
+    var model = FT.pills.model(page);
+    return model ? model.choices.filter(function (c) { return c.id === id; })[0] || null : null;
+  }
+
+  // ---------- Today settings ----------
+  function pillCardHtml(page, pill, at, count) {
+    var id = FT.esc(pill.id), name = FT.esc(pill.name), panels = FT.pills.panels(page, pill);
+    var tags = panels.length ? panels.map(function (p) { return '<span class="ts-tag">' + FT.esc(p.name) + '</span>'; }).join('') : '<span class="ts-tag">No panels</span>';
+    return '<li class="ts-pill" data-id="' + id + '"><span class="ts-grip" aria-hidden="true" title="Drag to move">⠿</span>' +
+      '<div class="ts-grow"><div class="ts-name">' + FT.esc(pillLabel(pill)) + '</div><div class="ts-tags">' + tags + '</div></div>' +
+      '<button class="ts-mini" data-act="layout.pillMove" data-id="' + id + '" data-d="-1" aria-label="Move ' + name + ' up"' + (at === 0 ? ' disabled' : '') + '>▲</button>' +
+      '<button class="ts-mini" data-act="layout.pillMove" data-id="' + id + '" data-d="1" aria-label="Move ' + name + ' down"' + (at === count - 1 ? ' disabled' : '') + '>▼</button>' +
+      '<button class="btn sm" data-act="layout.pillEdit" data-id="' + id + '" aria-label="Edit ' + name + '">Edit</button></li>';
+  }
+
+  function pillsSectionHtml(page, pills) {
+    var full = pills.length >= FT.pills.MAX;
+    var list = pills.length ? '<ol class="ts-card ts-pills" aria-label="Pills">' + pills.map(function (pill, at) { return pillCardHtml(page, pill, at, pills.length); }).join('') + '</ol>'
+      : '<div class="ts-card"><p class="empty" style="text-align:center">No pills. Add one below.</p></div>';
+    return '<section class="ts-sect"><div class="label">Pills · drag ⠿ or use ▲ ▼ to reorder</div>' + list +
+      '<button class="ts-addpill" data-act="layout.pillNew"' + (full ? ' disabled' : '') + '>+ New pill</button>' +
+      (full ? '<p class="ts-note">' + FT.pills.MAX + ' pills is the most. Delete one to make another.</p>' : '') + '</section>';
+  }
+
+  /** A template's panels as ids, or null when one of them does not exist (no list yet). */
+  function templatePanels(page, template) {
+    var model = FT.pills.model(page);
+    var ids = template.panels.map(function (wanted) {
+      if (typeof wanted === 'string') return choiceById(page, wanted) ? wanted : null;
+      var ofKind = model.choices.filter(function (c) { return c.kind === wanted.kind; });
+      var liked = wanted.like ? ofKind.filter(function (c) { return new RegExp(wanted.like, 'i').test(c.name); }) : [];
+      var found = liked[0] || ofKind[0];
+      return found ? found.id : null;
+    });
+    return ids.indexOf(null) === -1 ? ids : null;
+  }
+
+  function templatesHtml(page, pills) {
+    var model = FT.pills.model(page), full = pills.length >= FT.pills.MAX;
+    var offered = model.templates.map(function (t, i) { return { template: t, at: i, panels: templatePanels(page, t) }; }).filter(function (o) { return o.panels; });
+    if (!offered.length) return '';
+    return '<section class="ts-sect"><div class="label">Quick add</div><div class="ts-templates">' + offered.map(function (o) {
+      return '<button class="pchip" data-act="layout.pillTemplate" data-i="' + o.at + '" aria-label="Add the pill ' + FT.esc(o.template.name) + '"' + (full ? ' disabled' : '') + '>' +
+        '<span class="picon" aria-hidden="true">' + FT.esc(o.template.icon) + '</span>' + FT.esc(o.template.name) + '<span class="pcount">' + o.panels.length + '</span></button>';
+    }).join('') + '</div></section>';
+  }
+
+  function focusCardHtml(view) {
+    return '<section class="ts-sect"><div class="label">Focus card</div><div class="ts-card"><div class="ts-row"><div class="ts-grow" id="ts-focuslabel">Size at the top</div>' +
+      '<div class="ts-seg" role="group" aria-labelledby="ts-focuslabel">' + FOCUS_CARD_SIZES.map(function (size) {
+        return '<button data-act="layout.pillView" data-name="focusCard" data-value="' + size[0] + '" aria-pressed="' + (view.focusCard === size[0]) + '">' + size[1] + '</button>';
+      }).join('') + '</div></div></div><p class="ts-note">Hidden shows no focus card on Today; the corner timer still runs during a session.</p></section>';
+  }
+
+  function switchesHtml(view) {
+    return '<section class="ts-sect"><div class="label">Pill row</div><div class="ts-card">' + PILL_ROW_SWITCHES.map(function (s) {
+      return '<div class="ts-row"><label for="ts-' + s.name + '">' + s.label + (s.hint ? '<small>' + s.hint + '</small>' : '') + '</label>' +
+        '<input type="checkbox" role="switch" class="ts-switch" id="ts-' + s.name + '" data-change="layout.pillSwitch" data-name="' + s.name + '"' + (view[s.name] === SWITCH_ON ? ' checked' : '') + '></div>';
+    }).join('') + '</div></section>';
+  }
+
+  function settingsHtml(page) {
+    var pills = FT.pills.list(page), view = FT.pills.view(page), title = FT.esc(FT.pills.title(page));
+    return '<div class="tsettings" data-page="' + FT.esc(page) + '" data-noswipe>' +
+      '<div class="ts-bar"><button class="iconbtn" data-act="layout.pillsDone" aria-label="Back">‹</button><h2>' + title + '</h2>' +
+      '<button class="btn sm" data-act="layout.pillsDone">Done</button></div>' +
+      pillsSectionHtml(page, pills) + templatesHtml(page, pills) + focusCardHtml(view) + switchesHtml(view) + '</div>';
+  }
+
+  FT.pills.drawSettings = settingsHtml;
+
+  function savePills(page, pills) { FT.pills.save(page, pills); }
+
+  function movePill(page, id, d) {
+    var pills = FT.pills.list(page), at = pills.map(function (p) { return p.id; }).indexOf(id), to = at + d;
+    if (at === -1 || to < 0 || to >= pills.length) return;
+    var moved = pills.splice(at, 1)[0];
+    pills.splice(to, 0, moved);
+    savePills(page, pills);
+  }
+
+  /** The pills in the order of these ids (a drag), or null when nothing moved. */
+  function pillsInOrder(page, ids) {
+    var pills = FT.pills.list(page), byId = {};
+    pills.forEach(function (p) { byId[p.id] = p; });
+    if (ids.join() === pills.map(function (p) { return p.id; }).join()) return null;
+    return ids.map(function (id) { return byId[id]; }).filter(Boolean);
+  }
+
+  FT.action('layout.pillsDone', function () { FT.pills.closeSettings(); });
+  // ▲ ▼ draw the page again: the same button stays focused, so it can be pressed again (the other one at either end).
+  FT.action('layout.pillMove', function (el) {
+    var page = pageOf(el), id = el.dataset.id, d = el.dataset.d;
+    movePill(page, id, Number(d));
+    var again = document.querySelector('#app .ts-pill[data-id="' + id + '"] [data-act="layout.pillMove"][data-d="' + d + '"]');
+    if (again && again.disabled) again = again.parentNode.querySelector('[data-act="layout.pillMove"]:not([disabled])');
+    if (again) { try { again.focus({ preventScroll: true }); again.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+  });
+  FT.action('layout.pillEdit', function (el) { openSheet(pageOf(el), el.dataset.id); });
+  FT.action('layout.pillNew', function (el) { openSheet(pageOf(el), null); });
+  FT.action('layout.pillTemplate', function (el) {
+    var page = pageOf(el), template = FT.pills.model(page).templates[Number(el.dataset.i)], panels = template && templatePanels(page, template);
+    var pills = FT.pills.list(page);
+    if (!panels || pills.length >= FT.pills.MAX) return;
+    savePills(page, pills.concat([{ id: FT.newId(), name: template.name, icon: template.icon, panels: panels }]));
+    FT.toast('Pill ' + quoted(template.name) + ' added.');
+  });
+  FT.action('layout.pillView', function (el) { FT.pills.setView(pageOf(el), el.dataset.name, el.dataset.value); });
+  FT.on('change', 'layout.pillSwitch', function (el) {
+    var id = el.id;
+    FT.pills.setView(pageOf(el), el.dataset.name, el.checked ? SWITCH_ON : SWITCH_OFF);
+    var again = $(id);
+    if (again) { try { again.focus({ preventScroll: true }); } catch (e) {} }
+  });
+
+  // ---------- drag a pill card by ⠿ (mouse, finger or pen) ----------
+  // The card follows the pointer from place to place (no animation, so it suits E-ink); letting go saves the order.
+  function pillCards() { return dragged ? Array.prototype.slice.call(dragged.item.parentNode.querySelectorAll('.ts-pill')) : []; }
+
+  function moveDraggedTo(y) {
+    var others = pillCards().filter(function (c) { return c !== dragged.item; });
+    var before = others.filter(function (c) { var r = c.getBoundingClientRect(); return y < r.top + r.height / 2; })[0] || null;
+    var inPlace = before ? dragged.item.nextElementSibling === before : !dragged.item.nextElementSibling;
+    if (!inPlace) dragged.item.parentNode.insertBefore(dragged.item, before);
+  }
+
+  function endDrag(keep) {
+    var ended = dragged;
+    dragged = null;
+    if (!ended) return;
+    ended.item.classList.remove('lifted');
+    document.body.classList.remove('reordering');
+    var ids = Array.prototype.map.call(ended.item.parentNode.querySelectorAll('.ts-pill'), function (c) { return c.dataset.id; });
+    var pills = keep ? pillsInOrder(ended.page, ids) : null;
+    FT.state.dragging = false;
+    if (pills) savePills(ended.page, pills); else FT.render();
+  }
+
+  document.addEventListener('pointerdown', function (e) {
+    var grip = e.target.closest && e.target.closest('#app .ts-grip');
+    if (!grip || e.button > 0) return;
+    e.preventDefault();
+    dragged = { item: grip.closest('.ts-pill'), page: pageOf(grip) };
+    try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+    FT.state.dragging = true;
+    dragged.item.classList.add('lifted');
+    document.body.classList.add('reordering');
+  });
+  document.addEventListener('pointermove', function (e) { if (dragged) moveDraggedTo(e.clientY); });
+  document.addEventListener('pointerup', function () { endDrag(true); });
+  document.addEventListener('pointercancel', function () { endDrag(false); });
+
+  // ---------- the pill's sheet ----------
+  function nameField() { return $('dlg-pname'); }
+  function readName() { if (draft && nameField()) draft.name = nameField().value; }
+  function draftJson() { readName(); return JSON.stringify([draft.name.trim(), draft.icon, draft.panels]); }
+
+  function iconsHtml() {
+    return [''].concat(PILL_ICONS).map(function (icon) {
+      return '<button type="button" data-act="layout.sheetIcon" data-icon="' + FT.esc(icon) + '" aria-pressed="' + (draft.icon === icon) + '" aria-label="' + (icon ? 'Icon ' + icon : 'No icon') + '">' + (icon || '–') + '</button>';
+    }).join('');
+  }
+
+  function inPillHtml() {
+    if (!draft.panels.length) return '<p class="empty">Nothing yet. Tap something below to add it.</p>';
+    return '<ol class="ts-card ps-in">' + draft.panels.map(function (id, at) {
+      var c = choiceById(draft.page, id), name = FT.esc(c.name);
+      return '<li class="ts-row" data-panel="' + FT.esc(id) + '"><div class="ts-grow"><div>' + name + '</div><div class="ps-kind">' + FT.esc(c.kind) + '</div></div>' +
+        '<button type="button" class="ts-mini" data-act="layout.sheetMove" data-i="' + at + '" data-d="-1" aria-label="Move ' + name + ' up"' + (at === 0 ? ' disabled' : '') + '>▲</button>' +
+        '<button type="button" class="ts-mini" data-act="layout.sheetMove" data-i="' + at + '" data-d="1" aria-label="Move ' + name + ' down"' + (at === draft.panels.length - 1 ? ' disabled' : '') + '>▼</button>' +
+        '<button type="button" class="ts-mini" data-act="layout.sheetRemove" data-i="' + at + '" aria-label="Take ' + name + ' out">✕</button></li>';
+    }).join('') + '</ol>';
+  }
+
+  function addableHtml() {
+    var rest = FT.pills.model(draft.page).choices.filter(function (c) { return draft.panels.indexOf(c.id) === -1; });
+    var groups = KIND_GROUPS.map(function (group) {
+      var ofKind = rest.filter(function (c) { return c.kind === group[0]; });
+      return ofKind.length ? '<div class="ps-kind">' + group[1] + '</div><div class="ps-add">' + ofKind.map(function (c) {
+        return '<button type="button" data-act="layout.sheetAdd" data-id="' + FT.esc(c.id) + '" aria-label="Add ' + FT.esc(c.name) + '"><span class="plus" aria-hidden="true">+</span> ' + FT.esc(c.name) + '</button>';
+      }).join('') + '</div>' : '';
+    }).join('');
+    return groups || '<p class="empty">Everything is in this pill.</p>';
+  }
+
+  function sheetBodyHtml() {
+    return '<label for="dlg-pname">Name</label><input type="text" id="dlg-pname" maxlength="' + FT.pills.NAME_MAX + '" placeholder="e.g. Morning" value="' + FT.esc(draft.name) + '">' +
+      '<div class="label ps-head" id="ps-iconlabel">Icon</div><div class="ps-icons" id="ps-icons" role="group" aria-labelledby="ps-iconlabel">' + iconsHtml() + '</div>' +
+      '<div class="label ps-head">In this pill, top to bottom</div><div id="ps-in">' + inPillHtml() + '</div>' +
+      '<div class="label ps-head">Add</div><div id="ps-add">' + addableHtml() + '</div>';
+  }
+
+  /** Draw the sheet's parts again after a change, then focus the first button that is not disabled, by the first selector that finds one. */
+  function redrawSheet(focusSelectors) {
+    readName();
+    $('ps-icons').innerHTML = iconsHtml();
+    $('ps-in').innerHTML = inPillHtml();
+    $('ps-add').innerHTML = addableHtml();
+    var target = focusSelectors.map(function (sel) { return document.querySelector('#dialogRoot ' + sel + ':not([disabled])'); }).filter(Boolean)[0];
+    if (target) { try { target.focus(); } catch (e) {} }
+  }
+
+  function openSheet(page, pillId) {
+    var pill = pillId ? FT.pills.list(page).filter(function (p) { return p.id === pillId; })[0] : null;
+    if (pillId && !pill) return;
+    if (!pill && FT.pills.list(page).length >= FT.pills.MAX) return;
+    draft = pill
+      ? { page: page, id: pill.id, name: pill.name, icon: pill.icon, panels: pill.panels.filter(function (id) { return choiceById(page, id); }), isNew: false }
+      : { page: page, id: FT.newId(), name: '', icon: '', panels: [], isNew: true };
+    var opened = draftJson();
+    FT.dialog({
+      title: draft.isNew ? 'New pill' : 'Edit pill',
+      sheet: true,
+      headButton: draft.isNew ? '' : '<button class="btn sm danger" data-act="layout.sheetDelete" aria-label="Delete ' + FT.esc(pill.name) + '">Delete</button>',
+      body: sheetBodyHtml(),
+      submit: draft.isNew ? 'Add pill' : 'Save',
+      isDirty: function () { return !!draft && draftJson() !== opened; },
+      onSubmit: saveSheet
+    });
+  }
+
+  function saveSheet() {
+    readName();
+    var page = draft.page, first = draft.panels[0] && choiceById(page, draft.panels[0]);
+    var name = (draft.name.trim() || (first ? first.name : NEW_PILL_NAME)).slice(0, FT.pills.NAME_MAX);
+    var pill = { id: draft.id, name: name, icon: draft.icon, panels: draft.panels.slice() }, isNew = draft.isNew;
+    var pills = FT.pills.list(page), at = pills.map(function (p) { return p.id; }).indexOf(pill.id);
+    if (at === -1) pills.push(pill); else pills[at] = pill;
+    draft = null;
+    savePills(page, pills);
+    FT.toast('Pill ' + quoted(name) + (isNew ? ' added.' : ' saved.'));
+  }
+
+  FT.pills.editPill = openSheet;
+
+  FT.action('layout.sheetIcon', function (el) {
+    draft.icon = el.dataset.icon;
+    redrawSheet(['[data-act="layout.sheetIcon"][data-icon="' + el.dataset.icon + '"]']);
+  });
+  FT.action('layout.sheetMove', function (el) {
+    var at = Number(el.dataset.i), d = Number(el.dataset.d), to = at + d, id = draft.panels[at];
+    draft.panels[at] = draft.panels[to];
+    draft.panels[to] = id;
+    var row = '#ps-in [data-panel="' + id + '"] ';
+    redrawSheet([row + '[data-act="layout.sheetMove"][data-d="' + d + '"]', row + '[data-act="layout.sheetMove"]']);
+  });
+  FT.action('layout.sheetRemove', function (el) {
+    var id = draft.panels.splice(Number(el.dataset.i), 1)[0];
+    redrawSheet(['[data-act="layout.sheetAdd"][data-id="' + id + '"]', '#ps-in [data-act="layout.sheetRemove"]']);
+  });
+  FT.action('layout.sheetAdd', function (el) {
+    var id = el.dataset.id, next = el.nextElementSibling || el.previousElementSibling;
+    draft.panels.push(id);
+    redrawSheet([next ? '[data-act="layout.sheetAdd"][data-id="' + next.dataset.id + '"]' : '#ps-add button', '#ps-in [data-panel="' + id + '"] [data-act="layout.sheetRemove"]']);
+  });
+  FT.action('layout.sheetDelete', function () {
+    var page = draft.page, id = draft.id, pills = FT.pills.list(page), gone = pills.filter(function (p) { return p.id === id; })[0];
+    draft = null;
+    FT.closeDialog();
+    if (!gone) return;
+    savePills(page, pills.filter(function (p) { return p.id !== id; }));
+    FT.deleted('Pill ' + quoted(gone.name));
+  });
+})();
 FT.module({ id: 'layout' });
 </script>

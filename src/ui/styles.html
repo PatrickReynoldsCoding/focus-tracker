@@ -231,17 +231,24 @@ body.editing-layout .lcell > :not(.pedit) { pointer-events: none; max-height: 14
 body.reordering, body.reordering * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .lifted { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18); position: relative; z-index: 6; }
 :root[data-theme="eink"] .lifted { outline: 4px dashed #000; box-shadow: none; }
-/* The phone's pager (Today): the pinned panel, a row of chips that stays under the header, one panel at a time. */
-.ppager { display: grid; gap: 12px; }
+/* The phone's pager (Today): the pinned panel, a row of pills that stays under the header with ⚙ at its end, the chosen pill's panels. */
+.ppager { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .ppinned { position: relative; }
 .ppinned-more { position: absolute; top: 8px; right: 8px; min-height: 44px; min-width: 64px; }
-.pchips { display: flex; gap: 8px; overflow-x: auto; position: sticky; top: 61px; z-index: 12; background: var(--bg); margin: 0 -4px; padding: 6px 4px; scrollbar-width: none; }
-.pchips::-webkit-scrollbar { display: none; }
+.pchips { display: flex; align-items: center; gap: 8px; position: sticky; top: 61px; z-index: 12; background: var(--bg); margin: 0 -4px; padding: 6px 4px; }
+.ptabs { display: flex; gap: 8px; overflow-x: auto; flex: 1 1 auto; min-width: 0; scrollbar-width: none; }
+.ptabs::-webkit-scrollbar { display: none; }
 .pchip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-weight: 600; font-size: 14px; cursor: pointer; }
 .pchip[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pchip:disabled { opacity: 0.45; cursor: default; }
+.picon { font-size: 16px; line-height: 1; }
 .pcount { font-family: var(--font-mono); font-size: 12px; font-weight: 500; opacity: 0.85; }
+.pgear { flex: none; margin-left: auto; min-width: 44px; min-height: 44px; border-radius: 22px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.pgear:hover { color: var(--ink); }
 .ppanels { min-height: 50vh; touch-action: pan-y; }
 .ppanel { display: grid; gap: 16px; }
+.pempty { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 24px 12px; }
+.pswipehint { margin: 0; text-align: center; color: var(--muted); font-size: 12.5px; }
 @media (prefers-reduced-motion: no-preference) {
   .ppanel.slide-next { animation: pslide-next 0.2s ease-out; }
   .ppanel.slide-prev { animation: pslide-prev 0.2s ease-out; }
@@ -251,8 +258,8 @@ body.reordering, body.reordering * { user-select: none; -webkit-user-select: non
 :root[data-theme="eink"] .pchip { border: 2px solid #000; background: #fff; color: #000; }
 :root[data-theme="eink"] .pchip[aria-selected="true"] { background: #000; color: #fff; }
 :root[data-theme="eink"] .pchip[aria-selected="true"]::before { content: "\2713"; }
+:root[data-theme="eink"] .pgear { border: 2px solid #000; background: #fff; color: #000; }
 :root[data-theme="eink"] .featlist li.on { background: #fff; border: 2px dashed #000; }
-.pedit-pinned { font-size: 13px; color: var(--muted); align-self: center; padding: 0 6px; }
 .iconbtn[hidden] { display: none; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
@@ -301,6 +308,15 @@ textarea { min-height: 150px; resize: vertical; }
   .scrim:has(.dialog.wide) { padding: 0; align-items: stretch; }
   .dialog.wide { width: 100%; height: 100%; max-height: none; border-radius: 0; border: 0; padding: 16px max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-bottom, 0px)); }
   .dialog.wide .rtedit { max-height: none; min-height: 45vh; }
+}
+/* A dialog with a button beside its title (FT.dialog headButton), and a sheet along the bottom of a phone (FT.dialog sheet). */
+.dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dlg-head h2 { margin: 0; }
+@media (max-width: 760px) {
+  .scrim.sheetscrim { align-items: flex-end; padding: 0; }
+  .dialog.sheet { width: 100%; max-height: 88vh; border-radius: 18px 18px 0 0; border-bottom: 0; padding: 16px max(16px, env(safe-area-inset-left, 0px)) 20px; }
+  .dialog.sheet .actions { bottom: -20px; padding-bottom: max(20px, env(safe-area-inset-bottom, 0px)); }
+  .dialog.sheet .actions .btn { flex: 1 1 0; }
 }
 .choice { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dialog .choice label { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 14px; position: relative; text-align: center; }

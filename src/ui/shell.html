@@ -12,7 +12,8 @@
  *              'addable.today': [{ render: function (FT, project) { return [{ id, title, description, panel, add: fn }]; } }] },   // optional extension points
  *     // title and description name a panel in Edit layout's "Add feature"; an alwaysShown panel cannot be hidden. addable.<page> (today, project, ...) offers
  *     // things that can be put on that page; add() shows one at once and saves it (see FT.optimistic).
- *     // A Today panel may also give short (its chip's name on a phone) and count (a short number on the chip); see FT.layout.
+ *     // A Today panel may also give short (its name in a phone's pill), count (a short number on its pill) and kind; see FT.layout.
+ *     // 'today.pillPanels' (same shape as 'today.panels') offers panels only a phone's pill shows, such as lists not on Today.
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
  *   });
  * Interactions use data attributes handled by delegation:
@@ -200,7 +201,8 @@ var FT = (function () {
     'habits.create': 'Habit added', 'habits.update': 'Habit edit', 'habits.remove': 'Habit deleted', 'habits.tap': 'Habit session', 'habits.setStatus': 'Habit pause or end',
     'habits.move': 'Habit moved', 'habits.plan': 'Plan change', 'habits.copyWeek': 'Plan copied', 'habits.answer': 'Step-up answer',
     'habits.aspire': 'Habit idea added', 'habits.start': 'Habit started', 'habits.acceptLevel': 'New level accepted', 'habits.postponeLevel': 'New level put off',
-    'todos.add': 'To-do added', 'todos.toggle': 'To-do tick', 'todos.remove': 'To-do deleted', 'todos.setDay': 'To-do moved', 'todos.update': 'To-do edit'
+    'todos.add': 'To-do added', 'todos.toggle': 'To-do tick', 'todos.remove': 'To-do deleted', 'todos.setDay': 'To-do moved', 'todos.update': 'To-do edit',
+    'layout.savePills': 'Pill change'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };
 
@@ -324,6 +326,7 @@ var FT = (function () {
   /**
    * opts: { title, subtitle, body (html), fields: [{id,label,type,value,placeholder,options,maxlength,suggestions}], after (html), hint (text), submit, danger,
    *         wide (true for a wider dialog), cancel (false: no Cancel button, for dialogs that apply changes at once),
+   *         sheet (true: a sheet along the bottom of a phone), headButton (html beside the title, such as Delete),
    *         onOpen(), onSubmit(values) }
    * suggestions: words offered under a text field as it is typed in (a datalist); any other text is allowed too.
    * onSubmit may return a promise; a thrown error or rejection is shown inside the dialog.
@@ -340,8 +343,9 @@ var FT = (function () {
         (f.suggestions ? '<datalist id="' + id + '-list">' + f.suggestions.map(function (o) { return '<option value="' + FT.esc(o) + '">'; }).join('') + '</datalist>' : '');
       return '<label for="' + id + '">' + FT.esc(f.label) + '</label>' + ctl;
     }).join('');
-    $('dialogRoot').innerHTML = '<div class="scrim" id="dlg-scrim"><div class="dialog' + (opts.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-labelledby="dlg-heading">' +
-      '<h2 id="dlg-heading">' + FT.esc(opts.title) + '</h2>' +
+    var heading = '<h2 id="dlg-heading">' + FT.esc(opts.title) + '</h2>';
+    $('dialogRoot').innerHTML = '<div class="scrim' + (opts.sheet ? ' sheetscrim' : '') + '" id="dlg-scrim"><div class="dialog' + (opts.wide ? ' wide' : '') + (opts.sheet ? ' sheet' : '') + '" role="dialog" aria-modal="true" aria-labelledby="dlg-heading">' +
+      (opts.headButton ? '<div class="dlg-head">' + heading + opts.headButton + '</div>' : heading) +
       (opts.subtitle ? '<div class="meta">' + FT.esc(opts.subtitle) + '</div>' : '') +
       (opts.body || '') + fields + (opts.after || '') +
       '<div class="err" id="dlg-err" role="alert"></div>' +
@@ -477,6 +481,7 @@ var FT = (function () {
       var from = pageNow(), to = { view: view, projectId: view === 'project' ? opts.id : '' };
       if (!samePage(from, to)) { var pages = backPages(); pages.push(from); if (pages.length > BACK_MAX) pages.shift(); keepBack(); FT.pushHistory(); }
     }
+    forgetPagerSettings();
     FT.state.view = view;
     if (view === 'project') {
       FT.state.projectId = opts.id;
@@ -538,11 +543,11 @@ var FT = (function () {
   // follow the content. Places are saved per page.
   // On a phone, or if the grid library did not load, panels flow in order. A phone has its own order (▲ ▼ in Edit
   // layout, or press and hold a panel and drag it), saved apart from the desktop grid as `<page>.phone`. A page can ask
-  // for a pager on a phone (Today): one panel pinned at the top, a row of chips, and one panel at a time.
+  // for a pager on a phone (Today): one panel pinned at the top, a row of pills, and the chosen pill's panels.
   // A removed panel is off the page on every screen size until Add feature puts it back.
   var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null, layoutPanels = [], layoutShown = [], layoutIds = [];
   var narrow = window.matchMedia('(max-width: 760px)');
-  if (narrow.addEventListener) narrow.addEventListener('change', function () { FT.state.editLayout = false; FT.render(); });
+  if (narrow.addEventListener) narrow.addEventListener('change', function () { FT.state.editLayout = false; forgetPagerSettings(); FT.render(); });
 
   function canArrange() { return !!window.GridStack && isLoaded('layout') && !narrow.matches; }
   /** Edit layout works on every page drawn with FT.layout: the grid on a desktop; ▲ ▼ and Hide on a phone (Hide only without the grid library). */
@@ -578,11 +583,10 @@ var FT = (function () {
   /** A removed panel's saved place. A copy of the layout saved on this device before 2026-11-14 may still say hidden. */
   function isRemoved(place) { return !!(place && (place.removed || place.hidden)); }
 
-  /** In Edit layout without the grid (a phone): the panel's name, ▲ ▼ on a phone (not for the pinned one), and Remove, each a 44 px target. */
+  /** In Edit layout without the grid (a phone): the panel's name, ▲ ▼ on a phone, and Remove, each a 44 px target. */
   function flowEditHtml(p, spot) {
     var id = FT.esc(p.id), name = FT.esc(panelName(p));
-    var arrows = spot.pinned ? '<span class="pedit-pinned">Pinned at the top</span>'
-      : narrow.matches
+    var arrows = narrow.matches
         ? '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="-1" aria-label="Move ' + name + ' up"' + (spot.first ? ' disabled' : '') + '>▲</button>' +
           '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="1" aria-label="Move ' + name + ' down"' + (spot.last ? ' disabled' : '') + '>▼</button>'
         : '';
@@ -597,10 +601,9 @@ var FT = (function () {
 
   function panelWidth(saved, p) { return placeOf(saved, p.id) ? saved[p.id].w : (p.w || LAYOUT_COLUMNS); }
 
-  function flowHtml(saved, pinned, list, edit) {
-    var cells = (pinned ? [pinned] : []).concat(list);
-    return '<div class="lflow">' + cells.map(function (p) {
-      var at = list.indexOf(p), spot = { pinned: p === pinned, first: at === 0, last: at === list.length - 1 };
+  function flowHtml(saved, list, edit) {
+    return '<div class="lflow">' + list.map(function (p, at) {
+      var spot = { first: at === 0, last: at === list.length - 1 };
       return '<div class="lcell" style="--span:' + panelWidth(saved, p) + '" data-panel="' + FT.esc(p.id) + '">' + (edit ? flowEditHtml(p, spot) : '') + p.html + '</div>';
     }).join('') + '</div>';
   }
@@ -619,75 +622,253 @@ var FT = (function () {
     }).join('') + '</div>';
   }
 
-  // ---------- the phone's pager (Today) ----------
-  // The pinned panel stays at the top: its short version (compact) with a More button for the whole panel. Below it
-  // one chip per other panel, in the phone's order, and one panel at a time. Tap a chip or swipe the panel sideways to
-  // change panel. The chip last chosen is kept on this device, per mode and page.
-  var PAGER_KEY = 'ft.pager.', pinnedOpen = {};
+  // ---------- the phone's pager: pills (Today) ----------
+  // On a phone a page with a pager (Today) shows its pinned panel at the top, then a row of pills and the chosen pill's
+  // panels one under the other. A pill is a name, an icon and any of the page's panels in an order, also panels only a
+  // pill shows (pager.offPage: lists and whiteboards that are not on the desktop's Today). Pills and the pager's switches
+  // are saved per mode (layout.<page>.pills, layout.<page>.view), so every phone shows the same; the pill last chosen is
+  // kept on this device. With no pills saved, each panel on the page is its own pill, in the phone's order. Tap a pill,
+  // use the arrow keys on the pills, or swipe the panels sideways. Today settings (modules/layout/view.html) edits them.
+  var PAGER_KEY = 'ft.pager.', MAX_PILLS = 12, MAX_PILL_NAME = 24, OVERFLOW_PILL_ID = 'more';
+  var PILL_VIEW_DEFAULTS = { focusCard: 'compact', pillCounts: 'on', pillSwipe: 'on', pillLast: 'on' };
+  var FOCUS_FULL = 'full', FOCUS_HIDDEN = 'hidden', SWITCH_ON = 'on';
+  var pinnedOpen = {}, pagerModels = {}, chosenPills = {}, layoutIsPager = false, settingsPage = null, settingsAddedHistory = false;
   function pagerKey(page) { return PAGER_KEY + (FT.state.mode || '') + '.' + page; }
+  function pagerTitle(page) { return (modules[page] && modules[page].tab ? modules[page].tab.title : page) + ' settings'; }
 
-  function chosenPanel(page, list) {
-    var saved = lsGet(pagerKey(page));
-    return list.some(function (p) { return p.id === saved; }) ? saved : list[0].id;
+  function savedPills(page) {
+    var pills = (FT.store.layout || {})[page + '.pills'];
+    return Array.isArray(pills) ? pills : null;
   }
 
-  function pinnedHtml(page, pinned) {
-    if (!pinned.compact) return '<div class="ppinned" data-panel="' + FT.esc(pinned.id) + '">' + pinned.html + '</div>';
+  /** The pager's switches: the saved view choices over the defaults. */
+  function pillView(page) {
+    var saved = (FT.store.layout || {})[page + '.view'] || {}, view = {};
+    Object.keys(PILL_VIEW_DEFAULTS).forEach(function (name) { view[name] = saved[name] || PILL_VIEW_DEFAULTS[name]; });
+    return view;
+  }
+
+  /** A panel as a pill shows it: its short name, its kind (panel, list or whiteboard), its html and count. */
+  function pillChoice(p) {
+    return { id: p.id, name: p.short || panelName(p), title: panelName(p), kind: p.kind || 'panel', html: p.html || '', count: p.count };
+  }
+
+  /** Everything a pill can hold: the page's panels but the pinned one, then the panels only a pill shows. */
+  function pillChoices(panels, pager) {
+    var offPage = typeof pager.offPage === 'function' ? pager.offPage() : pager.offPage || [];
+    var choices = [], taken = {};
+    panels.concat(offPage).forEach(function (p) {
+      if (p.id === pager.pinned || taken[p.id]) return;
+      taken[p.id] = true;
+      choices.push(pillChoice(p));
+    });
+    return choices;
+  }
+
+  /** With no pills saved: one per panel on the page, named after it, in the phone's order. Past twelve, the last pill holds the rest. */
+  function defaultPills(page, panels, pinnedId) {
+    var all = FT.store.layout || {}, saved = all[page] || {};
+    var onPage = phoneOrder(panels, saved, all[phoneKey(page)]).filter(function (p) {
+      return p.id !== pinnedId && (p.alwaysShown || !isRemoved(saved[p.id]));
+    });
+    var pills = onPage.slice(0, MAX_PILLS).map(function (p) {
+      return { id: p.id, name: pillChoice(p).name.slice(0, MAX_PILL_NAME), icon: '', panels: [p.id] };
+    });
+    if (onPage.length > MAX_PILLS) {
+      var rest = onPage.slice(MAX_PILLS - 1).map(function (p) { return p.id; });
+      pills[MAX_PILLS - 1] = { id: OVERFLOW_PILL_ID, name: 'More', icon: '', panels: rest };
+    }
+    return pills;
+  }
+
+  function choiceById(model, id) {
+    for (var i = 0; i < model.choices.length; i++) if (model.choices[i].id === id) return model.choices[i];
+    return null;
+  }
+
+  /** A pill's panels that still exist: one that is gone (a deleted list) is left out quietly. */
+  function pillPanels(model, pill) {
+    return pill.panels.map(function (id) { return choiceById(model, id); }).filter(Boolean);
+  }
+
+  /** A pill is in the row unless all its panels have nothing to show now (Not touched on a day nothing is stale). */
+  function pillShown(model, pill) {
+    var panels = pillPanels(model, pill);
+    return !panels.length || panels.some(function (p) { return p.html; });
+  }
+
+  function hasCount(p) { return p.html && p.count !== undefined && p.count !== null && p.count !== ''; }
+
+  /** The counts of a pill's panels (to-dos open, habits done of all), joined with " · ". */
+  function pillCount(model, pill) {
+    return pillPanels(model, pill).filter(hasCount).map(function (p) { return String(p.count); }).join(' · ');
+  }
+
+  /** The pill chosen in this page load, else (Open on the pill I used last) the one kept on this device, else the first. */
+  function chosenPill(page, pills, view) {
+    var ids = pills.map(function (pill) { return pill.id; });
+    var chosen = chosenPills[pagerKey(page)];
+    if (ids.indexOf(chosen) === -1 && view.pillLast === SWITCH_ON) chosen = lsGet(pagerKey(page));
+    return ids.indexOf(chosen) !== -1 ? chosen : ids[0];
+  }
+
+  function rememberPill(page, id) {
+    chosenPills[pagerKey(page)] = id;
+    if (pillView(page).pillLast === SWITCH_ON) lsSet(pagerKey(page), id);
+  }
+
+  /** The pinned panel by the Focus card setting: its short version with More (compact), the whole panel, or nothing. */
+  function pinnedHtml(page, pinned, focusCard) {
+    if (!pinned || !pinned.html || focusCard === FOCUS_HIDDEN) return '';
+    if (!pinned.compact || focusCard === FOCUS_FULL) return '<div class="ppinned" data-panel="' + FT.esc(pinned.id) + '">' + pinned.html + '</div>';
     var open = !!pinnedOpen[page];
     return '<div class="ppinned" data-panel="' + FT.esc(pinned.id) + '">' + (open ? pinned.html : pinned.compact) +
       '<button class="btn sm ppinned-more" data-act="core.pinnedMore" aria-expanded="' + open + '" aria-label="' + (open ? 'Less of ' : 'More of ') + FT.esc(panelName(pinned)) + '">' + (open ? 'Less' : 'More') + '</button></div>';
   }
 
-  function chipHtml(p, chosen) {
-    var id = FT.esc(p.id), on = p.id === chosen, count = p.count === undefined || p.count === null || p.count === '' ? '' : String(p.count);
-    return '<button class="pchip" role="tab" id="pchip-' + id + '" aria-selected="' + on + '" aria-controls="ppanel-' + id + '" tabindex="' + (on ? '0' : '-1') + '"' +
-      ' data-act="core.pagerChip" data-id="' + id + '">' + FT.esc(p.short || panelName(p)) + (count ? '<span class="pcount">' + FT.esc(count) + '</span>' : '') + '</button>';
+  function pillTabHtml(page, model, pill, chosen, view) {
+    var id = FT.esc(pill.id), on = pill.id === chosen, count = view.pillCounts === SWITCH_ON ? pillCount(model, pill) : '';
+    return '<button class="pchip" role="tab" id="pchip-' + id + '" aria-selected="' + on + '" aria-controls="ppanel-' + FT.esc(page) + '" tabindex="' + (on ? '0' : '-1') + '"' +
+      ' data-act="core.pagerPill" data-id="' + id + '">' + (pill.icon ? '<span class="picon" aria-hidden="true">' + FT.esc(pill.icon) + '</span>' : '') +
+      FT.esc(pill.name) + (count ? '<span class="pcount">' + FT.esc(count) + '</span>' : '') + '</button>';
   }
 
-  function pagerHtml(page, pinned, list) {
-    var top = pinned ? pinnedHtml(page, pinned) : '';
-    if (!list.length) return '<div class="ppager" data-page="' + FT.esc(page) + '">' + top + '</div>';
-    var chosen = chosenPanel(page, list);
-    return '<div class="ppager" data-page="' + FT.esc(page) + '">' + top +
-      '<div class="pchips" role="tablist" aria-label="Panels on this page">' + list.map(function (p) { return chipHtml(p, chosen); }).join('') + '</div>' +
-      '<div class="ppanels">' + list.map(function (p) {
-        var id = FT.esc(p.id);
-        return '<div class="ppanel" role="tabpanel" id="ppanel-' + id + '" aria-labelledby="pchip-' + id + '" data-panel="' + id + '"' + (p.id === chosen ? '' : ' hidden') + '>' + p.html + '</div>';
-      }).join('') + '</div></div>';
+  function settingsButtonHtml(page, label, cls, editId) {
+    return '<button class="' + cls + '" data-act="core.pagerSettings" data-page="' + FT.esc(page) + '"' + (editId ? ' data-edit="' + FT.esc(editId) + '"' : '') + '>' + label + '</button>';
   }
 
-  function pagerChips() {
+  function pillBodyHtml(page, model, pill) {
+    var panels = pillPanels(model, pill);
+    if (!panels.length) {
+      return '<div class="pempty"><p class="empty">“' + FT.esc(pill.name) + '” has no panels yet.</p>' + settingsButtonHtml(page, 'Add panels', 'btn', pill.id) + '</div>';
+    }
+    return panels.filter(function (p) { return p.html; }).map(function (p) { return '<div class="pitem" data-panel="' + FT.esc(p.id) + '">' + p.html + '</div>'; }).join('');
+  }
+
+  function pagerHtml(page, model) {
+    var view = pillView(page), pills = (savedPills(page) || model.defaults).filter(function (pill) { return pillShown(model, pill); });
+    var top = pinnedHtml(page, model.pinned, view.focusCard);
+    var gear = isLoaded('layout') ? '<button class="pgear" data-act="core.pagerSettings" data-page="' + FT.esc(page) + '" aria-label="' + FT.esc(pagerTitle(page)) + '" title="' + FT.esc(pagerTitle(page)) + '">⚙</button>' : '';
+    var open = '<div class="ppager" data-page="' + FT.esc(page) + '">' + top;
+    if (!pills.length) {
+      return open + '<div class="pchips">' + gear + '</div><div class="pempty"><p class="empty">No pills yet.</p>' +
+        (gear ? settingsButtonHtml(page, 'Make your first pill', 'btn primary') : '') + '</div></div>';
+    }
+    var chosen = chosenPill(page, pills, view), pill = pills.filter(function (p) { return p.id === chosen; })[0];
+    var swipe = view.pillSwipe === SWITCH_ON;
+    return open + '<div class="pchips"><div class="ptabs" role="tablist" aria-label="Pills">' + pills.map(function (p) { return pillTabHtml(page, model, p, chosen, view); }).join('') + '</div>' + gear + '</div>' +
+      '<div class="ppanels"' + (swipe ? '' : ' data-noswipe') + '><div class="ppanel" role="tabpanel" id="ppanel-' + FT.esc(page) + '" aria-labelledby="pchip-' + FT.esc(chosen) + '" data-pill="' + FT.esc(chosen) + '">' +
+      pillBodyHtml(page, model, pill) + '</div></div>' +
+      (swipe && pills.length > 1 ? '<p class="pswipehint">Swipe ← → for the next pill</p>' : '') + '</div>';
+  }
+
+  /** A page drawn as a pager (a phone): its pills, or Today settings while that is open. */
+  function pagerPage(page, panels, pager) {
+    var pinned = panels.filter(function (p) { return p.id === pager.pinned; })[0] || null;
+    var model = pagerModels[page] = { page: page, pinned: pinned, choices: pillChoices(panels, pager), templates: pager.templates || [], defaults: defaultPills(page, panels, pager.pinned) };
+    layoutIsPager = true;
+    if (settingsPage === page && FT.pills.drawSettings) { layoutPage = null; return FT.pills.drawSettings(page); }
+    return pagerHtml(page, model);
+  }
+
+  function pillTabs() {
     var pager = document.querySelector('#app .ppager');
     return pager ? Array.prototype.slice.call(pager.querySelectorAll('.pchip')) : [];
   }
-  function chosenChipIndex(chips) {
-    for (var i = 0; i < chips.length; i++) if (chips[i].getAttribute('aria-selected') === 'true') return i;
+  function chosenPillIndex(pills) {
+    for (var i = 0; i < pills.length; i++) if (pills[i].getAttribute('aria-selected') === 'true') return i;
     return -1;
   }
 
-  /** Show one panel of the pager without redrawing the page (what is typed elsewhere stays). dir: +1 from the right, -1 from the left. */
-  function showPagerPanel(id, dir) {
+  /** Show another pill: the page draws again with its panels. dir: +1 from the right, -1 from the left. focusPill: keep focus on its pill. */
+  function showPill(id, dir, focusPill) {
     var pager = document.querySelector('#app .ppager');
     if (!pager) return;
-    var chips = pagerChips(), chip = chips.filter(function (c) { return c.dataset.id === id; })[0];
-    if (!chip) return;
-    chips.forEach(function (c) { var on = c === chip; c.setAttribute('aria-selected', on ? 'true' : 'false'); c.tabIndex = on ? 0 : -1; });
-    Array.prototype.forEach.call(pager.querySelectorAll('.ppanel'), function (body) {
-      body.hidden = body.dataset.panel !== id;
-      body.classList.remove('slide-next', 'slide-prev');
-      if (!body.hidden && dir && motionOk()) { void body.offsetWidth; body.classList.add(dir > 0 ? 'slide-next' : 'slide-prev'); }
-    });
-    lsSet(pagerKey(pager.dataset.page), id);
-    try { chip.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    var shown = pager.querySelector('.ppanel'), typing = document.activeElement;
+    if (shown && typing && shown.contains(typing) && typing.blur) typing.blur(); // a field being typed in saves as it is left
+    rememberPill(pager.dataset.page, id);
+    FT.render();
+    var body = document.querySelector('#app .ppanel'), pill = $('pchip-' + id);
+    if (body && dir && motionOk()) body.classList.add(dir > 0 ? 'slide-next' : 'slide-prev');
+    if (!pill) return;
+    scrollPillIntoRow(pill);
+    if (focusPill) { try { pill.focus({ preventScroll: true }); } catch (e) {} }
   }
 
-  /** The next (dir 1) or previous (-1) panel of the pager. False at either end. */
-  function pagerStep(dir) {
-    var chips = pagerChips(), next = chips[chosenChipIndex(chips) + dir];
+  /** Scroll the row of pills (only the row: scrollIntoView could move the whole page sideways) so the pill is in sight. */
+  function scrollPillIntoRow(pill) {
+    var row = pill.parentNode, rowBox = row.getBoundingClientRect(), box = pill.getBoundingClientRect();
+    if (box.left < rowBox.left) row.scrollLeft -= rowBox.left - box.left;
+    else if (box.right > rowBox.right) row.scrollLeft += box.right - rowBox.right;
+  }
+
+  /** The next (dir 1) or previous (-1) pill. False at either end. */
+  function pillStep(dir) {
+    var pills = pillTabs(), next = pills[chosenPillIndex(pills) + dir];
     if (!next) return false;
-    showPagerPanel(next.dataset.id, dir);
+    showPill(next.dataset.id, dir);
     return true;
   }
+
+  // Today settings is drawn in the page's place (a phone only). The phone's back button closes it.
+  function openPagerSettings(page) {
+    if (FT.state.view !== page) FT.go(page);
+    FT.state.editLayout = false;
+    if (settingsPage !== page) settingsAddedHistory = FT.pushHistory();
+    settingsPage = page;
+    FT.render();
+    window.scrollTo(0, 0);
+  }
+  function closePagerSettings() {
+    if (!settingsPage) return;
+    settingsPage = null;
+    if (settingsAddedHistory) { settingsAddedHistory = false; FT.popHistory(); }
+    FT.render();
+    window.scrollTo(0, 0);
+  }
+  function forgetPagerSettings() { settingsPage = null; settingsAddedHistory = false; }
+  FT.onBack(function () {
+    if (!settingsPage) return false;
+    forgetPagerSettings();
+    FT.render();
+    return true;
+  });
+
+  /**
+   * What Today settings (modules/layout/view.html) reads and changes. model(page) is the page's last draw on a phone:
+   * { pinned, choices: [{ id, name, title, kind, html, count }], templates, defaults }. Changes show at once and are saved behind.
+   */
+  FT.pills = {
+    MAX: MAX_PILLS,
+    NAME_MAX: MAX_PILL_NAME,
+    model: function (page) { return pagerModels[page] || null; },
+    list: function (page) {
+      var model = pagerModels[page];
+      return (savedPills(page) || (model ? model.defaults : [])).map(function (p) { return { id: p.id, name: p.name, icon: p.icon || '', panels: p.panels.slice() }; });
+    },
+    panels: function (page, pill) { var model = pagerModels[page]; return model ? pillPanels(model, pill) : []; },
+    view: pillView,
+    title: pagerTitle,
+    save: function (page, pills) {
+      FT.store.layout = FT.store.layout || {};
+      FT.store.layout[page + '.pills'] = pills;
+      FT.render();
+      return FT.rpc('layout', 'savePills', { page: page, pills: pills }, { render: false }).catch(FT.saveFailed);
+    },
+    setView: function (page, name, value) {
+      var change = {};
+      change[name] = value;
+      FT.store.layout = FT.store.layout || {};
+      FT.store.layout[page + '.view'] = Object.assign({}, FT.store.layout[page + '.view'] || {}, change);
+      FT.render();
+      return FT.rpc('layout', 'saveView', { page: page, view: change }, { render: false }).catch(FT.saveFailed);
+    },
+    openSettings: openPagerSettings,
+    closeSettings: closePagerSettings,
+    settingsOpen: function (page) { return settingsPage === page && narrow.matches; },
+    drawSettings: null, // (page) -> html, set by the layout module
+    editPill: null // (page, pillId) opens a pill's editor, set by the layout module
+  };
 
   /**
    * A tap sees each page's panels before FT.layout draws them, as fn(page, panels), and returns the panels to draw
@@ -701,9 +882,12 @@ var FT = (function () {
    * Lay out a page's panels. page: a short key such as 'today'. panels: [{ id, title, description, html, w }] where w is
    * the default width in twelfths, and title and description name the panel in Edit layout's Add feature. Panels with no
    * html are left out (but still listed in Add feature). Optional: top (a new panel goes above the rest on the grid),
-   * alwaysShown (no Remove, and shown even if it was removed or hidden before), and for the phone's pager short (the
-   * chip's name), count (a short number on the chip) and compact (the pinned panel's short version).
-   * opts.pager: { pinned: id } shows the page as a pager on a phone, with that panel pinned at the top.
+   * alwaysShown (no Remove, and shown even if it was removed or hidden before), and for the phone's pills short (the
+   * panel's name in a pill), count (a short number on its pill), kind ('list' or 'whiteboard'; else a panel) and compact
+   * (the pinned panel's short version).
+   * opts.pager: { pinned: id, offPage: fn returning panels only a pill shows, templates } shows the page on a phone as
+   * pills, with that panel pinned at the top (see "the phone's pager"). templates: Today settings' Quick add, each
+   * { name, icon, panels: [id or { kind, like }] } (like: words a list's name may contain, as a regular expression).
    */
   FT.layout = function (page, panels, opts) {
     opts = opts || {};
@@ -716,6 +900,7 @@ var FT = (function () {
     var drawn = panels.filter(function (p) { return p.html; });
     var shown = drawn.filter(function (p) { return !removed(p); });
     layoutShown = []; layoutIds = [];
+    if (narrow.matches && opts.pager) return pagerPage(page, panels, opts.pager);
     if (!shown.length && drawn.length) return allRemovedHtml();
     if (canArrange()) {
       layoutShown = shown.map(function (p) { return p.id; });
@@ -724,12 +909,8 @@ var FT = (function () {
     var order = narrow.matches ? phoneOrder(drawn, saved, all[phoneKey(page)]) : readingOrder(drawn, saved);
     layoutIds = order.map(function (p) { return p.id; });
     var list = order.filter(function (p) { return !removed(p); });
-    var pager = narrow.matches && opts.pager;
-    var pinned = pager ? list.filter(function (p) { return p.id === opts.pager.pinned; })[0] : null;
-    if (pinned) list = list.filter(function (p) { return p !== pinned; });
     layoutShown = list.map(function (p) { return p.id; });
-    if (pager && !edit) return pagerHtml(page, pinned, list);
-    return flowHtml(saved, pinned, list, edit);
+    return flowHtml(saved, list, edit);
   };
 
   function saveLayout(page, grid) {
@@ -837,6 +1018,8 @@ var FT = (function () {
       item.hidden = !canEdit();
       item.textContent = on ? 'Done editing layout' : 'Edit layout';
     }
+    var pagerItem = $('menuPagerSettings');
+    if (pagerItem) pagerItem.hidden = !isLoaded('layout') || !tabs().some(function (m) { return m.id === pagerItem.dataset.page; });
   }
 
   function setPanelRemoved(id, removed) {
@@ -897,8 +1080,19 @@ var FT = (function () {
     return layoutIds.map(function (id) { return moved.indexOf(id) !== -1 ? moved[next++] : id; });
   }
 
+  /** Edit layout on a phone's pager page (Today): its pills are arranged in Today settings; the desktop keeps its own layout. */
+  function pagerEditBarHtml() {
+    var title = pagerTitle(layoutPage);
+    var how = 'On a phone this page shows pills. ' + title + ' chooses what each pill holds and their order; a desktop keeps its own layout.';
+    return '<div class="editbar" role="status"><span><b>Editing layout.</b> <span class="edithow">' + FT.esc(how) + '</span></span>' +
+      '<span class="actions" style="margin:0">' + settingsButtonHtml(layoutPage, FT.esc(title), 'btn sm primary') +
+      '<button class="btn sm" data-act="core.layout">Done</button></span></div>' +
+      '<p class="edithint">' + FT.esc(how) + '</p>';
+  }
+
   function editBarHtml() {
     if (!editing()) return '';
+    if (layoutIsPager) return pagerEditBarHtml();
     var how = canArrange() ? 'Drag a panel to move it (or drag it by its title at any time). Drag its left or right edge to change its width. '
       : narrow.matches ? '▲ ▼ change the order on this phone (or press and hold a panel, then drag it); a desktop keeps its own layout. ' : '';
     how += '"Remove" takes a panel off the page; "Add feature" puts it back or adds more.';
@@ -983,7 +1177,7 @@ var FT = (function () {
     if (FT.state.dragging) { renderWaiting = true; return; }
     renderWaiting = false;
     renderTabs();
-    layoutPage = null; layoutPanels = [];
+    layoutPage = null; layoutPanels = []; layoutIsPager = false;
     var html = FT.pageHtml(FT.state.view, FT.state.projectId);
     var y = window.scrollY;
     $('app').innerHTML = editBarHtml() + html; // after the page html, so the bar knows the page's panels
@@ -1388,6 +1582,8 @@ var FT = (function () {
     if (current && opts.restore && samePage(pageNow(), pageOpenedByDefault)) current = null;
     pageOpenedByDefault = null;
     FT.config = b.config; FT.store = b.data; FT.state.mode = b.config.mode; FT.ready = true; backStack = null;
+    // Opening the app (or a mode) starts on the pill kept on this device, or the first; fresh data replacing a saved copy keeps the one chosen.
+    if (!opts.keepPage) { chosenPills = {}; forgetPagerSettings(); }
     loaded = {};
     b.modules.forEach(function (m) { loaded[m.id] = true; });
     document.title = b.config.appName || document.title;
@@ -1516,8 +1712,9 @@ var FT = (function () {
   // ---------- swipe between views (phone) ----------
   // A sideways swipe moves to the next or previous tab. It is ignored where a sideways gesture already means something:
   // boards (drag and drop, sideways scroll), sticky notes, whiteboards, editors, dialogs and anything that scrolls sideways.
-  // On a pager's panel (Today) a swipe changes the panel instead, and stops at the first and last panel: the pinned
-  // panel, the chips and the strip under the bar still swipe between tabs.
+  // On a pager's panels (Today) a swipe changes the pill instead, and stops at the first and last pill (with "Swipe
+  // between pills" off it does nothing there): the pinned panel, the pills' row and the strip under the bar still swipe
+  // between tabs.
   var swipeStart = null;
   /** Elements that use a sideways gesture themselves block a swipe outright. */
   function swipeBlocked(el) {
@@ -1569,9 +1766,9 @@ var FT = (function () {
   /** What a sideways swipe from this element moves through: the pager's panels, or the tabs. */
   function swipeSteps(target) {
     var panels = target.closest && target.closest('#app .ppanels');
-    if (panels && pagerChips().length > 1) {
-      return { el: panels, at: function () { return chosenChipIndex(pagerChips()); }, count: function () { return pagerChips().length; },
-        go: function (dir) { putBack(panels); pagerStep(dir); } };
+    if (panels && pillTabs().length > 1) {
+      return { el: panels, at: function () { return chosenPillIndex(pillTabs()); }, count: function () { return pillTabs().length; },
+        go: function (dir) { putBack(panels); pillStep(dir); } };
     }
     return { el: $('app'), at: currentIndex, count: function () { return viewIds().length; },
       go: function (dir) { slideTo(viewIds()[currentIndex() + dir], dir); } };
@@ -1608,7 +1805,7 @@ var FT = (function () {
   }, { passive: true });
 
   // ---------- press, hold and drag to reorder (phone) ----------
-  // Outside Edit layout, holding a finger on a panel (or a pager's chip) for a moment lifts it; dragging then moves it
+  // Outside Edit layout, holding a finger on a panel for a moment lifts it; dragging then moves it
   // and letting go saves the phone's order. Moving the finger before then is a scroll or a swipe, and nothing lifts.
   // Form fields, buttons, links, editors and boards keep their own long press. The lifted panel jumps from place to
   // place (no animation), so it suits E-ink and "reduce motion" too.
@@ -1616,20 +1813,18 @@ var FT = (function () {
   var KEEP_OWN_LONG_PRESS = 'input, textarea, select, button, a[href], label, [contenteditable="true"], .board, .kcard, .col, .sticky, .nt-grip, [data-nolongpress]';
   var press = null;
 
+  /** The panel a press would lift. Today's pills on a phone are reordered in Today settings instead. */
   function pressTarget(el) {
     if (!el || !el.closest || !narrow.matches || FT.state.editLayout || !isLoaded('layout') || !layoutPage) return null;
-    var chip = el.closest('#app .pchip');
-    if (chip) return pagerChips().length > 1 ? { item: chip, axis: 'x' } : null;
     var cell = el.closest('#app .lflow > .lcell');
     if (!cell || el.closest(KEEP_OWN_LONG_PRESS) || layoutShown.length < 2) return null;
-    return { item: cell, axis: 'y' };
+    return cell;
   }
 
   function pressedSiblings() {
-    var kind = press.axis === 'x' ? 'pchip' : 'lcell';
-    return Array.prototype.filter.call(press.item.parentNode.children, function (c) { return c.classList.contains(kind); });
+    return Array.prototype.filter.call(press.item.parentNode.children, function (c) { return c.classList.contains('lcell'); });
   }
-  function itemId(item) { return item.dataset.id || item.dataset.panel; }
+  function itemId(item) { return item.dataset.panel; }
 
   function liftPressed() {
     if (!press) return;
@@ -1642,12 +1837,12 @@ var FT = (function () {
     press.edgeTimer = setInterval(scrollNearEdge, 40);
   }
 
-  /** Move the lifted item before the first other one whose middle is past the finger. */
+  /** Move the lifted panel before the first other one whose middle is below the finger. */
   function followFinger() {
-    var finger = press.axis === 'x' ? press.lastX : press.lastY, others = pressedSiblings().filter(function (c) { return c !== press.item; });
+    var others = pressedSiblings().filter(function (c) { return c !== press.item; });
     var before = others.filter(function (c) {
       var r = c.getBoundingClientRect();
-      return finger < (press.axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2);
+      return press.lastY < r.top + r.height / 2;
     })[0] || null;
     var inPlace = before ? press.item.nextElementSibling === before : !press.item.nextElementSibling;
     if (!inPlace) press.item.parentNode.insertBefore(press.item, before);
@@ -1655,14 +1850,8 @@ var FT = (function () {
 
   function scrollNearEdge() {
     if (!press || !press.lifted) return;
-    if (press.axis === 'y') {
-      var step = press.lastY < EDGE_SCROLL_PX ? -EDGE_SCROLL_STEP_PX : press.lastY > window.innerHeight - EDGE_SCROLL_PX ? EDGE_SCROLL_STEP_PX : 0;
-      if (step) { window.scrollBy(0, step); followFinger(); }
-      return;
-    }
-    var row = press.item.parentNode, box = row.getBoundingClientRect();
-    var sideways = press.lastX < box.left + EDGE_SCROLL_PX ? -EDGE_SCROLL_STEP_PX : press.lastX > box.right - EDGE_SCROLL_PX ? EDGE_SCROLL_STEP_PX : 0;
-    if (sideways) { row.scrollLeft += sideways; followFinger(); }
+    var step = press.lastY < EDGE_SCROLL_PX ? -EDGE_SCROLL_STEP_PX : press.lastY > window.innerHeight - EDGE_SCROLL_PX ? EDGE_SCROLL_STEP_PX : 0;
+    if (step) { window.scrollBy(0, step); followFinger(); }
   }
 
   /** Let go: save the new order when the item was dropped (keep), or put the page back as it was. */
@@ -1687,7 +1876,7 @@ var FT = (function () {
     var target = pressTarget(e.target);
     if (!target) return;
     var touch = e.touches[0];
-    press = { item: target.item, axis: target.axis, x: touch.clientX, y: touch.clientY, lastX: touch.clientX, lastY: touch.clientY, lifted: false, timer: setTimeout(liftPressed, LONG_PRESS_MS) };
+    press = { item: target, x: touch.clientX, y: touch.clientY, lastX: touch.clientX, lastY: touch.clientY, lifted: false, timer: setTimeout(liftPressed, LONG_PRESS_MS) };
   }, { passive: true });
   // Not passive: once a panel is lifted the finger drags it, so the page must not scroll or swipe.
   document.addEventListener('touchmove', function (e) {
@@ -1739,9 +1928,16 @@ var FT = (function () {
   FT.action('core.redo', function () { FT.closeDialog(); FT.redo(); });
   FT.action('core.settings', function () { closeMenu(); settingsDialog(); });
   FT.action('core.removePanel', function (el) { setPanelRemoved(el.dataset.id, true); });
-  FT.action('core.pagerChip', function (el) {
-    var chips = pagerChips(), from = chosenChipIndex(chips), to = chips.indexOf(el);
-    showPagerPanel(el.dataset.id, to > from ? 1 : to < from ? -1 : 0);
+  FT.action('core.pagerPill', function (el) {
+    var pills = pillTabs(), from = chosenPillIndex(pills), to = pills.indexOf(el);
+    showPill(el.dataset.id, to > from ? 1 : to < from ? -1 : 0, true);
+  });
+  // ⚙ at the end of the pills, the phone menu's item and Edit layout's button open Today settings; data-edit also opens a pill's editor.
+  FT.action('core.pagerSettings', function (el) {
+    var page = el.dataset.page;
+    closeMenu();
+    openPagerSettings(page);
+    if (el.dataset.edit && FT.pills.editPill) FT.pills.editPill(page, el.dataset.edit);
   });
   FT.action('core.pinnedMore', function () { pinnedOpen[layoutPage] = !pinnedOpen[layoutPage]; FT.render(); });
   // ▲ ▼ redraw the page: keep the pressed button under the finger and focused, so it can be pressed again.
@@ -1760,16 +1956,15 @@ var FT = (function () {
     addFeatureDialog();
   });
   FT.action('core.addFeatureItem', function (el) { addFeature(Number(el.dataset.i)); });
-  // The pager's chips are tabs: the arrow keys, Home and End move between them (and show that panel).
-  var CHIP_STEP_BY_KEY = { ArrowRight: 1, ArrowLeft: -1 };
+  // The pager's pills are tabs: the arrow keys, Home and End move between them (and show that pill).
+  var PILL_STEP_BY_KEY = { ArrowRight: 1, ArrowLeft: -1 };
   document.addEventListener('keydown', function (e) {
     if (!e.target.classList || !e.target.classList.contains('pchip')) return;
-    var chips = pagerChips(), at = chips.indexOf(e.target);
-    var to = e.key === 'Home' ? 0 : e.key === 'End' ? chips.length - 1 : CHIP_STEP_BY_KEY[e.key] ? at + CHIP_STEP_BY_KEY[e.key] : -1;
-    if (to < 0 || to >= chips.length || to === at) return;
+    var pills = pillTabs(), at = pills.indexOf(e.target);
+    var to = e.key === 'Home' ? 0 : e.key === 'End' ? pills.length - 1 : PILL_STEP_BY_KEY[e.key] ? at + PILL_STEP_BY_KEY[e.key] : -1;
+    if (to < 0 || to >= pills.length || to === at) return;
     e.preventDefault();
-    showPagerPanel(chips[to].dataset.id, to > at ? 1 : -1);
-    chips[to].focus();
+    showPill(pills[to].dataset.id, to > at ? 1 : -1, true);
   });
   FT.action('core.layoutReset', function () {
     if (!layoutPage) return;
@@ -1809,6 +2004,7 @@ var FT = (function () {
     if (e.key === 'Escape') {
       if ($('dialogRoot').innerHTML) FT.requestCloseDialog();
       else if (FT.state.editLayout) { FT.state.editLayout = false; FT.render(); }
+      else if (settingsPage) closePagerSettings();
     }
     // Clickable areas that are not buttons (they hold links, which may not sit inside a button) answer Enter and Space.
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role="button"][data-act]')) {

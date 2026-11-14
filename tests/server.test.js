@@ -917,6 +917,73 @@ test('a page\'s view choices are merged into one readable Settings row per page 
   assert.deepStrictEqual(saved['projects.view'], { status: [] }, 'the view choices are not layout, so they stay');
 });
 
+const morningPill = { id: 'ab12cd34', name: 'Morning', icon: '☀️', panels: ['habits', 'todos', 'list-9f8e7d6c'] };
+
+test('a phone\'s pills are saved per mode as one readable Settings row, cleaned, and kept by a layout reset', () => {
+  const s = fresh();
+  s.call('layout', 'savePills', { page: 'today', pills: [Object.assign({}, morningPill, { name: '  Morning  ', panels: ['habits', 'todos', 'habits', 'list-9f8e7d6c'] }), { id: 'notes', name: 'Notes', icon: '', panels: ['notes'] }] });
+  let saved = json(s.run('bootstrap()')).data.layout;
+  assert.deepStrictEqual(saved['today.pills'], [morningPill, { id: 'notes', name: 'Notes', icon: '', panels: ['notes'] }], 'names trimmed, each panel once, in order');
+  assert.strictEqual(s.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.today.pills')[1],
+    '[{"id":"ab12cd34","name":"Morning","icon":"☀️","panels":["habits","todos","list-9f8e7d6c"]},{"id":"notes","name":"Notes","icon":"","panels":["notes"]}]', 'one readable row');
+  assert.strictEqual(json(s.run("bootstrap('work')")).data.layout['today.pills'], undefined, 'each mode has its own');
+  s.call('layout', 'save', { page: 'today', items: [{ id: 'focus', x: 0, y: 0, w: 7 }] });
+  s.call('layout', 'reset', { page: 'today' });
+  saved = json(s.run('bootstrap()')).data.layout;
+  assert.ok(!saved.today && saved['today.pills'].length === 2, 'a reset of the desktop layout leaves the pills');
+  s.call('layout', 'savePills', { page: 'today', pills: [] });
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.layout['today.pills'], [], 'no pills at all is a choice');
+});
+
+test('pills are checked: up to 12, names of 1 to 24 characters, a known icon, unique ids and panel ids that look like panel ids', () => {
+  const s = fresh();
+  const pill = (patch) => Object.assign({}, morningPill, patch);
+  const save = (pills) => s.call('layout', 'savePills', { page: 'today', pills });
+  const thirteen = Array.from({ length: 13 }, (_, i) => pill({ id: 'pill' + i }));
+  assert.throws(() => save(thirteen), /At most 12 pills/);
+  save(thirteen.slice(0, 12));
+  assert.strictEqual(json(s.run('bootstrap()')).data.layout['today.pills'].length, 12, 'twelve is fine');
+  assert.throws(() => save([pill({ name: '   ' })]), /name of up to 24/);
+  assert.throws(() => save([pill({ name: 'x'.repeat(25) })]), /name of up to 24/);
+  save([pill({ name: 'x'.repeat(24) })]);
+  assert.throws(() => save([pill({ icon: '💩' })]), /Unknown pill icon/);
+  assert.throws(() => save([pill({}), pill({})]), /Bad pill id/);
+  assert.throws(() => save([pill({ id: '<b>' })]), /Bad pill id/);
+  assert.throws(() => save([pill({ panels: ['habits', '<img src=x>'] })]), /Bad panel id/);
+  assert.throws(() => save([pill({ panels: 'habits' })]), /Bad pill panels/);
+  assert.throws(() => save([pill({ panels: Array.from({ length: 41 }, (_, i) => 'list-' + i) })]), /Too many panels in a pill/);
+  assert.throws(() => save('pills'), /Bad pills/);
+  assert.throws(() => s.call('layout', 'savePills', { page: 'To day', pills: [] }), /Unknown page/);
+});
+
+test('saving pills can be undone and redone, the first save back to no row at all; other settings stay out of undo', () => {
+  const s = fresh();
+  const pillsNow = () => json(s.run('bootstrap()')).data.layout['today.pills'];
+  const undo = () => json(s.run('undo')()), redo = () => json(s.run('redo')());
+  const first = s.call('layout', 'savePills', { page: 'today', pills: [morningPill] });
+  assert.strictEqual(first.undo.action, 'layout.savePills', 'offered for undo');
+  s.call('layout', 'savePills', { page: 'today', pills: [Object.assign({}, morningPill, { name: 'Mornings' })] });
+  assert.strictEqual(s.call('layout', 'saveView', { page: 'today', view: { pillCounts: 'off' } }).undo, null, 'a switch is not undone');
+  assert.strictEqual(s.call('layout', 'saveOrder', { page: 'today', order: ['todos'] }).undo, null, 'nor the phone order');
+  assert.strictEqual(undo().undone, 'layout.savePills');
+  assert.strictEqual(pillsNow()[0].name, 'Morning', 'the edit is undone');
+  assert.strictEqual(undo().undone, 'layout.savePills');
+  assert.strictEqual(pillsNow(), undefined, 'the first save is undone: back to the pills made from the panels');
+  assert.strictEqual(redo().redone, 'layout.savePills');
+  assert.strictEqual(pillsNow()[0].name, 'Morning', 'redo puts it back');
+  assert.strictEqual(json(s.run('bootstrap()')).data.layout['today.view'].pillCounts, 'off', 'the switch was never touched');
+});
+
+test('the phone\'s Today switches are view choices with known values', () => {
+  const s = fresh();
+  s.call('layout', 'saveView', { page: 'today', view: { focusCard: 'hidden', pillCounts: 'off', pillSwipe: 'off', pillLast: 'on' } });
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.layout['today.view'], { focusCard: 'hidden', pillCounts: 'off', pillSwipe: 'off', pillLast: 'on' });
+  assert.throws(() => s.call('layout', 'saveView', { page: 'today', view: { focusCard: 'huge' } }), /Bad view setting: focusCard/);
+  assert.throws(() => s.call('layout', 'saveView', { page: 'today', view: { pillSwipe: 'yes' } }), /Bad view setting: pillSwipe/);
+  s.call('layout', 'saveView', { page: 'today', view: { focusCard: null } });
+  assert.strictEqual(json(s.run('bootstrap()')).data.layout['today.view'].focusCard, undefined, 'null forgets one, so the default (compact) applies');
+});
+
 test('a category picked in the app is made with the browser\'s id and a palette colour, given to the project in one call, and undone together', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Raised beds', category: 'house' }).result;
