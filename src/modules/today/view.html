@@ -58,7 +58,7 @@
   var NO_LIMIT = 'none', CUSTOM_LENGTH = 'custom';
   var KEEP_GOING_CHOICES_MIN = [10, 25];
   var PLAN_ALERT_TITLE = '⏰ Time is up';
-  var timer = null, alertedKey = null, audio = null;
+  var timer = null, alertedKey = null, audio = null, audioRequested = false;
   var chosenLengthMin; // the length picked in the Start session box; until one is picked, the server's remembered one
   var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
 
@@ -231,11 +231,19 @@
   var WHISTLE_SECONDS = 1.4;
   // Keyed by the period that just ended: work ending starts a break (chicken), a break ending starts work (steam whistle).
   var PERIOD_END_SOUND = { work: playChicken, break: playWhistle };
+  var AUDIO_AFTER_CLICK_MS = 500;
 
-  /** Browsers only allow sound after a click, so the audio context is made during one. */
+  /** Browsers only allow sound after a click, so the audio context is made during one. Making it can block the page for
+   *  200 ms or more, so a click only asks for it once the click has been drawn; a later click resumes it if it started suspended. */
   function unlockAudio() {
+    if (audio) { if (audio.state === 'suspended' && audio.resume) audio.resume(); return; }
+    if (!audioRequested) { audioRequested = true; setTimeout(makeAudioNow, AUDIO_AFTER_CLICK_MS); }
+  }
+
+  /** For a sound that plays straight away, such as the test buttons. */
+  function makeAudioNow() {
     if (audio) return;
-    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; audioRequested = false; }
   }
 
   /** Fades a gain node in fast, holds it, then fades it out so the sound has no clicks. */
@@ -677,8 +685,8 @@
         '<button class="btn" type="button" id="dlg-test-chicken">Chicken (break starts)</button>' +
         '<button class="btn" type="button" id="dlg-test-whistle">Steam whistle (work starts)</button></div>',
       onOpen: function () {
-        document.getElementById('dlg-test-chicken').addEventListener('click', function () { unlockAudio(); playSound(playChicken); });
-        document.getElementById('dlg-test-whistle').addEventListener('click', function () { unlockAudio(); playSound(playWhistle); });
+        document.getElementById('dlg-test-chicken').addEventListener('click', function () { makeAudioNow(); playSound(playChicken); });
+        document.getElementById('dlg-test-whistle').addEventListener('click', function () { makeAudioNow(); playSound(playWhistle); });
       },
       onSubmit: function (v) { return FT.rpc('today', 'pomodoroSettings', { work: v.work, break: v.break }, { quiet: true }); }
     });

@@ -162,7 +162,7 @@ test('keep going adds time from now (or from the planned end if later), or runs 
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
   s.call('today', 'start', { projectId: p.id, plannedMin: 25 });
-  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(30); });
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(29.6); }); // worked time is rounded up: 30
   assert.strictEqual(s.call('today', 'keepGoing', { minutes: 10 }).result.plannedMin, 40, 'time is up after 30 minutes: 10 more from now');
   assert.strictEqual(s.call('today', 'keepGoing', { minutes: 10 }).result.plannedMin, 50, 'before the planned end: 10 more after it');
   assert.throws(() => s.call('today', 'keepGoing', { minutes: -5 }), /whole number of minutes/);
@@ -174,7 +174,8 @@ test('a session saved before planned lengths existed keeps going and finishes', 
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Old', category: 'house' }).result;
   s.call('today', 'start', { projectId: p.id });
-  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(20); delete session.plannedMin; });
+  // 19.6 minutes, not 20: worked time is rounded up, so a few ms after exactly 20 it would count as 21
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(19.6); delete session.plannedMin; });
   assert.strictEqual(s.call('today', 'state').result.session.plannedMin, undefined);
   assert.strictEqual(s.call('today', 'keepGoing', { minutes: 15 }).result.plannedMin, 35);
   assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 20);

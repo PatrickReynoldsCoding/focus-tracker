@@ -773,8 +773,11 @@ async function run(browser, size) {
     await pg.click('#popRoot .poppane [data-act="popout.style"][data-style="mini"]');
     await popWin.waitFor();
     assert.ok(await popWin.evaluate((el) => el.classList.contains('pop-at-bl')), 'a mini card starts in the bottom left corner');
+    // Under the pointer the card opens upwards, so its title moves: a person grabs the title where it ends up
+    await popWin.hover(); await sleep(250);
     const card = await popWin.locator('.poptitle').boundingBox();
-    await drag({ x: card.x + 20, y: card.y + card.height / 2 }, size.viewport.width - 200, -(size.viewport.height - 200));
+    const grab = { x: card.x + 20, y: card.y + card.height / 2 };
+    await drag(grab, size.viewport.width - 200, 120 - grab.y);
     await pg.mouse.move(size.viewport.width / 2, size.viewport.height / 2); await sleep(250);
     assert.strictEqual((await saved()).mini.corner, 'tr', 'dropped near the top right, it snaps to that corner');
     const snapped = await popWin.boundingBox();

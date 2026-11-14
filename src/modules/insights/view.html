@@ -130,7 +130,7 @@
     var wk = lastWeek ? data.weeks.last : data.weeks.this;
     var title = (lastWeek ? 'Last week' : 'This week') + ' · ' + shortDate(wk.start) + ' – ' + shortDate(wk.end);
     var nav = '<span><button class="btn sm" data-act="insights.week" data-week="last"' + (lastWeek ? ' disabled' : '') + '>&larr; Last week</button> ' +
-      '<button class="btn sm" data-act="insights.week" data-week="this"' + (lastWeek ? '' : ' disabled') + '>This week &rarr;</button></span>';
+      '<button class="btn sm" data-act="insights.week" data-week="this"' + (lastWeek ? '' : ' disabled') + '>This week &rarr;</button><span class="popspot"></span></span>';
     var when = '';
     if (wk.current) {
       var wd = new Date(data.today + 'T00:00:00Z').getUTCDay() || 7;

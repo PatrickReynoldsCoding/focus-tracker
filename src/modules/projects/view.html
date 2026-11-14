@@ -30,6 +30,7 @@
 .phead h2 { font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
 /* The category pill is a button that opens the category picker; ⋯ opens the More menu. Both menus are .pmenu. */
 .pmenuwrap { position: relative; display: inline-flex; flex: none; }
+.pheadbtns { display: inline-flex; align-items: center; gap: 4px; flex: none; }
 .catbtn { border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 99px; display: inline-flex; align-items: center; }
 .catbtn .pill::after { content: "\25BE"; font-size: 10px; color: var(--muted); }
 .catbtn:hover .pill { background: var(--line); }
@@ -252,8 +253,9 @@
         '<button class="btn sm" data-act="projects.delete">Delete</button></div>') + sectionsHtml(p) + '</section>';
   }
 
+  /** ⋯ with the panel's Pop out button beside it, so the button does not sit on top of ⋯ in the corner. */
   function moreButtonHtml(p) {
-    return '<span class="pmenuwrap"><button type="button" class="morebtn" data-act="projects.more" aria-haspopup="menu" aria-expanded="false" aria-label="More for ' + FT.esc(p.name) + '">⋯</button></span>';
+    return '<span class="pheadbtns"><span class="popspot"></span><span class="pmenuwrap"><button type="button" class="morebtn" data-act="projects.more" aria-haspopup="menu" aria-expanded="false" aria-label="More for ' + FT.esc(p.name) + '">⋯</button></span></span>';
   }
 
   function menuItemHtml(act, label, data) {

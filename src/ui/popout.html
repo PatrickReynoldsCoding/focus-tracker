@@ -138,6 +138,8 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
   var PANE_DEFAULT_WIDTH = 400, PANE_MIN_WIDTH = 280, PANE_MAX_SHARE = 0.7, PANE_KEY_STEP = 24, NARROW_DESKTOP_MAX_WIDTH = 1000;
   var DRAG_THRESHOLD = 6;
   var LABEL_OPENING = /<(div|span) class="label"[^>]*>/;
+  /** A panel whose top right corner holds its own buttons marks where the Pop out button goes instead. */
+  var POP_SPOT = '<span class="popspot"></span>';
 
   var narrow = window.matchMedia('(max-width: 760px)');
   var statesByMode = {};
@@ -194,9 +196,11 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       ' aria-label="Pop out ' + esc(name) + '" title="Pop out ' + esc(name) + ' into a window that stays while you change tabs">' + POP_ICON + '</button>';
   }
 
-  /** The button goes at the end of the panel's title (its first .label); a panel without one gets it in its top right corner. */
+  /** The button goes where the panel marked a POP_SPOT, else at the end of its title (its first .label), else in its top right corner. */
   function withPopButton(page, panel) {
-    var html = panel.html, label = LABEL_OPENING.exec(html);
+    var html = panel.html, spot = html.indexOf(POP_SPOT);
+    if (spot !== -1) return copyOf(panel, { html: html.slice(0, spot) + popButton(page, panel, '') + html.slice(spot + POP_SPOT.length) });
+    var label = LABEL_OPENING.exec(html);
     if (label) {
       var tag = label[1], labelEnd = html.indexOf('</' + tag + '>', label.index), nested = html.indexOf('<' + tag, label.index + 1);
       if (labelEnd !== -1 && (nested === -1 || nested > labelEnd)) {
