@@ -324,6 +324,18 @@ function loadServer(opts = {}) {
     Session: { getScriptTimeZone: () => 'Europe/London' },
     DriveApp: drive,
     Drive: { Files: docs.Files },
+    ScriptApp: { getOAuthToken: () => 'test-token' },
+    // Only Drive's export address is fetched (the notes Doc as HTML); it answers from the fake Docs.
+    UrlFetchApp: {
+      fetch(address, options) {
+        const exported = /^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^/]+)\/export\?mimeType=(.+)$/.exec(address);
+        if (!exported || !/^Bearer /.test(((options || {}).headers || {}).Authorization || '')) throw new Error('Unexpected fetch: ' + address);
+        let page;
+        try { page = docs.Files.export(decodeURIComponent(exported[1]), decodeURIComponent(exported[2])).getDataAsString(); }
+        catch (e) { return { getResponseCode: () => 404, getContentText: () => String(e.message) }; }
+        return { getResponseCode: () => 200, getContentText: () => page };
+      }
+    },
     Logger: { log: (m) => mock.logs.push(m) }
   };
   vm.createContext(sandbox);

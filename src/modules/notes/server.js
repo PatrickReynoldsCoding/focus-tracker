@@ -176,11 +176,18 @@ function notesDocMeta_(docId) {
 
 /** The Doc's notes as the editor's HTML: Drive's HTML export, turned into the editor's tags and cleaned. */
 function readNotesDoc_(docId) {
-  var out = Drive.Files.export(docId, 'text/html', { alt: 'media' });
-  var exported = typeof out === 'string' ? out
-    : out && typeof out.getDataAsString === 'function' ? out.getDataAsString()
-    : out && out.length ? Utilities.newBlob(out).getDataAsString() : '';
-  return fromDocHtml_(exported);
+  return fromDocHtml_(exportDocAsHtml_(docId));
+}
+
+/**
+ * Drive's HTML export of a Doc, fetched from the export address. The advanced service's Files.export throws on Google
+ * ("HttpResponseException: Response code: 200") because it expects JSON back, not the page.
+ */
+function exportDocAsHtml_(docId) {
+  var exportAddress = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(docId) + '/export?mimeType=text%2Fhtml';
+  var response = UrlFetchApp.fetch(exportAddress, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  assert_(response.getResponseCode() === 200, 'Google Docs did not send the notes (error ' + response.getResponseCode() + '). Try again in a minute.');
+  return response.getContentText('UTF-8');
 }
 
 function notesHtmlBlob_(name, html) {
