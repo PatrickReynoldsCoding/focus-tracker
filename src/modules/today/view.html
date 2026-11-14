@@ -748,7 +748,7 @@
       danger: true,
       onSubmit: function () {
         var t = FT.store.today, before = t.session;
-        callNow('discard', undefined, function () { t.session = null; return function () { t.session = before; }; });
+        callNow('discard', { start: before && before.start }, function () { t.session = null; return function () { t.session = before; }; });
         FT.toast('Session deleted. Nothing was logged.');
       }
     });

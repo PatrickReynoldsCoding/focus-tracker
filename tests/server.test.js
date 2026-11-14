@@ -184,7 +184,7 @@ test('a session saved before planned lengths existed keeps going and finishes', 
 test('deleting the session leaves no log line, no minutes and the next action as it was', () => {
   const s = fresh();
   const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Buy screws' }).result;
-  assert.throws(() => s.call('today', 'discard'), /No session/);
+  assert.strictEqual(s.call('today', 'discard').slices.today.session, null, 'no session: nothing to delete, and no error');
   const touchedBefore = s.call('projects', 'list').result.find((x) => x.id === p.id).last_touched;
   const logBefore = s.call('log', 'list').result.length;
   s.call('today', 'start', { projectId: p.id, plannedMin: 25 });
@@ -195,6 +195,21 @@ test('deleting the session leaves no log line, no minutes and the next action as
   const after = s.call('projects', 'list').result.find((x) => x.id === p.id);
   assert.strictEqual(after.next_action, 'Buy screws');
   assert.strictEqual(after.last_touched, touchedBefore, 'not counted as worked on');
+});
+
+test('deleting from a screen that is out of date leaves a newer session running, in a mode that is not the default', () => {
+  const s = fresh();
+  const inWork = (m, fn, args) => json(s.run('rpc')(m, fn, json(args || {}), 'work'));
+  const p = inWork('projects', 'create', { name: 'Language adherence', category: 'delivery' }).result;
+  const shown = inWork('today', 'start', { projectId: p.id, plannedMin: 25 }).result;
+  const state = JSON.parse(s.user._m['today.state.work']);
+  state.session.start = new Date(Date.now() - 60000).toISOString(); // a newer session, started on another device
+  s.user._m['today.state.work'] = JSON.stringify(state);
+  const newer = inWork('today', 'state').result.session;
+  assert.deepStrictEqual(inWork('today', 'discard', { start: shown.start }).slices.today.session, newer, 'not the session that screen showed');
+  assert.strictEqual(inWork('today', 'discard', { start: newer.start }).slices.today.session, null);
+  assert.strictEqual(inWork('today', 'state').result.session, null, 'gone when read again');
+  assert.strictEqual(s.user._m['today.state'], undefined, 'the default mode was never touched');
 });
 
 test('doGet only uses meta tags that Apps Script allows', () => {

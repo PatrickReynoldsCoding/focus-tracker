@@ -108,7 +108,15 @@ var FT = (function () {
 
   // Changes go to the server one at a time, in the order they were made. A reply's fresh data is only used when no
   // later change is still waiting: the screen already shows that later change, and older data would undo it.
-  var queue = Promise.resolve(), waiting = 0;
+  // savesAnsweredByMode counts the changes the server has answered in each mode, so data read before one of them can be told apart.
+  var queue = Promise.resolve(), waiting = 0, savesAnsweredByMode = {};
+
+  function saveAnswered(mode) {
+    waiting--;
+    savesAnsweredByMode[mode] = savesAnswered(mode) + 1;
+  }
+
+  function savesAnswered(mode) { return savesAnsweredByMode[mode] || 0; }
 
   /**
    * Call a module's server api in the current mode. Merges any refreshed slices into the store and re-renders
@@ -124,7 +132,7 @@ var FT = (function () {
       setPending(1);
       return new Promise(function (resolve, reject) {
         var settled = false, timer = null;
-        function finish() { settled = true; clearTimeout(timer); setPending(-1); if (!opts.parallel) waiting--; }
+        function finish() { settled = true; clearTimeout(timer); setPending(-1); if (!opts.parallel) saveAnswered(mode); }
         if (opts.timeout) timer = setTimeout(function () {
           if (settled) return;
           finish();
@@ -163,6 +171,16 @@ var FT = (function () {
 
   /** How many changes are on their way to the server. */
   FT.pendingSaves = function () { return waiting; };
+
+  /**
+   * Google runs calls side by side, so a load sent before a change may read the server before the change is made and
+   * answer after it. Such data is out of date: drawing it would bring back what the change removed (a deleted session).
+   * Returns a check to make when the load answers: true if a change in that mode was answered since this was called.
+   */
+  function changedSince(mode) {
+    var answeredBefore = savesAnswered(mode);
+    return function () { return savesAnswered(mode) !== answeredBefore; };
+  }
 
   // Editors that save after a delay register here, so their text is sent when the page may be going away:
   // hidden (another app, the phone locked), closed, or switching mode.
@@ -230,7 +248,7 @@ var FT = (function () {
       return new Promise(function (resolve) {
         google.script.run
           .withSuccessHandler(function (res) {
-            setPending(-1); waiting--;
+            setPending(-1); saveAnswered(mode);
             if (mode !== FT.state.mode) { resolve(); return; }
             if (!res.undone) { FT.toast('Nothing to undo.'); resolve(); return; }
             FT.store = res.data;
@@ -238,7 +256,7 @@ var FT = (function () {
             FT.toast('Undone: ' + FT.undoWords(res.undone));
             resolve();
           })
-          .withFailureHandler(function (err) { setPending(-1); waiting--; FT.toast(FT.errorText(err), 'error'); resolve(); })
+          .withFailureHandler(function (err) { setPending(-1); saveAnswered(mode); FT.toast(FT.errorText(err), 'error'); resolve(); })
           .undo(mode);
       });
     });
@@ -256,7 +274,7 @@ var FT = (function () {
       return new Promise(function (resolve) {
         google.script.run
           .withSuccessHandler(function (res) {
-            setPending(-1); waiting--;
+            setPending(-1); saveAnswered(mode);
             if (mode !== FT.state.mode) { resolve(); return; }
             if (!res.redone) { FT.toast('Nothing to redo.'); resolve(); return; }
             FT.store = res.data;
@@ -264,7 +282,7 @@ var FT = (function () {
             FT.toast('Redone: ' + FT.undoWords(res.redone));
             resolve();
           })
-          .withFailureHandler(function (err) { setPending(-1); waiting--; FT.toast(FT.errorText(err), 'error'); resolve(); })
+          .withFailureHandler(function (err) { setPending(-1); saveAnswered(mode); FT.toast(FT.errorText(err), 'error'); resolve(); })
           .redo(mode);
       });
     });
@@ -273,8 +291,10 @@ var FT = (function () {
   };
 
   FT.reload = function () {
+    var outOfDate = changedSince(FT.state.mode);
     return new Promise(function (resolve) {
       google.script.run.withSuccessHandler(function (b) {
+        if (outOfDate()) { resolve(queue.then(FT.reload)); return; }
         FT.store = b.data; FT.render(); resolve();
       }).withFailureHandler(function (e) { FT.toast(FT.errorText(e), 'error'); resolve(); }).bootstrap(FT.state.mode);
     });
@@ -1640,13 +1660,15 @@ var FT = (function () {
       });
     }
     function attempt() {
+      var outOfDate = changedSince(cacheKey(mode));
       google.script.run
         .withSuccessHandler(function (b) {
           if (token !== loadToken) return;
           haveFresh = true;
-          // Wait for any change still on its way, so the fresh data does not undo it.
+          // Wait for any change still on its way, so the fresh data does not undo it; data read before a change is loaded again.
           whenSettled(function () {
             if (token !== loadToken) return;
+            if (outOfDate()) { attempt(); return; }
             applyBootstrap(b, { requested: mode, keepPage: FT.ready, restore: isPageLoad });
             // The default mode's real id is known now, so the copy and the queue are kept under it from here on.
             if (FT.offline) { FT.offline.setUpdating(false); FT.offline.onFresh(cacheKey(mode)); FT.offline.saveSnapshot(cacheKey(mode), b); }
