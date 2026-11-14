@@ -17,44 +17,62 @@
  * An AI assistant cannot make a notes Doc the app would see, so for a project with no notes Doc yet it writes the notes
  * as plain text into the project's notes cell in the sheet (the guide for assistants, core/guide.js, says so). The next
  * snapshot adds that text to the end of the project's notes Doc and puts the Doc's link back in the cell (importTyped_).
+ *
+ * Today's note is one running note per mode, kept the same way: its own Doc, "Today notes", in the mode's Notes folder,
+ * and a Notes row. It has no project. The notes key `today` (TODAY_NOTES_KEY_) stands where a project id would be (the
+ * row's project_id, the api's projectId), so the editor, drafts, versions and conflict copies work as for a project.
+ * Project ids are 8 hex characters, so the key never meets one. Nothing about it reaches the Projects tab or the Log's
+ * project column.
  */
 
 var NOTES_HTML_MAX_LENGTH_ = 1000000;
 var NOTES_DOC_MIME_ = 'application/vnd.google-apps.document';
 var NOTES_HEADERS_ = ['id', 'project_id', 'doc_id', 'updated', 'written'];
+var TODAY_NOTES_KEY_ = 'today';
+var TODAY_NOTES_DOC_NAME_ = 'Today notes';
+
+function isTodayNotes_(notesKey) { return notesKey === TODAY_NOTES_KEY_; }
+
+/** The notes Doc's name: "Today notes" for Today's note, else "<project name> notes". */
+function notesDocName_(notesKey, project) {
+  return isTodayNotes_(notesKey) ? TODAY_NOTES_DOC_NAME_ : (project ? project.name : 'Project') + ' notes';
+}
 
 function notesModule() {
   var T = new Table('Notes', NOTES_HEADERS_);
 
-  function rowFor_(projectId) {
+  function rowFor_(notesKey) {
     var all = T.all();
-    for (var i = 0; i < all.length; i++) if (all[i].project_id === projectId) return all[i];
+    for (var i = 0; i < all.length; i++) if (all[i].project_id === notesKey) return all[i];
     return null;
   }
-  function projectOf_(projectId, ctx) {
-    return ctx.call('projects', 'list', {}).filter(function (p) { return p.id === projectId; })[0] || null;
+  function projectOf_(notesKey, ctx) {
+    if (isTodayNotes_(notesKey)) return null;
+    return ctx.call('projects', 'list', {}).filter(function (p) { return p.id === notesKey; })[0] || null;
   }
-  function docName_(project) { return (project ? project.name : 'Project') + ' notes'; }
 
   /** Keep the text that lost a conflict as its own Doc in the Notes folder. Returns the copy's name. */
-  function keepCopy_(project, html, kept) {
+  function keepCopy_(docName, html, kept) {
     var stamp = nowIso_().slice(0, 16).replace(/[-:T]/g, '');
-    var copyName = docName_(project) + ' - conflict ' + stamp;
+    var copyName = docName + ' - conflict ' + stamp;
     var copy = createNotesDoc_(copyName, html);
     reportConflict_({ what: 'notes', kept: kept, copyUrl: notesDocUrl_(copy.id) });
     return copyName;
   }
 
   /**
-   * Save notes into the project's Doc, checking the version. a.html is the editor's HTML (cleaned here); a.text is
-   * markdown, used when there is no HTML (notes typed in the sheet). _base: the version the text builds on; _editedAt:
-   * when it was edited. No _base: written without a check (the app's own appends).
+   * Save notes into their Doc, checking the version. a.projectId: the project, or TODAY_NOTES_KEY_ for Today's note.
+   * a.html is the editor's HTML (cleaned here); a.text is markdown, used when there is no HTML (notes typed in the
+   * sheet). _base: the version the text builds on; _editedAt: when it was edited. No _base: written without a check
+   * (the app's own appends).
    */
   function write_(a, ctx) {
     assert_(a.projectId, 'No project given.');
     var html = typeof a.html === 'string' ? sanitizeRichText_(a.html, NOTES_HTML_MAX_LENGTH_) : notesMarkdownToHtml_(a.text);
     var row = rowFor_(a.projectId);
+    var forToday = isTodayNotes_(a.projectId);
     var project = projectOf_(a.projectId, ctx);
+    var docName = notesDocName_(a.projectId, project);
     var conflict = null;
     var meta = row && row.doc_id ? notesDocMeta_(row.doc_id) : null;
     if (meta && a._base !== undefined) {
@@ -69,8 +87,8 @@ function notesModule() {
             return { url: notesDocUrl_(row.doc_id), updated: meta.modifiedTime };
           }
           var docNewer = timeOf_(meta.modifiedTime) >= timeOf_(a._editedAt);
-          var copyName = keepCopy_(project, docNewer ? html : current, docNewer ? 'server' : 'yours');
-          ctx.optional('log', 'conflict', { projectId: a.projectId, text: 'Conflict: the notes were changed elsewhere (another device or Google Docs). ' +
+          var copyName = keepCopy_(docName, docNewer ? html : current, docNewer ? 'server' : 'yours');
+          ctx.optional('log', 'conflict', { projectId: forToday ? '' : a.projectId, text: 'Conflict: ' + (forToday ? 'Today\'s notes were' : 'the notes were') + ' changed elsewhere (another device or Google Docs). ' +
             (docNewer ? 'The newer notes were kept; your text' : 'Your text was newer and replaced them; the other text') + ' is saved as the Doc "' + copyName + '" in the Notes folder.' });
           conflict = { kept: docNewer ? 'server' : 'yours', copyName: copyName };
           if (docNewer) {
@@ -81,14 +99,14 @@ function notesModule() {
       }
     }
     var t0 = Date.now();
-    var file = meta ? updateNotesDoc_(row.doc_id, docName_(project), html) : createNotesDoc_(docName_(project), html);
+    var file = meta ? updateNotesDoc_(row.doc_id, docName, html) : createNotesDoc_(docName, html);
     var patch = { doc_id: file.id, updated: file.modifiedTime || nowIso_(), written: notesFingerprint_(html) };
     if (row) T.update(row.id, patch);
     else {
-      assert_(project, 'Project not found.');
+      assert_(project || forToday, 'Project not found.');
       T.insert(Object.assign({ project_id: a.projectId }, patch));
     }
-    if (!meta) ctx.call('projects', 'setNotesLink', { id: a.projectId, url: notesDocUrl_(file.id) });
+    if (!meta && !forToday) ctx.call('projects', 'setNotesLink', { id: a.projectId, url: notesDocUrl_(file.id) });
     console.log('notes.save ' + (Date.now() - t0) + ' ms' + (meta ? '' : ' (new Doc)'));
     var out = { url: notesDocUrl_(file.id), updated: patch.updated };
     if (conflict) out.conflict = conflict;
@@ -478,7 +496,7 @@ function migrateNotesToDocs_(ss) {
   if (waiting.length) backupBeforeMigration_(ss, 'v5');
   waiting.forEach(function (row) {
     var project = projects.get(row.project_id);
-    var doc = moveOldNotesIntoDoc_(row, (project ? project.name : 'Project') + ' notes');
+    var doc = moveOldNotesIntoDoc_(row, notesDocName_(row.project_id, project));
     notes.update(row.id, { doc_id: doc.id, updated: doc.modifiedTime || nowIso_(), written: doc.written, file_id: '', file_url: '', html_file_id: '', html_version: '', doc_synced: '', doc_seen: '' });
     [row.file_id, row.html_file_id].filter(Boolean).forEach(trashOldNotesFile_);
     var cell = project ? String(project.notes || '').trim() : '';

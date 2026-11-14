@@ -25,9 +25,7 @@
   .notes-panel.full .notes-done { display: inline-flex; flex: none; }
   .notes-panel.full .notes-edit { flex: 1; height: auto; min-height: 0; max-height: none; border: 0; border-radius: 0; outline: 0; padding: 12px 18px 18px; font-size: 17px; line-height: 1.6; }
 }
-.notes-panel .label .nt-open { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-transform: none; letter-spacing: 0; }
 .notes-panel .rtbar .nt-paper { height: 30px; padding: 0 6px; font-size: 13px; width: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
-.nt-empty { margin: 0; color: var(--muted); }
 /*
  * Paper themes (picked per device, ft.notes.paper). Every text row is exactly one rule tall: the rule is 1.75em of the
  * editor's own font size, line-height is the unitless 1.75, blocks have no margins, and headings are 1 or 2 rules tall.
@@ -81,6 +79,8 @@
 </style>
 <script>
 (function () {
+  // Every map below is keyed by the notes key: a project's id, or TODAY_NOTES_KEY for Today's own note (notes/server.js).
+  var TODAY_NOTES_KEY = 'today';
   var cache = {};        // projectId -> the notes as markdown (for drafts and comparing), once loaded
   var formatted = {};    // projectId -> the editor's HTML: what is saved into the notes Doc
   var loaded = {};       // projectId -> the Doc version (its modifiedTime) the text builds on; '' when there was no Doc
@@ -95,7 +95,7 @@
   var fullEntry = false; // ...and it added a browser history entry, so the phone's back button closes it
   var narrow = window.matchMedia('(max-width: 760px)');
   var RETRY_MS = [2000, 5000, 15000, 30000, 60000];
-  var onScreen = null;   // the project whose notes are on screen (project page or Today), to notice leaving it
+  var onScreen = null;   // the notes on screen (a project's, or Today's note), to notice leaving them
   var HEIGHT_KEY = 'ft.notes.height';
   var PAPER_KEY = 'ft.notes.paper';
   var SAVED_KEY = 'ft.notes.saved.'; // + mode + '.' + projectId: another window of this browser saved these notes
@@ -226,28 +226,24 @@
 
   function savedHeight() { try { return localStorage.getItem(HEIGHT_KEY) || ''; } catch (e) { return ''; } }
 
-  /** The notes panel for a project. onToday: Today's copy, named after the focus project with a link to its page. */
-  function panel(p, onToday) {
-    var row = noteRow(p.id);
-    var ready = has(cache, p.id) || !row;
+  /** A notes panel. notesKey: a project's id, or TODAY_NOTES_KEY for Today's note; editorName: the editor's spoken name. */
+  function panel(notesKey, editorName) {
+    var row = noteRow(notesKey);
+    var ready = has(cache, notesKey) || !row;
     var height = savedHeight();
-    var label = onToday ? 'Notes · <button type="button" class="nt-open" data-act="notes.openProject" data-id="' + FT.esc(p.id) + '" title="Open ' + FT.esc(p.name) + '">' + FT.esc(p.name) + '</button>' : 'Notes';
-    return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel" data-project="' + FT.esc(p.id) + '"><div class="label">' + label + '</div>' +
+    return '<section class="panel notes-panel' + (fullOpen && narrow.matches ? ' full' : '') + '" id="nt-panel" data-project="' + FT.esc(notesKey) + '"><div class="label">Notes</div>' +
       '<div class="notes-top">' + toolbarHtml() + '<button class="btn primary notes-done" type="button" data-act="notes.done">Done</button></div>' +
-      '<div class="rtedit notes-edit' + (height ? ' sized' : '') + paperClass(savedPaper()) + '" id="nt-text" data-project="' + FT.esc(p.id) + '" contenteditable="' + (ready ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="' + (onToday ? 'Notes for ' + FT.esc(p.name) : 'Notes') + '"' +
-      (height ? ' style="--nt-h:' + FT.esc(height) + '"' : '') + ' data-placeholder="' + (ready ? PLACEHOLDER : 'Loading…') + '">' + editorHtml(p.id) + '</div>' +
+      '<div class="rtedit notes-edit' + (height ? ' sized' : '') + paperClass(savedPaper()) + '" id="nt-text" data-project="' + FT.esc(notesKey) + '" contenteditable="' + (ready ? 'true' : 'false') + '" role="textbox" aria-multiline="true" aria-label="' + FT.esc(editorName) + '"' +
+      (height ? ' style="--nt-h:' + FT.esc(height) + '"' : '') + ' data-placeholder="' + (ready ? PLACEHOLDER : 'Loading…') + '">' + editorHtml(notesKey) + '</div>' +
       '<div class="nt-grip" id="nt-grip" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag to make the notes taller or shorter" aria-label="Resize notes. Drag, or press the up and down arrow keys."></div>' +
       '<div class="notes-foot"><span id="nt-status"></span><span class="nt-right">' +
       '<button type="button" class="nt-copy" data-act="notes.copy">Copy as markdown</button>' +
       '<a id="nt-link" href="' + FT.esc(row && row.doc ? row.doc : '') + '" target="_blank" rel="noopener noreferrer"' + (row && row.doc ? '' : ' hidden') + '>Open in Docs</a></span></div></section>';
   }
 
-  /** Today's notes panel: the focus project's notes, the same as on its page, or a short note when there is no focus. */
+  /** Today's notes panel: Today's own running note (the Doc "Today notes"), whatever the focus project is. */
   function todayPanels() {
-    var t = FT.store.today || {}, focus = t.focusId ? FT.project(t.focusId) : null;
-    var html = focus ? panel(focus, true)
-      : '<section class="panel notes-panel"><div class="label">Notes</div><p class="nt-empty">No focus project today, so there are no notes to show. Once Today has a focus, its notes are here.</p></section>';
-    return [{ id: 'notes', title: 'Notes', short: 'Notes', description: 'Today\'s focus project\'s notes, the same as on its page.', html: html, w: 7 }];
+    return [{ id: 'notes', title: 'Today notes', short: 'Notes', description: 'One running note for Today, kept as the Google Doc "Today notes". Clear it when you like.', html: panel(TODAY_NOTES_KEY, 'Today notes'), w: 7 }];
   }
 
   /** The project whose notes are in the editor on screen, or null. */
@@ -256,11 +252,11 @@
     return ed ? ed.dataset.project : null;
   }
 
-  /** The Doc exists: keep its address on the notes row and the project, and show "Open in Docs". */
+  /** The Doc exists: keep its address on the notes row and the project (Today's note has none), and show "Open in Docs". */
   function setDocLink(projectId, url) {
     var row = noteRow(projectId);
     if (row) row.doc = url;
-    var project = FT.project(projectId);
+    var project = projectId === TODAY_NOTES_KEY ? null : FT.project(projectId);
     if (project) project.notes = url;
     var link = document.getElementById('nt-link');
     if (link && editorProject() === projectId) { link.href = url; link.hidden = false; }
@@ -410,23 +406,21 @@
   FT.module({
     id: 'notes',
     slots: {
-      'project.page': [{ id: 'notes', title: 'Notes', description: 'Free notes, kept as the project\'s Google Doc.', order: 20, span: 'half', render: function (p) { return panel(p, false); } }],
+      'project.page': [{ id: 'notes', title: 'Notes', description: 'Free notes, kept as the project\'s Google Doc.', order: 20, span: 'half', render: function (p) { return panel(p.id, 'Notes'); } }],
       'today.panels': [{ order: 30, render: todayPanels }]
     },
     onProject: opened
   });
-
-  FT.action('notes.openProject', function (el) { FT.go('project', { id: el.dataset.id }); });
 
   function editor() { return document.getElementById('nt-text'); }
 
   // The editor is rebuilt when the page redraws, so the markdown shortcuts are attached after every draw.
   FT.onRender(function () {
     var el = editor();
-    // Leaving a project's page, or Today's focus changing, finishes editing those notes: they are saved now.
+    // Leaving the page the notes are on finishes editing them: they are saved now.
     var now = el ? el.dataset.project : null;
     if (onScreen && onScreen !== now) save(onScreen);
-    if (now && now !== onScreen && FT.state.view !== 'project') opened(now); // Today: the project page's onProject does this there
+    if (now && now !== onScreen && !(FT.state.view === 'project' && now === FT.state.projectId)) opened(now); // the project page's onProject loads its own notes
     onScreen = now;
     if (el && el.classList.contains('paper-legal')) loadHandwritingFont();
     if (!el) { fullOpen = false; if (fullEntry) { fullEntry = false; FT.popHistory(); } }
