@@ -574,11 +574,21 @@ var FT = (function () {
   }
 
   /**
+   * A tap sees each page's panels before FT.layout draws them, as fn(page, panels), and returns the panels to draw
+   * (pop-out windows, ui/popout.html, swap a popped panel for a placeholder). Returning null draws nothing and leaves the
+   * page's layout state alone: used to read a page's panels without drawing it.
+   */
+  var layoutTaps = [];
+  FT.onLayout = function (fn) { layoutTaps.push(fn); };
+
+  /**
    * Lay out a page's panels. page: a short key such as 'today'. panels: [{ id, title, description, html, w }] where w is
    * the default width in twelfths, and title and description name the panel in Edit layout's Add feature. Panels with no
    * html are left out.
    */
   FT.layout = function (page, panels) {
+    panels = layoutTaps.reduce(function (list, tap) { return list && tap(page, list); }, panels);
+    if (!panels) return '';
     layoutPage = page;
     var all = FT.store.layout || {}, saved = all[page] || {}, edit = FT.state.editLayout && isLoaded('layout');
     var drawn = panels.filter(function (p) { return p.html; });
@@ -784,6 +794,12 @@ var FT = (function () {
     FT.toast('Added: ' + it.title);
   }
 
+  /** The html of a view (a tab, or a project's page) as FT.render draws it. */
+  FT.pageHtml = function (view, projectId) {
+    if (view === 'project') return projectPage(projectId);
+    return modules[view] && modules[view].tab ? modules[view].tab.render(FT) : '';
+  };
+
   var renderWaiting = false;
   FT.render = function () {
     if (!FT.ready) return;
@@ -792,9 +808,7 @@ var FT = (function () {
     renderWaiting = false;
     renderTabs();
     layoutPage = null;
-    var html = '';
-    if (FT.state.view === 'project') html = projectPage(FT.state.projectId);
-    else if (modules[FT.state.view] && modules[FT.state.view].tab) html = modules[FT.state.view].tab.render(FT);
+    var html = FT.pageHtml(FT.state.view, FT.state.projectId);
     var y = window.scrollY;
     $('app').innerHTML = editBarHtml() + html; // after the page html, so the bar knows the page's hidden panels
     document.body.classList.toggle('editing-layout', editing());
