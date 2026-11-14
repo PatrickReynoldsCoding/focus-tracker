@@ -397,12 +397,17 @@ function todayModule() {
         });
       },
 
-      /** Throw the running session away: no log line, no minutes, and the project's next action stays as it was. */
+      /**
+       * Throw the running session away: no log line, no minutes, and the project's next action stays as it was.
+       * a.start: the start of the session the browser shows. A screen that is out of date may show a session already
+       * finished or deleted, or replaced by a newer one; nothing is deleted then and the browser gets the true state.
+       */
       discard: function (a, ctx) {
         var d = dayInfo_(), s = load_(d.key);
-        requireSession_(s);
-        s.session = null;
-        save_(s);
+        if (s.session && (!a.start || a.start === s.session.start)) {
+          s.session = null;
+          save_(s);
+        }
         ctx.refresh('today');
         return true;
       },

@@ -1,7 +1,8 @@
 /**
  * The saved copy and the offline queue, in the real page (jsdom) over the real server code. jsdom has no IndexedDB, so this
  * exercises the localStorage fallback, which is also what runs when IndexedDB is unavailable in a real browser.
- * "net" stands for the connection to Google: net.down makes every call fail like a lost connection, net.hold delays bootstrap.
+ * "net" stands for the connection to Google: net.down makes every call fail like a lost connection, net.hold delays bootstrap,
+ * net.holdAnswer lets bootstrap read the server at once but delays its answer (Google is slow, and other calls run meanwhile).
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -38,9 +39,9 @@ async function waitFor(fn, label, ms = 3000) {
   server.mock.weekday = 3;
   const modules = json(server.run('MODULES'));
   const html = renderIndex(modules);
-  const rpc = (m, fn, args) => json(server.run('rpc')(m, fn, json(args || {}), null));
+  const rpc = (m, fn, args, mode = null) => json(server.run('rpc')(m, fn, json(args || {}), mode));
   const data = () => json(server.run('bootstrap()').data);
-  const net = { down: false, hold: null };
+  const net = { down: false, hold: null, holdAnswer: null };
   const errors = [];
   const open = [];
 
@@ -60,7 +61,11 @@ async function waitFor(fn, label, ms = 3000) {
           if (name === 'bootstrap' && net.hold) await net.hold;
           if (!w.document) return;
           if (net.down) { fail({ message: 'NetworkError: Failed to fetch' }); return; }
-          try { ok(json(server.run(name)(...args.map(json)))); } catch (e) { fail({ message: 'Error: ' + e.message }); }
+          try {
+            const answer = json(server.run(name)(...args.map(json)));
+            if (name === 'bootstrap' && net.holdAnswer) await net.holdAnswer;
+            if (w.document) ok(answer);
+          } catch (e) { fail({ message: 'Error: ' + e.message }); }
         }, 0);
         w.google = { script: { run: { withSuccessHandler(ok) { return { withFailureHandler(fail) {
           return new Proxy({}, { get: (_, name) => (...args) => call(name, args, ok, fail) });
@@ -152,6 +157,51 @@ async function waitFor(fn, label, ms = 3000) {
     net.hold = null; net.release();
     await waitFor(() => p.w.FT.state.view === 'project' && p.w.FT.state.projectId === focusId && p.$('#timer'), 'the fresh data opens the focus project');
     rpc('today', 'discard');
+    p.close();
+  });
+
+  await step('a session deleted while the page is still updating stays deleted (Work mode), on screen, after a reload and on the server', async () => {
+    const workProject = rpc('projects', 'create', { name: 'Language adherence', category: 'delivery' }, 'work').result;
+    rpc('today', 'start', { projectId: workProject.id, plannedMin: 25 }, 'work');
+    const serverSession = () => json(server.run('bootstrap')('work').data.today.session);
+    const warm = page({ 'ft.mode': 'work' });
+    await waitFor(() => warm.$('#timer') && status(warm) === '', 'the work session on a warm page');
+    const saved = warm.storage(); warm.close();
+    net.holdAnswer = new Promise((r) => { net.release = r; });
+    const p = page(saved);
+    await waitFor(() => p.w.FT.ready && p.$('#timer') && status(p) === 'Updating…', 'the saved copy shows the session while Google is slow');
+    await sleep(30); // the fresh load has read the server: it still has the session
+    p.click(p.$('[data-act="today.finish"]'));
+    p.click(await waitFor(() => p.$('#dlg-discard'), 'Delete this session'));
+    p.click(await waitFor(() => p.$('#dlg-submit.danger'), 'the confirm'));
+    await waitFor(() => !p.w.FT.store.today.session && p.w.FT.pendingSaves() === 0, 'deleted on screen and saved');
+    assert.strictEqual(serverSession(), null, 'gone on the server');
+    net.holdAnswer = null; net.release();
+    await waitFor(() => status(p) === '', 'the fresh load finished');
+    await sleep(50);
+    assert.strictEqual(p.w.FT.store.today.session, null, 'the older fresh data does not bring it back');
+    assert.ok(!p.$('#timer'), 'no session clock');
+    const reloaded = page(p.storage());
+    p.close();
+    await waitFor(() => reloaded.w.FT.ready && status(reloaded) === '', 'reloaded');
+    assert.strictEqual(reloaded.w.FT.store.today.session, null, 'still gone after a reload');
+    assert.strictEqual(serverSession(), null);
+    reloaded.close();
+  });
+
+  await step('deleting a session that is already gone (a screen that is out of date) leaves it gone and says nothing is wrong', async () => {
+    const workProject = json(server.run('bootstrap')('work').data.projects)[0];
+    rpc('today', 'start', { projectId: workProject.id, plannedMin: 25 }, 'work');
+    const p = page({ 'ft.mode': 'work' });
+    await waitFor(() => p.$('#timer') && status(p) === '', 'the session on screen');
+    rpc('today', 'discard', {}, 'work'); // deleted on another device
+    p.click(p.$('[data-act="today.finish"]'));
+    p.click(await waitFor(() => p.$('#dlg-discard'), 'Delete this session'));
+    p.click(await waitFor(() => p.$('#dlg-submit.danger'), 'the confirm'));
+    await waitFor(() => p.w.FT.pendingSaves() === 0, 'saved');
+    await sleep(50);
+    assert.strictEqual(p.w.FT.store.today.session, null, 'not put back on screen');
+    assert.ok(/Session deleted/.test(p.$('#toast').textContent), p.$('#toast').textContent);
     p.close();
   });
 
