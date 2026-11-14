@@ -203,7 +203,7 @@ test('deleting from a screen that is out of date leaves a newer session running,
   const p = inWork('projects', 'create', { name: 'Language adherence', category: 'delivery' }).result;
   const shown = inWork('today', 'start', { projectId: p.id, plannedMin: 25 }).result;
   const state = JSON.parse(s.user._m['today.state.work']);
-  state.session.start = new Date(Date.now() - 60000).toISOString(); // a newer session, started on another device
+  state.session.start = new Date(Date.now() - 600000).toISOString(); // a newer session, started on another device
   s.user._m['today.state.work'] = JSON.stringify(state);
   const newer = inWork('today', 'state').result.session;
   assert.deepStrictEqual(inWork('today', 'discard', { start: shown.start }).slices.today.session, newer, 'not the session that screen showed');

@@ -39,6 +39,12 @@ function todayModule() {
   var DAY_MS = 86400000;
   var SKIPS = new Table('Skips', ['id', 'project_id', 'to_project_id', 'date']);
   var REMINDERS = new Table('Reminders', ['id', 'project_id', 'due', 'created', 'done']);
+  var SAME_SESSION_MS = 120000; // the browser stamps a new session's start itself, a moment before the server does
+
+  /** Whether the start the browser shows is the running session's, and not a newer one started elsewhere. */
+  function sameSession_(shownStart, runningStart) {
+    return Math.abs(new Date(shownStart).getTime() - new Date(runningStart).getTime()) < SAME_SESSION_MS;
+  }
 
   /** Today's date key, ISO weekday and the date of this week's Monday, in the script's time zone. */
   function dayInfo_() {
@@ -404,7 +410,7 @@ function todayModule() {
        */
       discard: function (a, ctx) {
         var d = dayInfo_(), s = load_(d.key);
-        if (s.session && (!a.start || a.start === s.session.start)) {
+        if (s.session && (!a.start || sameSession_(a.start, s.session.start))) {
           s.session = null;
           save_(s);
         }
