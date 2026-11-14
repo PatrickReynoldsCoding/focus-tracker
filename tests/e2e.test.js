@@ -917,11 +917,11 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('To-dos: tick, add for anytime with Enter, delete with Undo at once', async () => {
     const item = () => $$('.todos li').find((li) => li.textContent.includes('Grocery shopping'));
-    assert.ok(item().textContent.includes('Today'));
+    assert.ok(!item().querySelector('.when'), 'on Today a to-do for today needs no day under it');
     const box = item().querySelector('input[type="checkbox"]');
     box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
     assert.ok(item().classList.contains('done'), 'struck through at once');
-    assert.ok(item().textContent.includes('Done · Today'));
+    assert.ok(!item().querySelector('.when'), 'a ticked one shows no day either: the tick says it');
     await waitFor(() => todosNow().find((t) => t.title === 'Grocery shopping').done === TODAY, 'tick saved');
     const addBox = () => $('.todos-panel .todoadd input');
     setVal($('.todos-panel .todoadd select'), '', 'change');
@@ -961,7 +961,7 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog'), 'closes at once');
     const now = $$('.todos-panel .todos li').find((li) => li.textContent.includes('Buy the stamps'));
-    assert.ok(now && now.textContent.includes('Today') && now.textContent.includes('The blue one, by Friday') && now.classList.contains('coloured'), 'shown at once, with the start of its description');
+    assert.ok(now && now.textContent.includes('Bathroom extractor fan') && now.textContent.includes('The blue one, by Friday') && now.classList.contains('coloured'), 'shown at once, with its project and the start of its description');
     await waitFor(() => todosNow().some((t) => t.title === 'Buy the stamps' && t.day === TODAY && t.project_id === fan.id && t.color === '4' && /<b>blue<\/b>/.test(t.note_html) && t.note === 'The blue one, by Friday'), 'saved, the description cleaned with a plain copy');
     click(now.querySelector('[data-act="todos.open"]'));
     await waitFor(() => $('#dlg-tddone'), 'opened again');
