@@ -738,22 +738,37 @@ async function waitFor(fn, label, ms = 3000) {
   const statusOf = (key) => $('#nt-status-' + key);
   const errandsDoc = () => server.docs.docs().find((f) => f.name === 'Errands');
   const errandsNote = () => (w.FT.store.lists || []).find((l) => l.kind === 'note' && l.name === 'Errands');
+  // The Notes tab: its cards (dealt into columns, so read row by row) and the pop-up a card opens in.
+  const card = (id) => $('#app .nx-card[data-id="' + id + '"]');
+  const sheet = () => $('#nx-sheet');
+  const cardIds = () => {
+    const columns = $$('#nx-grid > .nx-col').map((c) => Array.from(c.children).map((el) => el.dataset.id)), ids = [];
+    for (let row = 0; columns.some((c) => c[row]); row++) columns.forEach((c) => { if (c[row]) ids.push(c[row]); });
+    return ids;
+  };
+  const openCard = async (id) => { click((await waitFor(() => card(id), 'the card ' + id)).querySelector('.nx-open')); return waitFor(() => sheet(), 'the pop-up of ' + id); };
+  const closeCard = () => click($('#nx-sheet [data-act="lists.close"]'));
+  const keyDown = (el, key) => el.dispatchEvent(new w.KeyboardEvent('keydown', { key, bubbles: true }));
+  const newFromMenu = (kind) => { click($('#app .nx-new')); click($('#app .nx-newwrap [data-act="lists.new"][data-kind="' + kind + '"]')); };
   const rowsOfTabNow = (name) => { const sh = server.ss.sheets[name]; return sh ? sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, i) => [h, r[i] === undefined ? '' : r[i]]))) : []; };
 
-  await step('the Notes tab: + New note makes a note at once, and typing saves to its own Google Doc named after it', async () => {
+  await step('the Notes tab: + New → Note makes a note at once and opens it, its name ready to type over; typing saves to its own Google Doc named after it', async () => {
     click(tab('Notes'));
-    await waitFor(() => $('[data-act="lists.add"][data-kind="note"]'), 'Notes tab');
-    assert.strictEqual($('.notes-intro .label').textContent, 'Notes', 'the tab is called Notes');
-    click($('[data-act="lists.add"][data-kind="note"]'));
-    await waitFor(() => $('#dlg-name'), 'name dialog');
-    assert.strictEqual($('#dlg-heading').textContent, 'New note');
-    setVal($('#dlg-name'), 'Errands');
-    click($('#dlg-submit'));
-    await waitFor(() => !$('.dialog') && errandsNote(), 'made at once');
+    await waitFor(() => $('#app .nx-new'), 'Notes tab');
+    assert.ok($('#app .nx-grid .nx-card') && !$('#app .lcell'), 'a grid of cards, not panels');
+    assert.ok($('#layoutBtn').hidden, 'no Edit layout here: the cards are not panels');
+    click($('#app .nx-new'));
+    assert.deepStrictEqual($$('#app .nx-newwrap .nx-menu button').map((b) => b.textContent), ['✎NoteA Google Doc of its own', '☰ListItems in groups', '☑To-do listTick off, with days'], 'the + New menu');
+    click($('#app .nx-newwrap [data-act="lists.new"][data-kind="note"]'));
+    const made = await waitFor(() => sheet() && w.FT.store.lists.find((l) => l.kind === 'note' && l.name === 'New note'), 'made and open at once');
+    assert.strictEqual(d.activeElement, $('#nx-name'), 'the name has the cursor, ready to type over');
+    assert.ok(!$('#app .nx-newwrap .nx-menu'), 'the menu closed');
+    setVal($('#nx-name'), 'Errands', 'change');
     const note = errandsNote();
-    assert.ok(editorOf(note.id) && editorOf(note.id).getAttribute('contenteditable') === 'true', 'its editor is on the tab at once');
-    assert.ok($('.lcell[data-panel="list-' + note.id + '"] .listname').value === 'Errands', 'with its name to edit in place');
-    await waitFor(() => rowsOfTabNow('Lists').some((l) => l.id === note.id && l.kind === 'note'), 'saved as a row of Lists with kind note');
+    assert.strictEqual(note.id, made.id, 'renamed in place');
+    assert.ok(editorOf(note.id) && sheet().contains(editorOf(note.id)) && editorOf(note.id).getAttribute('contenteditable') === 'true', 'the real notes editor is in the pop-up');
+    assert.ok($('#nx-sheet .nx-meta').textContent.includes('Note'), 'it says what it is');
+    await waitFor(() => rowsOfTabNow('Lists').some((l) => l.id === note.id && l.kind === 'note' && l.name === 'Errands'), 'saved as a row of Lists with kind note');
     typeInto(note.id, '<p>Call the plumber about the <b>stopcock</b></p>');
     editorOf(note.id).dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => statusOf(note.id).textContent === 'Saved', 'saved');
@@ -761,28 +776,110 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(server.drive.pathOf(errandsDoc()), 'Focus Tracker/Personal/Notes/Errands', 'in the Notes folder');
     assert.strictEqual(noteText(note.id), 'Call the plumber about the **stopcock**');
     assert.ok(!$('#nt-link-' + note.id).hidden && $('#nt-link-' + note.id).href === errandsDoc().getUrl(), '"Open in Docs" links its Doc');
+    click($('#nx-sheet [data-act="lists.close"]'));
+    assert.ok(!sheet() && !d.body.classList.contains('nx-showing-card'), '✕ closes it');
+    assert.strictEqual(card(note.id).querySelector('.nx-text').textContent, 'Call the plumber about the stopcock', 'its card shows the first lines at once');
+    assert.ok(rowsOfTabNow('Notes').find((r) => r.list_id === note.id).preview === 'Call the plumber about the stopcock', 'and the server keeps them on the Notes row');
+    await openCard(note.id);
+    keyDown(d.body, 'Escape');
+    assert.ok(!sheet(), 'Esc closes it too');
+    await openCard(note.id);
+    click($('.nx-scrim'));
+    assert.ok(!sheet(), 'and a click on the dim area around it');
   });
 
-  await step('project notes show on the Notes tab after the notes, lists and to-do lists; the filter hides them, and the choice is kept for the mode', async () => {
+  await step('project notes are cards after the notes, lists and to-do lists; the Project notes switch hides them, and the choice is kept for the mode', async () => {
     const fan = projectNamed('Bathroom extractor fan');
-    await waitFor(() => $('.lcell[data-panel="pnote-' + fan.id + '"]'), 'the fan\'s notes on the Notes tab');
-    assert.strictEqual($('.lcell[data-panel="pnote-' + fan.id + '"] .label').textContent, fan.name + ' notes');
-    await waitFor(() => editorOf(fan.id) && editorOf(fan.id).textContent.includes('100mm'), 'the same notes as on its page');
-    const ids = $$('#app .lcell').map((c) => c.dataset.panel);
-    assert.ok(ids.indexOf('list-' + errandsNote().id) < ids.indexOf('pnote-' + fan.id), 'after the Notes tab\'s own');
+    const fanCard = () => card('pnote-' + fan.id);
+    await waitFor(() => fanCard(), 'the fan\'s notes on the Notes tab');
+    assert.strictEqual(fanCard().querySelector('.nx-open').textContent, fan.name);
+    assert.ok(/^Fan\nReplacement needs to be 100mm exactly/.test(fanCard().querySelector('.nx-text').textContent), 'its first lines, line breaks kept');
+    assert.strictEqual(fanCard().querySelector('.nx-cfoot .nx-kind').textContent, '◧ Project notes');
+    assert.ok(fanCard().querySelector('.nx-badge.proj').textContent === fan.name, 'with its project');
+    const ids = cardIds();
+    assert.ok(ids.indexOf(errandsNote().id) < ids.indexOf('pnote-' + fan.id), 'after the Notes tab\'s own');
+    await openCard('pnote-' + fan.id);
+    await waitFor(() => editorOf(fan.id) && sheet().contains(editorOf(fan.id)) && editorOf(fan.id).textContent.includes('100mm'), 'its pop-up holds the same notes as its page');
+    assert.ok(!$('#nx-sheet input#nx-name') && $('#nx-sheet h2#nx-name').textContent === fan.name, 'named after its project, not renamed here');
+    assert.ok($('#nx-sheet [data-act="lists.openProject"]').textContent === 'Go to project' && !$('#nx-sheet [data-act="lists.remove"]') && !$('#nx-sheet .nx-swatch'), 'Go to project; no Delete, no colours');
+    const fanRow = () => rowsOfTabNow('Notes').find((r) => r.project_id === fan.id);
+    const onToday = (on) => { const box = $('#nx-sheet [data-change="lists.onToday"]'); box.checked = on; box.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    onToday(true);
+    assert.ok(/On Today/.test(fanCard().querySelector('.nx-cfoot').textContent), 'On Today shows on its card at once');
+    await waitFor(() => fanRow().show_today === 'yes', 'and reaches the server');
+    onToday(false);
+    await waitFor(() => fanRow().show_today === '' && !w.FT.pendingSaves(), 'and off again');
+    click($('#nx-sheet [data-act="lists.openProject"]'));
+    await waitFor(() => w.FT.state.view === 'project' && w.FT.state.projectId === fan.id && !sheet(), 'Go to project leaves the pop-up for the project\'s page');
+    click(tab('Notes'));
     const filter = $('[data-change="lists.projectNotes"]');
     assert.ok(filter.checked, 'shown by default');
     filter.checked = false; filter.dispatchEvent(new w.Event('change', { bubbles: true }));
-    assert.ok(!$('.lcell[data-panel^="pnote-"]') && editorOf(errandsNote().id), 'hidden at once; the note stays');
+    assert.ok(!$('#app .nx-card[data-id^="pnote-"]') && card(errandsNote().id), 'hidden at once; the note stays');
     await waitFor(() => (server.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.lists.view') || [])[1] === '{"projectNotes":"off"}', 'kept in the mode\'s Settings');
     click(tab('Today'));
     click(tab('Notes'));
-    assert.ok(!$('.lcell[data-panel^="pnote-"]') && !$('[data-change="lists.projectNotes"]').checked, 'still hidden');
-    click($('[data-change="lists.projectNotes"]'));
+    assert.ok(!$('#app .nx-card[data-id^="pnote-"]') && !$('[data-change="lists.projectNotes"]').checked, 'still hidden');
     const again = $('[data-change="lists.projectNotes"]');
     again.checked = true; again.dispatchEvent(new w.Event('change', { bubbles: true }));
-    await waitFor(() => $('.lcell[data-panel="pnote-' + fan.id + '"]'), 'shown again');
+    await waitFor(() => fanCard(), 'shown again');
     await waitFor(() => !w.FT.pendingSaves(), 'saved');
+  });
+
+  await step('the Notes tab reads no Doc for its cards; a note whose first lines were never kept shows quiet grey lines, then its Doc is read once and the server keeps them', async () => {
+    const call = (fn, args) => JSON.parse(JSON.stringify(server.run('rpc')(fn[0], fn[1], args))).result;
+    const old = call(['lists', 'create'], { name: 'Old note', kind: 'note' });
+    call(['notes', 'save'], { listId: old.id, html: '<p>Written long ago</p>' });
+    const notesTab = server.ss.sheets.Notes, previewColumn = notesTab.rows[0].indexOf('preview');
+    notesTab.rows.find((r) => r.includes(old.id))[previewColumn] = ''; // as a row saved before the server kept first lines
+    const reads = [], run = server.run;
+    server.run = (code) => {
+      const result = run(code);
+      return code !== 'rpc' ? result : (...args) => { if (args[0] === 'notes' && args[1] === 'get') reads.push(args[2]); return result(...args); };
+    };
+    try {
+      click(tab('Today'));
+      await w.FT.reload();
+      click(tab('Notes'));
+      assert.ok(card(old.id).querySelector('.nx-skel') && card(old.id).dataset.wait === old.id, 'quiet grey lines first');
+      assert.ok(card(errandsNote().id).querySelector('.nx-text'), 'the others show their first lines at once');
+      await waitFor(() => card(old.id).querySelector('.nx-text'), 'then its first lines', 4000);
+      assert.strictEqual(card(old.id).querySelector('.nx-text').textContent, 'Written long ago');
+      assert.deepStrictEqual(reads.map((a) => a.listId || a.projectId), [old.id], 'one Doc read, for that note only');
+      assert.strictEqual(rowsOfTabNow('Notes').find((r) => r.list_id === old.id).preview, 'Written long ago', 'kept on its Notes row from now on');
+    } finally { server.run = run; }
+    call(['lists', 'remove'], { id: old.id });
+    await w.FT.reload();
+    assert.ok(!card(old.id), 'gone again');
+  });
+
+  await step('the Notes tab: the chips show each kind with counts; the search finds names, list items, to-dos and note text; nothing found says so', async () => {
+    const chip = (id) => $('#app .nx-chip[data-filter="' + id + '"]');
+    const count = (id) => Number(chip(id).querySelector('.n').textContent);
+    const all = cardIds().length;
+    assert.strictEqual(count('all'), all, 'All counts every card');
+    assert.strictEqual(chip('all').getAttribute('aria-pressed'), 'true');
+    click(chip('note'));
+    assert.ok(cardIds().length === count('note') && cardIds().every((id) => id.startsWith('pnote-') || w.FT.store.lists.find((l) => l.id === id).kind === 'note'), 'Notes: the notes and the projects\' notes');
+    click(chip('todo'));
+    assert.deepStrictEqual(cardIds(), w.FT.store.lists.filter((l) => l.kind === 'todo').map((l) => l.id), 'To-do lists');
+    assert.ok($('#app .nx-card .nx-tick input[data-change="todos.tick"]'), 'a to-do list\'s card has tick boxes');
+    click(chip('today'));
+    assert.ok(cardIds().length === count('today') && cardIds().every((id) => w.FT.store.lists.find((l) => l.id === id).show_today), 'On Today');
+    click(chip('all'));
+    assert.strictEqual(cardIds().length, all);
+    const search = (text) => { const box = $('#nx-q'); box.focus(); setVal(box, text); };
+    search('stopcock');
+    assert.deepStrictEqual(cardIds(), [errandsNote().id], 'a note by its text');
+    assert.strictEqual(d.activeElement, $('#nx-q'), 'the search box keeps the cursor while the cards change');
+    search('GROCERY');
+    assert.deepStrictEqual(cardIds(), [w.FT.store.lists.find((l) => l.kind === 'todo').id], 'a to-do list by a to-do, in any case');
+    search('extractor');
+    assert.ok(cardIds().length === 1 && cardIds()[0].startsWith('pnote-'), 'project notes by their project');
+    search('zzz nothing like this');
+    assert.ok(!$('#app .nx-card') && /Nothing matches/.test($('#nx-results').textContent), 'nothing found says so');
+    search('');
+    assert.strictEqual(cardIds().length, all);
   });
 
   await step('a note goes on Today through Add feature; typing there saves to the same Doc, apart from the focus project\'s notes', async () => {
@@ -972,15 +1069,15 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => todosNow().find((t) => t.title === 'Buy the stamps').done === TODAY, 'saved as done');
   });
 
-  await step('to-do lists: + New to-do list on the Notes tab makes another, with groups like a list\'s; Plan my week covers every list', async () => {
+  await step('to-do lists: + New → To-do list on the Notes tab makes another and opens it, with groups like a list\'s; Plan my week covers every list', async () => {
     click(tab('Notes'));
-    click(await waitFor(() => $('[data-act="lists.add"][data-kind="todo"]'), 'Notes tab'));
-    await waitFor(() => $('#dlg-name'), 'name dialog');
-    setVal($('#dlg-name'), 'Packing');
-    click($('#dlg-submit'));
-    const packing = await waitFor(() => !$('.dialog') && w.FT.store.lists.find((l) => l.kind === 'todo' && l.name === 'Packing'), 'made at once');
-    const panel = () => $('.lcell[data-panel="list-' + packing.id + '"]');
-    assert.ok(panel() && panel().querySelector('.todos-panel .todoadd input'), 'its own panel, with an add box');
+    await waitFor(() => $('#app .nx-new'), 'Notes tab');
+    newFromMenu('todo');
+    await waitFor(() => sheet() && d.activeElement === $('#nx-name') && $('#nx-name').value === 'New to-do list', 'made and open, its name ready');
+    setVal($('#nx-name'), 'Packing', 'change');
+    const packing = w.FT.store.lists.find((l) => l.kind === 'todo' && l.name === 'Packing');
+    const panel = () => $('#nx-sheet .nx-todo');
+    assert.ok(packing && panel() && panel().querySelector('.todoadd input'), 'the to-do list\'s own panel in the pop-up, with an add box');
     assert.ok(!panel().querySelector('.colhead'), 'one group: no group header');
     const groupBox = () => panel().querySelector('.todoadd input');
     setVal(groupBox(), 'Passport'); enter(groupBox());
@@ -1009,12 +1106,65 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => !panel().querySelector('.colhead') && panel().textContent.includes('Rain jacket'), 'one group again, nothing lost');
     await waitFor(() => todosNow().filter((t) => t.list_id === packing.id).every((t) => t.group_id === groups()[0].id), 'moved on the server');
+    closeCard();
     // Plan my week sees to-dos of every list
     click(tab('Today'));
     click(await waitFor(() => $('.habits-panel [data-act="habits.planWeek"]'), 'Plan my week'));
     await waitFor(() => $('.dialog'), 'Plan my week');
     assert.ok($('.dialog').textContent.includes('Passport') && $('.dialog').textContent.includes('Rain jacket') && $('.dialog').textContent.includes('Grocery shopping'), 'to-dos of every list');
     w.FT.closeDialog();
+    // a to-do is ticked straight from its list's card
+    click(tab('Notes'));
+    const packingCard = () => card(packing.id);
+    assert.ok(/Passport/.test(packingCard().textContent) && /Rain jacket/.test(packingCard().textContent), 'the card shows the open to-dos');
+    click(packingCard().querySelector('input[data-change="todos.tick"][data-id="' + passport.id + '"]'));
+    assert.ok(!sheet(), 'a tick does not open the card');
+    assert.ok(!/Passport/.test(packingCard().textContent) && /1 done/.test(packingCard().textContent), 'ticked off the card at once');
+    await waitFor(() => todosNow().find((t) => t.title === 'Passport').done === TODAY, 'the same tick as the panel\'s reaches the server');
+  });
+
+  await step('the Notes tab: a card dragged to another place takes it at once, the order reaches the server and Undo puts it back; a filter or search turns dragging off', async () => {
+    const names = () => w.FT.store.lists.slice().sort((a, b) => a.order - b.order).map((l) => l.name);
+    const namesOnServer = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).map((l) => l.name);
+    const columnSorts = () => w.__sortables.filter((s) => s.el.classList.contains('nx-col'));
+    const before = names(), last = w.FT.store.lists.find((l) => l.name === before[before.length - 1]);
+    assert.strictEqual(columnSorts().length, 4, 'each of the four columns takes cards');
+    const moving = card(last.id), firstColumn = columnSorts()[0].el;
+    firstColumn.insertBefore(moving, firstColumn.firstChild);
+    columnSorts()[0].opts.onEnd({ item: moving });
+    assert.deepStrictEqual(names(), [last.name].concat(before.slice(0, -1)), 'first at once');
+    assert.strictEqual(cardIds()[0], last.id, 'and drawn first');
+    await waitFor(() => namesOnServer().join('|') === names().join('|'), 'the order reached the server');
+    await w.FT.undo();
+    assert.deepStrictEqual(names(), before, 'Undo puts it back');
+    click($('#app .nx-chip[data-filter="note"]'));
+    assert.strictEqual(columnSorts().length, 0, 'not while a filter is on');
+    click($('#app .nx-chip[data-filter="all"]'));
+    setVal($('#nx-q'), 'pack');
+    assert.strictEqual(columnSorts().length, 0, 'nor while searching');
+    setVal($('#nx-q'), '');
+    assert.strictEqual(columnSorts().length, 4);
+    await sleep(450); // a click straight after a drag is taken as the end of the drag
+  });
+
+  await step('the Notes tab on a phone: + New is the round button with the same menu; the pop-up\'s colours sit behind one button', async () => {
+    w.__narrow = true;
+    w.FT.render();
+    click($('#app .nx-fab'));
+    assert.deepStrictEqual($$('#app .nx-fabmenu [data-act="lists.new"]').map((b) => b.dataset.kind), ['note', '', 'todo'], 'the round button\'s menu');
+    keyDown(d.body, 'Escape');
+    assert.ok(!$('#app .nx-menu'), 'Esc closes the menu');
+    await openCard(errandsNote().id);
+    const colours = $('#nx-sheet [data-act="lists.colours"]');
+    click(colours);
+    assert.ok($('#nx-sheet .nx-foot').classList.contains('picking') && colours.getAttribute('aria-expanded') === 'true', 'the colours show when asked');
+    const viewBefore = w.FT.state.view;
+    w.FT.back();
+    await waitFor(() => !sheet(), 'the phone\'s back button closes it');
+    assert.strictEqual(w.FT.state.view, viewBefore, 'and stays on the Notes tab');
+    w.__narrow = false;
+    w.FT.render();
+    click(tab('Today'));
   });
 
   await step('New habit: name and goal, start low (a third, half the size), a pace with the steps drawn, then edit, pause and resume', async () => {
@@ -1505,15 +1655,13 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => w.FT.pendingSaves() === 0, 'saved');
   });
 
-  await step('lists: create one, add groups and items like a vertical board, and show it on Today', async () => {
+  await step('lists: + New → List makes one in a pop-up; add groups and items like a vertical board, and show it on Today', async () => {
     click(tab('Notes'));
-    await waitFor(() => $('[data-act="lists.add"][data-kind=""]'), 'lists tab');
-    click($('[data-act="lists.add"][data-kind=""]'));
-    await waitFor(() => $('#dlg-name'), 'new list dialog');
-    setVal($('#dlg-name'), 'Keep in mind');
-    click($('#dlg-submit'));
-    await waitFor(() => $('.plainlist .board.vertical'), 'list board');
-    const list = () => $('.plainlist');
+    await waitFor(() => $('#app .nx-new'), 'Notes tab');
+    newFromMenu('');
+    await waitFor(() => sheet() && $('#nx-sheet .nx-list .board.vertical'), 'the list\'s board in the pop-up');
+    setVal($('#nx-name'), 'Keep in mind', 'change');
+    const list = () => $('#nx-sheet .nx-list');
     assert.strictEqual(list().querySelector('.colname').value, 'Items');
     assert.strictEqual(list().querySelector('[data-act="kanban.add-col"]').textContent, '+ Add group');
     const input = list().querySelector('.coladd input');
@@ -1533,11 +1681,16 @@ async function waitFor(fn, label, ms = 3000) {
     assert.deepStrictEqual(Array.from(list().querySelectorAll('.colname')).map((i) => i.value), ['New group', 'Items'], 'groups move like columns');
     assert.strictEqual(list().querySelectorAll('.col')[0].querySelectorAll('.kcard').length, 1, 'with their items');
     await sleep(450); // a click straight after a drag is taken as the end of the drag
-    click(list().querySelector('[data-act="lists.settings"]'));
-    await waitFor(() => $('#dlg-showtoday'), 'settings dialog');
+    click($('#nx-sheet .nx-foot [data-act="lists.settings"]'));
+    await waitFor(() => $('#dlg-showtoday'), 'settings dialog over the pop-up');
     $('#dlg-showtoday').checked = true;
     click($('#dlg-submit'));
     await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).filter((l) => !l.kind)[0].show_today === 'yes', 'saved on the server');
+    assert.ok(sheet() && $('#nx-sheet [data-change="lists.onToday"]').checked, 'the pop-up stays, its On Today switch on');
+    closeCard();
+    const keep = w.FT.store.lists.find((l) => l.name === 'Keep in mind');
+    assert.deepStrictEqual($$('.nx-group').filter((g) => card(keep.id).contains(g)).map((g) => g.textContent), ['New group'], 'its card names the groups that hold items (Items is empty now)');
+    assert.ok(/Tell a story with your commits/.test(card(keep.id).textContent) && /On Today/.test(card(keep.id).querySelector('.nx-cfoot').textContent), 'with their items, and "On Today"');
     click(tab('Today'));
     await waitFor(() => $$('#app .plainlist .label').some((l) => l.textContent === 'Keep in mind'), 'list on Today');
     assert.ok($('#app .plainlist').textContent.includes('Tell a story with your commits'));
@@ -1597,9 +1750,11 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $$('.catrow input').some((i) => i.value === 'Outdoor'), 'category listed');
   });
 
-  await step('a list can be given a colour, shown on the Lists tab and on Today', async () => {
+  const plainList = () => w.FT.store.lists.find((l) => !l.kind);
+  await step('a list can be given a colour (⚙ Settings or the pop-up\'s swatches), shown on its card, in its pop-up and on Today', async () => {
     click(tab('Notes'));
-    click(await waitFor(() => $('.plainlist [data-act="lists.settings"]'), 'settings button'));
+    await openCard(plainList().id);
+    click($('#nx-sheet [data-act="lists.settings"]'));
     await waitFor(() => $('#dlg-listpreview'), 'settings dialog with preview');
     assert.ok(!$('#dlg-listpreview').classList.contains('tinted'), 'preview starts without colour');
     const green = $$('input[name="dlg-listcolor"]').find((r) => r.value === '6');
@@ -1608,9 +1763,15 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-listname'), 'How I work');
     assert.strictEqual($('#dlg-previewname').textContent, 'How I work', 'preview shows the name');
     click($('#dlg-submit'));
-    await waitFor(() => $('.plainlist.tinted'), 'tinted on Lists');
-    assert.strictEqual($('.plainlist .listname').value, 'How I work');
-    assert.ok($('.plainlist.tinted').getAttribute('style').includes('--cat-6'));
+    await waitFor(() => $('#nx-sheet.tinted'), 'the pop-up takes the colour');
+    assert.strictEqual($('#nx-name').value, 'How I work');
+    assert.ok($('#nx-sheet').getAttribute('style').includes('--cat-6') && $('#nx-sheet .nx-swatch[data-color="6"]').getAttribute('aria-pressed') === 'true');
+    click($('#nx-sheet .nx-swatch[data-color="3"]'));
+    assert.ok($('#nx-sheet').getAttribute('style').includes('--cat-3'), 'a swatch recolours it at once');
+    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).find((l) => !l.kind).color === '3', 'and reaches the server');
+    click($('#nx-sheet .nx-swatch[data-color="6"]'));
+    closeCard();
+    assert.ok(card(plainList().id).classList.contains('tinted') && card(plainList().id).getAttribute('style').includes('--cat-6'), 'its card is tinted');
     click(tab('Today'));
     await waitFor(() => $('#app .plainlist.tinted'), 'tinted on Today');
     assert.ok($('#app .plainlist [data-act="lists.settings"]'), 'settings on Today too');
@@ -1619,18 +1780,18 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('a list can show one item at a time on Today, as a quote with its full description', async () => {
     click(tab('Notes'));
-    await waitFor(() => $('.plainlist .coladd input'), 'list');
+    await openCard(plainList().id);
     for (const t of ['Done is better than perfect', 'Sleep on big decisions']) {
-      const input = $('.plainlist .coladd input');
+      const input = $('#nx-sheet .coladd input');
       setVal(input, t); input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     }
-    const card = $$('.plainlist .kcard').find((c) => c.textContent.includes('Sleep on big decisions'));
-    click(card.querySelector('[data-act="kanban.open-card"]'));
+    const item = $$('#nx-sheet .kcard').find((c) => c.textContent.includes('Sleep on big decisions'));
+    click(item.querySelector('[data-act="kanban.open-card"]'));
     await waitFor(() => $('#dlg-note'), 'card dialog');
     $('#dlg-note').innerHTML = 'Wait one night. <b>Then</b> decide, see https://example.com/sleep';
     click($('#dlg-submit'));
-    await waitFor(() => !$('.dialog'), 'saved note');
-    click($('.plainlist [data-act="lists.settings"]'));
+    await waitFor(() => !$('.dialog') && sheet(), 'saved note; the pop-up stays');
+    click($('#nx-sheet [data-act="lists.settings"]'));
     await waitFor(() => $('#dlg-secsrow'), 'settings');
     assert.ok($('#dlg-secsrow').hidden, 'seconds only for one at a time');
     const one = $('input[name="dlg-display"][value="one"]');
@@ -1641,8 +1802,9 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#dlg-err').textContent.includes('5 to 3600'), 'too short refused');
     setVal($('#dlg-seconds'), '20');
     click($('#dlg-submit'));
-    await waitFor(() => !$('.dialog') && $('.plainlist .modebadge'), 'badge on the Lists tab');
-    assert.ok($('.plainlist .board'), 'the Lists tab still shows the full list for editing');
+    await waitFor(() => !$('.dialog') && $('#nx-sheet .modebadge'), 'badge in the pop-up');
+    assert.ok($('#nx-sheet .board'), 'the pop-up still shows the full list for editing');
+    closeCard();
     click(tab('Today'));
     const quote = await waitFor(() => $('#app .rotq'), 'quote card on Today');
     assert.strictEqual(quote.querySelector('.rotbar'), null, 'no progress bar');
@@ -2049,20 +2211,26 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $$('.wblist .wbname').map((b) => b.textContent).join('|') === 'Duct route|Wiring diagram', 'back after undo');
   });
 
-  await step('a list linked to a project shows on that project\'s page, and the Lists tab says so', async () => {
+  await step('a list linked to a project shows on that project\'s page, and the Notes tab says so', async () => {
     const bathroom = w.FT.store.projects.find((p) => p.name === 'Bathroom extractor fan');
+    const list = w.FT.store.lists.find((l) => !l.kind);
     click(tab('Notes'));
-    click(await waitFor(() => $('.plainlist [data-act="lists.settings"]'), 'settings button'));
+    await openCard(list.id);
+    click($('#nx-sheet [data-act="lists.settings"]'));
     const select = await waitFor(() => $('#dlg-listproject'), 'linked project field');
     assert.strictEqual(select.value, '', 'not linked yet');
     assert.strictEqual(select.options[0].textContent, 'No project');
     setVal(select, bathroom.id, 'change');
     click($('#dlg-submit'));
-    const badge = await waitFor(() => !$('.dialog') && $('.plainlist [data-act="lists.openProject"]'), 'linked badge at once');
+    const badge = await waitFor(() => !$('.dialog') && $('#nx-sheet .nx-meta [data-act="lists.openProject"]'), 'linked badge in the pop-up at once');
     assert.strictEqual(badge.textContent, 'Bathroom extractor fan');
-    const listName = $('.plainlist .listname').value;
+    const listName = $('#nx-name').value;
     await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).some((l) => l.project_id === bathroom.id), 'link saved');
-    click(badge);
+    closeCard();
+    assert.strictEqual(card(list.id).querySelector('.nx-badge.proj').textContent, 'Bathroom extractor fan', 'its card names the project');
+    await openCard(list.id);
+    click($('#nx-sheet .nx-meta [data-act="lists.openProject"]'));
+    assert.ok(!sheet(), 'the pop-up closes on the way');
     await waitFor(() => w.FT.state.view === 'project' && $$('#app .plainlist .label').some((l) => l.textContent === listName), 'list panel on the project page');
     assert.ok($('#app .plainlist .board[data-owner]'), 'with its items');
     assert.ok($$('#app .lcell .label').some((l) => l.textContent === 'Whiteboards'), 'next to the project\'s own panels');
@@ -2845,7 +3013,7 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('pop out: the window stays on other tabs and keeps working there', async () => {
     click(tab('Notes'));
-    assert.ok($('#app .lists, #app .panel'), 'on the Lists tab');
+    assert.ok($('#app .nx-page') && !$('#app .popbtn'), 'on the Notes tab, whose cards have no Pop out buttons');
     const win = popWin(TODOS());
     assert.ok(win && win.querySelector('.todoadd input'), 'the To-dos window is still there, drawn from Today off screen');
     const row = Array.from(win.querySelectorAll('li')).find((li) => li.textContent.includes('Water the plants'));
@@ -2943,20 +3111,25 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(popWin('notes').querySelector('.notes-edit') && $('#app .lcell[data-panel="notes"] .popslot'), 'on its own page, the usual placeholder');
   });
 
-  await step('pop out: the same notes are on screen once: while a project\'s or a note\'s notes are in a window, the Notes tab and Today show a placeholder for them', async () => {
+  await step('pop out: the same notes are on screen once: while a project\'s or a note\'s notes are in a window, the Notes tab\'s pop-up and Today show a placeholder for them', async () => {
     const project = w.FT.project(w.FT.state.projectId), noteId = errandsNote().id;
     click(tab('Notes'));
-    await waitFor(() => $('#app .lcell[data-panel="pnote-' + project.id + '"] .popslot'), 'the Notes tab');
-    assert.ok($('#app .lcell[data-panel="pnote-' + project.id + '"] .popslot').textContent.includes(project.name), 'naming the window');
+    await openCard('pnote-' + project.id);
+    assert.ok($('#nx-sheet .popslot') && $('#nx-sheet .popslot').textContent.includes(project.name), 'the pop-up shows the placeholder, naming the window');
     assert.strictEqual($$('.notes-edit').filter((e) => e.dataset.project === project.id).length, 1, 'one editor for these notes, the window\'s');
-    assert.ok(editorOf(noteId), 'other notes draw as usual');
     click(popWin('notes').querySelector('[data-act="popout.close"]'));
-    await waitFor(() => editorOf(project.id), 'the window closed: the Notes tab draws them again');
-    click($('#app .lcell[data-panel="list-' + noteId + '"] .popbtn'));
+    await waitFor(() => editorOf(project.id) && sheet().contains(editorOf(project.id)), 'the window closed: the pop-up draws them');
+    closeCard();
+    click(tab('Today'));
+    click(await waitFor(() => $('#app .lcell[data-panel="list-' + noteId + '"] .popbtn'), 'the note on Today'));
     await waitFor(() => popWin('list-' + noteId) && popWin('list-' + noteId).querySelector('.notes-edit[data-project="' + noteId + '"][contenteditable="true"]'), 'the note in a window');
     assert.strictEqual(popWin('list-' + noteId).querySelector('.poptitle').textContent, 'Errands', 'the window says which note');
-    click(tab('Today'));
     await waitFor(() => $('#app .lcell[data-panel="list-' + noteId + '"] .popslot'), 'Today: the usual placeholder');
+    click(tab('Notes'));
+    await openCard(noteId);
+    assert.ok($('#nx-sheet .popslot') && !sheet().querySelector('.notes-edit'), 'its pop-up on the Notes tab: the placeholder');
+    closeCard();
+    click(tab('Today'));
     assert.strictEqual($$('.notes-edit').filter((e) => e.dataset.project === noteId).length, 1, 'one editor for the note');
     const windowEditor = popWin('list-' + noteId).querySelector('.notes-edit');
     windowEditor.innerHTML += '<p>Typed in the note\'s window</p>';

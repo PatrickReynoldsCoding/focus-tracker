@@ -483,13 +483,15 @@ async function run(browser, size) {
   const boardId = call('whiteboard', 'create', { name: 'Loose sketch' }).id;
   await quickly(() => pg.evaluate(() => FT.reload()));
   await gotoTab('Notes');
-  await quick('Lists: Settings dialog', pg.locator('.plainlist [data-act="lists.settings"]').first());
+  await quick('Notes tab: open the list\'s card', pg.locator(`#app .nx-card[data-id="${listId}"] .nx-open`));
+  await quick('Lists: Settings dialog', pg.locator('#nx-sheet [data-act="lists.settings"]'));
   await pg.selectOption('#dlg-listproject', id);
   await quick('Lists: save a linked project', pg.locator('#dlg-submit'));
-  assert.ok(await pg.isVisible('.plainlist [data-act="lists.openProject"]'), 'the link shows at once');
+  assert.ok(await pg.isVisible('#nx-sheet .nx-meta [data-act="lists.openProject"]'), 'the link shows at once');
   await settle();
   assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).project_id, id, 'the link reached the server');
-  await quick('Lists: open the linked project', pg.locator('.plainlist [data-act="lists.openProject"]').first());
+  await quick('Lists: open the linked project', pg.locator('#nx-sheet .nx-meta [data-act="lists.openProject"]'));
+  assert.ok(!(await pg.isVisible('#nx-sheet')), 'leaving the pop-up');
   assert.ok(await pg.isVisible('#app .plainlist .label:text("Shopping")'), 'the list is on the project page');
   log('Lists: Settings links a list to a project at once, and the list shows on that project\'s page');
 
@@ -1000,25 +1002,136 @@ async function run(browser, size) {
   assert.ok(env.server.docs.docs().some((f) => f.name === 'Chrome note'), '[' + size.name + '] the Doc "Chrome note" holds it');
   log('A note on Today: typing saves to its own Doc, named after it');
 
+  // ---------- the Notes tab: cards, + New, the pop-up with the real editors, ticking from a card ----------
   env.latency = LATENCY;
   await gotoTab('Notes');
-  await quick('Notes tab: + New note', pg.locator('[data-act="lists.add"][data-kind="note"]'));
-  await quickly(() => pg.fill('#dlg-name', 'Made in Chrome'));
-  await quick('Notes tab: Create note', pg.locator('#dlg-submit'));
-  assert.ok(await pg.isVisible('.notelist-panel .notes-edit'), 'the note and its editor show at once');
-  await quick('Notes tab: + New to-do list', pg.locator('[data-act="lists.add"][data-kind="todo"]'));
-  await quickly(() => pg.fill('#dlg-name', 'Chrome errands'));
-  await quick('Notes tab: Create to-do list', pg.locator('#dlg-submit'));
+  const newButton = pg.locator(size.mobile ? '#app .nx-fab' : '#app .nx-new');
+  const newKind = (kind) => pg.locator((size.mobile ? '#app .nx-fabmenu' : '#app .nx-newwrap .nx-menu') + ` [data-act="lists.new"][data-kind="${kind}"]`);
+  const cardOf = (id) => pg.locator(`#app .nx-card[data-id="${id}"]`);
+  const listNamed = (name) => env.server.run('bootstrap()').data.lists.find((l) => l.name === name);
+  const noteTextOf = (id) => env.server.run('rpc')('notes', 'get', { listId: id }, null).result.text;
+  await quick('Notes tab: + New', newButton);
+  await quick('Notes tab: + New → Note', newKind('note'));
+  assert.ok(await pg.isVisible('#nx-sheet .notes-edit'), '[' + size.name + '] the note opens at once, with its editor');
+  assert.strictEqual(await pg.evaluate(() => document.activeElement.id), 'nx-name', 'its name has the cursor');
+  await quickly(async () => { await pg.keyboard.type('Made in Chrome'); await pg.keyboard.press('Enter'); });
+  await quickly(async () => { await pg.click('#nx-sheet .notes-edit'); await pg.keyboard.type('Typed in the pop-up'); });
+  if (size.mobile) await quickly(() => pg.click('.notes-panel.full .notes-done'));
+  await quick('Pop-up: ✕', pg.locator('#nx-sheet [data-act="lists.close"]'));
+  assert.ok(!(await pg.isVisible('#nx-sheet')), '✕ closes it');
   await settle();
-  const madeOnTab = env.server.run('bootstrap()').data.lists.filter((l) => l.name === 'Made in Chrome' || l.name === 'Chrome errands');
-  assert.deepStrictEqual(madeOnTab.map((l) => l.kind).sort(), ['note', 'todo'], 'both reached the server');
-  await quick('Notes tab: hide project notes', pg.locator('[data-change="lists.projectNotes"]'));
-  assert.strictEqual(await pg.locator('#app [data-panel^="pnote-"]').count(), 0, 'project notes hidden at once');
+  const madeNote = listNamed('Made in Chrome');
+  assert.ok(madeNote && madeNote.kind === 'note', '[' + size.name + '] the note reached the server, with the name typed over "New note"');
+  for (let t0 = Date.now(); !noteTextOf(madeNote.id).includes('Typed in the pop-up'); await sleep(100)) {
+    assert.ok(Date.now() - t0 < 15000, '[' + size.name + '] the pop-up\'s editor never saved to the Doc: ' + JSON.stringify(noteTextOf(madeNote.id)));
+  }
+  assert.ok((await cardOf(madeNote.id).innerText()).includes('Typed in the pop-up'), 'its card shows the first lines');
+
+  await quick('Notes tab: + New', newButton);
+  await quick('Notes tab: + New → To-do list', newKind('todo'));
+  await quickly(async () => { await pg.keyboard.type('Chrome errands'); await pg.keyboard.press('Enter'); });
+  await quickly(async () => { await pg.fill('#nx-sheet .todoadd input', 'Buy stamps'); await pg.click('#nx-sheet [data-act="todos.addBtn"]'); });
+  assert.ok(await pg.isVisible('#nx-sheet .todos li:has-text("Buy stamps")'), 'a to-do added in the pop-up shows at once');
+  await pg.keyboard.press('Escape');
+  await sleep(100);
+  assert.ok(!(await pg.isVisible('#nx-sheet')), 'Esc closes the pop-up');
+  await settle();
+  const errands = listNamed('Chrome errands');
+  assert.ok(errands && errands.kind === 'todo' && todosNow().some((t) => t.title === 'Buy stamps' && t.list_id === errands.id), '[' + size.name + '] the to-do list and its to-do reached the server');
+  await quick('Notes tab: tick a to-do on its card', cardOf(errands.id).locator('.nx-tick').first());
+  assert.ok(!(await pg.isVisible('#nx-sheet')), 'a tick does not open the card');
+  assert.ok((await cardOf(errands.id).innerText()).includes('1 done'), 'ticked off the card at once');
+  await settle();
+  assert.ok(todosNow().find((t) => t.title === 'Buy stamps').done, '[' + size.name + '] the tick reached the server');
+
+  await quick('Notes tab: open a list', cardOf(listId).locator('.nx-open'));
+  await quickly(async () => { await pg.fill('#nx-sheet .coladd input', 'Milk from the pop-up'); await pg.press('#nx-sheet .coladd input', 'Enter'); });
+  assert.ok(await pg.isVisible('#nx-sheet .kcard:has-text("Milk from the pop-up")'), 'an item added in the pop-up shows at once');
+  if (!size.mobile) {
+    const box = await pg.locator('#nx-sheet').boundingBox();
+    assert.ok(box.width <= 642 && box.x > 100, '[desktop] a dialog about 640 px wide over the grid: ' + JSON.stringify(box));
+    await quickly(() => pg.mouse.click(20, size.viewport.height - 20));
+    assert.ok(!(await pg.isVisible('#nx-sheet')), 'a click on the dim area closes it');
+  } else {
+    await quickly(() => pg.click('#nx-sheet [data-act="lists.close"]'));
+  }
+  await settle();
+  assert.ok(env.server.run('bootstrap()').data.kanban.tasks.some((t) => t.title === 'Milk from the pop-up' && t.owner === listId), '[' + size.name + '] the list\'s new item reached the server');
+
+  await quick('Notes tab: the To-do lists chip', pg.locator('#app .nx-chip[data-filter="todo"]'));
+  assert.ok(await pg.evaluate(() => [...document.querySelectorAll('#app .nx-card')].every((c) => FT.store.lists.find((l) => l.id === c.dataset.id).kind === 'todo')), 'only to-do lists');
+  await quick('Notes tab: the All chip', pg.locator('#app .nx-chip[data-filter="all"]'));
+  await quickly(() => pg.fill('#nx-q', 'stamps'));
+  assert.deepStrictEqual(await pg.evaluate(() => [...document.querySelectorAll('#app .nx-card')].map((c) => c.dataset.id)), [errands.id], 'the search finds a to-do');
+  await quickly(() => pg.fill('#nx-q', ''));
+  await quick('Notes tab: Project notes off', pg.locator('[data-change="lists.projectNotes"]'));
+  assert.strictEqual(await pg.locator('#app .nx-card[data-id^="pnote-"]').count(), 0, 'project notes hidden at once');
   await settle();
   assert.strictEqual((layoutNow()['lists.view'] || {}).projectNotes, 'off', 'the choice reached the server');
-  await quick('Notes tab: show project notes', pg.locator('[data-change="lists.projectNotes"]'));
+  await quick('Notes tab: Project notes on', pg.locator('[data-change="lists.projectNotes"]'));
   await settle();
-  log('Notes tab: + New note, + New to-do list and Show project notes answer at once and reach the server');
+  log('Notes tab: + New, the pop-up (a note, a to-do list and a list edited in it), ✕, Esc' + (size.mobile ? '' : ' and the dim area') + ', a tick on a card, chips, search and Project notes answer at once and reach the server');
+
+  // dragging the second card to the front: shown at once, saved behind (a long press first on a phone), and a swipe is not taken for it
+  if (await pg.evaluate(() => !!window.Sortable)) {
+    const order = () => pg.evaluate(() => FT.store.lists.slice().sort((a, b) => a.order - b.order).map((l) => l.id));
+    const before = await order(), second = before[1];
+    await pg.evaluate(() => window.scrollTo(0, 0));
+    const a = await cardOf(second).locator('.nx-cfoot').boundingBox(), b = await cardOf(before[0]).locator('.nx-open').boundingBox();
+    const from = { x: a.x + a.width / 2, y: a.y + a.height / 2 }, to = { x: b.x + 10, y: b.y + 4 };
+    if (size.mobile) {
+      const cdp = await ctx.newCDPSession(pg);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+      await sleep(450);
+      for (let i = 1; i <= 12; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x + (to.x - from.x) * i / 12, y: from.y + (to.y - from.y) * i / 12 }] }); await sleep(30); }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } else {
+      await pg.mouse.move(from.x, from.y); await pg.mouse.down();
+      for (let i = 1; i <= 12; i++) { await pg.mouse.move(from.x + (to.x - from.x) * i / 12, from.y + (to.y - from.y) * i / 12); await sleep(30); }
+      await pg.mouse.up();
+    }
+    await pg.waitForFunction((id) => !FT.state.dragging && FT.store.lists.slice().sort((x, y) => x.order - y.order)[0].id === id, second, { timeout: 2000 });
+    assert.strictEqual(await pg.evaluate(() => FT.state.view), 'lists', '[' + size.name + '] the drag did not change the tab');
+    assert.ok(!(await pg.isVisible('#nx-sheet')), 'and did not open the card');
+    await settle();
+    assert.strictEqual(env.server.run('bootstrap()').data.lists[0].id, second, '[' + size.name + '] the new order reached the server');
+    log('Notes tab: a card ' + (size.mobile ? 'pressed, held and dragged' : 'dragged') + ' to the front moves at once and the order reaches the server');
+  } else {
+    log('Notes tab: card drag not tried, SortableJS did not load from the CDN');
+  }
+
+  // a phone 360 px wide: no sideways scroll on the tab or in the full-screen pop-up, its footer on screen, 40 px tap targets
+  if (size.mobile) {
+    await pg.setViewportSize({ width: 360, height: size.viewport.height });
+    await sleep(200);
+    const tooSmall = (selector) => pg.evaluate((sel) => [...document.querySelectorAll(sel)].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width && r.height && (r.width < 40 || r.height < 40);
+    }).map((el) => (el.dataset.act || el.className || el.tagName) + ' ' + Math.round(el.getBoundingClientRect().width) + 'x' + Math.round(el.getBoundingClientRect().height)), selector);
+    assert.strictEqual(await pg.evaluate(() => document.documentElement.scrollWidth), 360, '[360 px] the Notes tab does not scroll sideways');
+    assert.deepStrictEqual(await tooSmall('#app .nx-chip, #app .nx-toggle, #app .nx-tick, #app .nx-fab, #app .nx-search'), [], '[360 px] the tab\'s tap targets are 40 px or more');
+    for (const id of [madeNote.id, errands.id, listId]) {
+      await quickly(() => cardOf(id).locator('.nx-open').click());
+      await pg.waitForSelector('#nx-sheet');
+      await pg.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => 'cancelled'))));
+      const fit = await pg.evaluate(() => {
+        const sheet = document.getElementById('nx-sheet').getBoundingClientRect(), foot = document.querySelector('#nx-sheet .nx-foot').getBoundingClientRect();
+        return { sheet: [Math.round(sheet.left), Math.round(sheet.width), Math.round(sheet.height)], screen: [window.innerWidth, window.innerHeight],
+          footOnScreen: foot.top >= 0 && foot.bottom <= window.innerHeight + 1, pageWidth: document.documentElement.scrollWidth,
+          sideways: [...document.querySelectorAll('#nx-sheet, #nx-sheet .nx-body, #nx-sheet .nx-foot')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.className) };
+      });
+      assert.deepStrictEqual(fit.sheet, [0, 360, fit.screen[1]], '[360 px] the pop-up fills the screen: ' + JSON.stringify(fit));
+      assert.ok(fit.footOnScreen && fit.pageWidth === 360 && !fit.sideways.length, '[360 px] its footer is on screen and nothing scrolls sideways: ' + JSON.stringify(fit));
+      assert.deepStrictEqual(await tooSmall('#nx-sheet .nx-head button, #nx-sheet .nx-foot button, #nx-sheet .nx-foot .nx-toggle'), [], '[360 px] the pop-up\'s own buttons are 40 px or more');
+      await quickly(() => pg.click('#nx-sheet [data-act="lists.close"]'));
+    }
+    await quickly(() => cardOf(errands.id).locator('.nx-open').click());
+    await pg.evaluate(() => history.back()); // the phone's back button
+    await pg.waitForFunction(() => !document.getElementById('nx-sheet'), null, { timeout: 2000 });
+    assert.strictEqual(await pg.evaluate(() => FT.state.view), 'lists', 'and stays on the Notes tab');
+    await pg.setViewportSize(size.viewport);
+    log('Notes tab at 360 px: no sideways scroll, 40 px tap targets; the pop-up fills the screen with its footer on screen; the back button closes it');
+  }
 
   await gotoTab('Today');
   await showPanel(todosPanel());

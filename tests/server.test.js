@@ -461,7 +461,7 @@ test('notes are their Google Doc: one Doc per project in the Notes folder, saved
   const exports = s.docs.calls.export;
   assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id, known: again.updated }).result, { same: true, url: saved.url, updated: again.updated }, 'nothing changed: the Doc is not read');
   assert.strictEqual(s.docs.calls.export, exports);
-  assert.deepStrictEqual(json(s.run('bootstrap()')).data.notes, [{ project_id: p.id, list_id: '', url: saved.url, updated: again.updated, doc: saved.url, show_today: '' }]);
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.notes, [{ project_id: p.id, list_id: '', url: saved.url, updated: again.updated, doc: saved.url, show_today: '', preview: 'hello again\nMore' }], 'the first lines are kept for the Notes tab\'s card');
   assert.ok(s.mock.logs.some((l) => /^notes\.save \d+ ms$/.test(l)), 'save times go to the execution log');
 });
 
@@ -598,6 +598,52 @@ test('a note of the Notes tab is its own Google Doc, named after it, in the Note
   assert.deepStrictEqual(data.notes.map((n) => [n.project_id, n.list_id]), [['', note.id]], 'the notes slice has its row, for the editor');
   assert.throws(() => s.call('notes', 'save', { listId: fan.id, html: '<p>x</p>' }), /no longer exists/, 'a list id must be a note');
   assert.throws(() => s.call('notes', 'save', { projectId: 'ab12cd35', html: '<p>x</p>' }), /Project not found/, 'a project id still needs a project');
+});
+
+test('the first lines of every note are kept on its Notes row, so the Notes tab draws its cards without reading a Doc', () => {
+  const s = fresh();
+  const notesRow = (id) => rowsOf(s.ss.sheets.Notes).find((r) => r.list_id === id);
+  const snapshotOf = (id) => json(s.run('bootstrap()')).data.notes.find((n) => n.list_id === id);
+  const note = s.call('lists', 'create', { name: 'Ideas', kind: 'note' }).result;
+  s.call('notes', 'save', { listId: note.id, html: '<h2>Garden</h2><p>Raised beds by the <b>fence</b></p><ul><li>Soil</li><li>Seeds</li></ul>' });
+  assert.strictEqual(notesRow(note.id).preview, 'Garden\nRaised beds by the fence\n\n- Soil\n- Seeds', 'plain text, lines and list items kept');
+  const exports = s.docs.calls.export;
+  assert.strictEqual(snapshotOf(note.id).preview, 'Garden\nRaised beds by the fence\n\n- Soil\n- Seeds', 'sent with the first load');
+  assert.strictEqual(s.docs.calls.export, exports, 'without reading the Doc');
+  s.call('notes', 'save', { listId: note.id, html: '<p>' + 'word '.repeat(200) + '</p>' });
+  assert.strictEqual(notesRow(note.id).preview.length, 300, 'at most 300 characters');
+  s.call('notes', 'save', { listId: note.id, html: '' });
+  assert.strictEqual(snapshotOf(note.id).preview, '', 'a note with no text has no first lines, and that is known');
+
+  const old = s.call('lists', 'create', { name: 'Old', kind: 'note' }).result;
+  s.call('notes', 'save', { listId: old.id, html: '<p>From before</p>' });
+  const sheet = s.ss.sheets.Notes, previewColumn = sheet.rows[0].indexOf('preview');
+  sheet.rows.find((r) => r.includes(old.id))[previewColumn] = ''; // a row saved before first lines were kept
+  assert.strictEqual(snapshotOf(old.id).preview, null, 'never kept: null, so the page asks for the notes once');
+  const undoRowsBefore = rowsOf(s.ss.sheets.Undo).length;
+  assert.strictEqual(s.call('notes', 'get', { listId: old.id }).result.text, 'From before');
+  assert.strictEqual(notesRow(old.id).preview, 'From before', 'reading the Doc keeps them from then on');
+  assert.strictEqual(rowsOf(s.ss.sheets.Undo).length, undoRowsBefore, 'that is bookkeeping, not a change to undo');
+});
+
+test('a list moves any number of places in the order; the lists it passes move one place back', () => {
+  const s = fresh();
+  ['One', 'Two', 'Three', 'Four'].forEach((name) => s.call('lists', 'create', { name }));
+  const names = () => json(s.run('bootstrap()')).data.lists.map((l) => l.name);
+  const id = (name) => json(s.run('bootstrap()')).data.lists.find((l) => l.name === name).id;
+  s.call('lists', 'move', { id: id('Four'), d: -3 });
+  assert.deepStrictEqual(names(), ['Four', 'One', 'Two', 'Three'], 'to the front');
+  s.call('lists', 'move', { id: id('One'), d: 2 });
+  assert.deepStrictEqual(names(), ['Four', 'Two', 'Three', 'One'], 'two places later');
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.lists.map((l) => l.order), [1, 2, 3, 4], 'the same order values, given out again');
+  assert.strictEqual(s.call('lists', 'move', { id: id('One'), d: 1 }).result, false, 'not past the end');
+  assert.throws(() => s.call('lists', 'move', { id: id('One'), d: 0.5 }), /whole places/);
+  assert.strictEqual(json(s.run('undo')()).undone, 'lists.move');
+  assert.deepStrictEqual(names(), ['Four', 'One', 'Two', 'Three'], 'one undo puts the whole move back');
+  const sheet = s.ss.sheets.Lists, orderColumn = sheet.rows[0].indexOf('order');
+  sheet.rows.slice(1).forEach((r) => { r[orderColumn] = '1'; }); // orders typed by hand, all the same
+  s.call('lists', 'move', { id: id('Three'), d: -1 });
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.lists.map((l) => l.order), [1, 2, 3, 4], 'numbered again when two were the same');
 });
 
 test('deleting a note puts its Doc in Drive\'s bin; undo brings the note back and its Doc out of the bin', () => {

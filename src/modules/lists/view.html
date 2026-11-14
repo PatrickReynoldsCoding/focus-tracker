@@ -1,8 +1,4 @@
 <style>
-.lists { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
-.listhead { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-.listhead .listname { flex: 1 1 160px; min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: 17px; padding: 5px 8px; background: transparent; border-color: transparent; }
-.listhead .listname:hover, .listhead .listname:focus { background: var(--surface); border-color: var(--line); }
 .toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; color: var(--ink); cursor: pointer; margin-top: 14px; }
 .toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 .listpanel .board.vertical { gap: 8px; }
@@ -46,18 +42,158 @@
 .rotq .arrows button { border: 1px solid color-mix(in srgb, var(--rot-c) 55%, var(--line-strong)); background: transparent; color: inherit; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 16px; }
 .rotq .arrows button:hover { background: color-mix(in srgb, var(--rot-c) 18%, transparent); }
 @media (prefers-reduced-motion: reduce) { .rotq .rotbody { transition: none; } }
-.notes-intro .tophead { flex-wrap: wrap; }
-.notes-intro .actions { flex-wrap: wrap; }
-.notes-intro .toggle { margin-top: 10px; }
+
+/* ---------- The Notes tab: search, filter chips and the Project notes switch over a grid of cards (like Google Keep) ---------- */
+.nx-page { display: grid; gap: 12px; min-width: 0; }
+.nx-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; min-width: 0; }
+.nx-search { flex: 1 1 240px; min-width: 0; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; min-height: 42px; cursor: text; }
+.nx-search:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nx-search svg { flex: none; color: var(--muted); }
+.nx-search input { flex: 1 1 auto; min-width: 0; width: auto; border: 0 !important; background: transparent; padding: 8px 0; outline: none; }
+.nx-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; max-width: 100%; }
+.nx-chips::-webkit-scrollbar { display: none; }
+.nx-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 99px; background: var(--surface); color: var(--ink); font-size: 13.5px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.nx-chip:hover { background: var(--surface-2); }
+.nx-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.nx-chip .n { font-family: var(--font-mono); font-size: 11.5px; opacity: 0.75; }
+.nx-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; color: var(--ink); white-space: nowrap; cursor: pointer; }
+.nx-toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.nx-newwrap { position: relative; flex: none; }
+.nx-new { min-height: 42px; }
+.nx-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 25; min-width: 240px; display: grid; gap: 2px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.35); }
+.nx-menu button { display: flex; gap: 10px; align-items: flex-start; min-height: 44px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.nx-menu button:hover, .nx-menu button:focus-visible { background: var(--surface-2); }
+.nx-menu small { display: block; color: var(--muted); font-size: 12.5px; }
+.nx-mic { width: 20px; flex: none; text-align: center; font-size: 16px; line-height: 1.4; }
+.nx-fab { display: none; }
+/* The grid: the cards are dealt into columns left to right, row by row (so the order reads across, as in Keep), each as tall as what it shows. */
+.nx-grid { display: grid; grid-template-columns: repeat(var(--nx-columns, 4), minmax(0, 1fr)); gap: 12px; align-items: start; }
+.nx-col { display: grid; gap: 12px; align-content: start; min-width: 0; min-height: 48px; }
+.nx-card { display: grid; gap: 6px; margin: 0; padding: 12px 12px 10px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
+.nx-card:hover { border-color: var(--line-strong); box-shadow: 0 8px 20px -14px rgba(0, 0, 0, 0.5); }
+.nx-card.tinted { background: color-mix(in srgb, var(--card-c) 16%, var(--surface)); border-color: color-mix(in srgb, var(--card-c) 45%, var(--line)); }
+.nx-ctitle { margin: 0; font-size: 15px; line-height: 1.25; }
+.nx-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.nx-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.nx-text { margin: 0; font-size: 13px; color: color-mix(in srgb, var(--ink) 85%, var(--muted)); white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.nx-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13px; }
+.nx-items li { display: flex; gap: 7px; align-items: flex-start; min-width: 0; }
+.nx-line { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.nx-dot { flex: none; width: 5px; height: 5px; margin-top: 8px; border-radius: 50%; background: var(--muted); }
+/* A to-do's tick box: 16 px to see, 40 px to hit. */
+.nx-tick { flex: none; display: grid; place-items: center; width: 40px; height: 40px; margin: -11px -10px -11px -12px; cursor: pointer; }
+.nx-tick input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.nx-day { float: right; margin: 1px 0 0 6px; padding: 0 6px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.nx-group { margin-top: 2px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); overflow-wrap: anywhere; }
+.nx-more { margin: 0; font-size: 12px; color: var(--muted); }
+.nx-cfoot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 22px; margin-top: 2px; }
+.nx-kind { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.nx-badge { max-width: 100%; padding: 1px 8px; border: 0; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-badge.proj { background: var(--surface-2); color: var(--ink); }
+button.nx-badge { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+/* Notes whose first lines are on their way: quiet lines, no words. */
+.nx-skel { display: grid; gap: 7px; padding: 3px 0; }
+.nx-skel i { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 20%, transparent); }
+.nx-skel i:nth-child(2) { width: 82%; } .nx-skel i:nth-child(3) { width: 55%; }
+@media (prefers-reduced-motion: no-preference) { .nx-skel i { animation: nx-pulse 1.4s ease-in-out infinite; } }
+@keyframes nx-pulse { 50% { opacity: 0.45; } }
+.nx-none { margin: 0; padding: 32px 0; text-align: center; color: var(--muted); }
+.nx-ghost { opacity: 0.4; }
+.nx-chosen { box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.45); }
+/* The open card: a dialog over the dimmed grid; a phone's whole screen. */
+body.nx-showing-card { overflow: hidden; }
+.nx-scrim { position: fixed; inset: 0; z-index: 38; display: flex; align-items: center; justify-content: center; padding: 32px 16px; background: rgba(8, 14, 13, 0.55); overscroll-behavior: contain; }
+.nx-sheet { width: min(640px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6); outline: none; }
+.nx-sheet.tinted { background: color-mix(in srgb, var(--card-c) 10%, var(--surface)); border-color: color-mix(in srgb, var(--card-c) 40%, var(--line)); }
+@media (prefers-reduced-motion: no-preference) { .nx-sheet.nx-enter { animation: nx-grow 0.18s ease-out; } }
+@keyframes nx-grow { from { transform: scale(0.95); opacity: 0; } }
+@keyframes nx-up { from { transform: translateY(40px); opacity: 0; } }
+.nx-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px 4px; }
+.nx-name { flex: 1 1 auto; min-width: 0; margin: 0; padding: 4px 6px; border: 1px solid transparent !important; border-radius: 8px; background: transparent !important; font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+input.nx-name:hover, input.nx-name:focus { border-color: var(--line-strong) !important; background: var(--surface) !important; }
+.nx-x { flex: none; width: 40px; height: 40px; }
+.nx-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 10px; align-content: start; padding: 4px 14px 14px; }
+.nx-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 6px; }
+.nx-content { min-width: 0; }
+.nx-content .board.vertical { padding-bottom: 0; }
+.nx-foot { flex: none; position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.nx-grow { flex: 1 1 auto; }
+.nx-swatches { display: flex; gap: 5px; align-items: center; }
+.nx-swatch { position: relative; width: 24px; height: 24px; padding: 0; border: 2px solid var(--line-strong); border-radius: 50%; background: var(--c, var(--surface)); cursor: pointer; }
+.nx-swatch.none { background: repeating-linear-gradient(45deg, var(--surface-2) 0 4px, var(--surface) 4px 8px); }
+.nx-swatch[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+.nx-swatch[aria-pressed="true"]::after { content: "\2713"; position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 10px; font-weight: 700; line-height: 14px; text-align: center; }
+.nx-colourbtn { display: none; }
+.nx-delete { color: var(--bad); }
+@media (max-width: 760px) {
+  .nx-page { padding-bottom: 76px; }
+  .nx-newwrap { display: none; }
+  .nx-chip, .nx-toggle { min-height: 40px; }
+  .nx-grid, .nx-col { gap: 8px; }
+  .nx-card { padding: 10px 10px 8px; }
+  .nx-ctitle { font-size: 14px; }
+  .nx-text { -webkit-line-clamp: 5; font-size: 12.5px; }
+  .nx-items { font-size: 12.5px; }
+  .nx-tick { margin-left: -10px; }
+  .nx-fab { display: grid; place-items: center; position: fixed; z-index: 34; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    width: 56px; height: 56px; border: 0; border-radius: 18px; background: var(--accent); color: var(--accent-ink); font-size: 28px; line-height: 1; box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5); cursor: pointer; }
+  .nx-menu.nx-fabmenu { position: fixed; top: auto; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 66px); }
+  .nx-scrim { padding: 0; align-items: stretch; }
+  .nx-sheet { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+  .nx-sheet.nx-enter { animation-name: nx-up; }
+  .nx-head { padding: max(8px, env(safe-area-inset-top, 0px)) 10px 4px; }
+  .nx-name { font-size: 19px; }
+  .nx-x { width: 44px; height: 44px; }
+  .nx-body { padding: 4px 10px 12px; }
+  .nx-foot { gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom, 0px)); }
+  .nx-foot .nx-toggle { min-height: 44px; }
+  .nx-foot .btn { min-width: 44px; }
+  .nx-wordy { display: none; }
+  /* The colours: one button that shows them over the footer, each 40 px. */
+  .nx-colourbtn { display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); cursor: pointer; }
+  .nx-colourbtn span { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--c, repeating-linear-gradient(45deg, var(--surface-2) 0 4px, var(--surface) 4px 8px)); }
+  .nx-swatches { display: none; position: absolute; left: 10px; bottom: calc(100% + 6px); z-index: 2; grid-template-columns: repeat(5, 40px); gap: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.4); }
+  .nx-foot.picking .nx-swatches { display: grid; }
+  .nx-swatch { width: 40px; height: 40px; }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .nx-chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .nx-card.tinted { background: color-mix(in srgb, var(--card-c) 12%, var(--surface)); border-color: color-mix(in srgb, var(--card-c) 38%, var(--line)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .nx-scrim { background: rgba(0, 0, 0, 0.62); }
+}
+:root[data-theme="dark"] .nx-chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+:root[data-theme="dark"] .nx-card.tinted { background: color-mix(in srgb, var(--card-c) 12%, var(--surface)); border-color: color-mix(in srgb, var(--card-c) 38%, var(--line)); }
+:root[data-theme="dark"] .nx-scrim { background: rgba(0, 0, 0, 0.62); }
+/* E-ink: white cards with thick borders; a card's colour is a pattern strip along its top, as on a list's panel. */
+:root[data-theme="eink"] .nx-card, :root[data-theme="eink"] .nx-sheet { position: relative; border: 3px solid #000 !important; background: #fff !important; }
+:root[data-theme="eink"] .nx-card.tinted { padding-top: 22px; }
+:root[data-theme="eink"] .nx-card.tinted::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 11px; border-bottom: 2px solid #000; }
+:root[data-theme="eink"] .nx-scrim { background: #fff; }
+:root[data-theme="eink"] .nx-chip, :root[data-theme="eink"] .nx-search, :root[data-theme="eink"] .nx-swatch, :root[data-theme="eink"] .nx-menu { border: 2px solid #000; }
+:root[data-theme="eink"] .nx-chip[aria-pressed="true"] { background: #000; color: #fff; }
+:root[data-theme="eink"] .nx-day, :root[data-theme="eink"] .nx-badge { border: 1px solid #000; background: #fff; color: #000; }
+:root[data-theme="eink"] .nx-fab { background: #000; color: #fff; border: 3px solid #000; }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-1)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-1)"] { background: var(--pat-1); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-2)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-2)"] { background: var(--pat-2); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-3)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-3)"] { background: var(--pat-3); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-4)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-4)"] { background: var(--pat-4); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-5)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-5)"] { background: var(--pat-5); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-6)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-6)"] { background: var(--pat-6); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-7)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-7)"] { background: var(--pat-7); }
+:root[data-theme="eink"] .nx-card[style*="var(--cat-8)"]::before, :root[data-theme="eink"] .nx-swatch[style*="var(--cat-8)"] { background: var(--pat-8); }
 </style>
 <script>
 /**
- * The Notes tab (module id 'lists', page key 'lists'): every row of the Lists tab in its order, each its own panel,
- * drawn by kind: a list (its groups and items, a vertical Kanban board), a to-do list (FT.todos.bodyHtml) or a note (an
- * editor of its Google Doc, FT.notes.blockHtml). With "Show project notes" on (the default; saved per mode as
- * layout.lists.view {"projectNotes":"on"|"off"}), each project's notes follow as panels too (slot 'lists.tab').
+ * The Notes tab (module id 'lists', page key 'lists'), like Google Keep: every row of the Lists tab in its order as a
+ * small card, by kind: a list (its first items), a to-do list (its first open to-dos, ticked straight from the card) or
+ * a note (the first lines of its Google Doc). With "Project notes" on (the default; saved per mode as
+ * layout.lists.view {"projectNotes":"on"|"off"}), each project's notes follow as cards too (slot 'lists.tab', notes
+ * module). A search, filter chips and + New sit above the cards. A card opens in a pop-up (a dialog on a desktop, the
+ * whole screen on a phone) holding the real editor: the board of a list (FT.kanban), the groups of a to-do list
+ * (FT.todos.bodyHtml) or the notes editor (FT.notes.blockHtml), with the name, colour, On Today, ⚙ Settings and Delete.
+ * Cards are dragged into a new order (a long press on a phone), saved as the lists' `order` (lists.move).
  * Any of them can be shown on Today (show_today), put in a phone's pill, or linked to a project, whose page then shows it.
- * FT.lists.create makes one on screen at once and saves it behind (the Notes tab and Today settings' pill sheet use it).
+ * FT.lists.create makes one on screen at once and saves it behind (+ New here, and Today settings' pill sheet).
  */
 (function () {
   var DEFAULT_SECONDS = 30;
@@ -178,45 +314,242 @@
     return '<button class="btn sm listgear" data-act="lists.settings" data-id="' + FT.esc(l.id) + '" aria-label="Settings for ' + FT.esc(l.name) + '">⚙ Settings</button>';
   }
 
-  /** A list's panel on the Notes tab: its name to edit in place, badges, ⚙ Settings, Delete, then what it holds. */
-  function tabPanel(l) {
-    var id = FT.esc(l.id);
-    return panelOpen(l) + '<div class="listhead">' +
-      '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="' + kindWords(l).title + ' name" data-change="lists.rename" data-id="' + id + '">' +
-      (kindOf(l) === LIST && l.display === 'one' && l.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '') +
-      linkedBadge(l) +
-      gearButton(l) +
-      '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete ' + kindWords(l).noun + ' ' + FT.esc(l.name) + '">Delete</button></div>' +
-      bodyHtml(l, 'tab') + '</section>';
-  }
-
-  /** "Show project notes" on the Notes tab: on unless turned off, per mode. */
+  /** "Project notes" on the Notes tab: on unless turned off, per mode. */
   function projectNotesShown() {
     var view = (FT.store.layout || {})[VIEW_KEY] || {};
     return view.projectNotes !== PROJECT_NOTES_OFF;
   }
 
-  var TAB_DESCRIPTIONS = { '': 'A list, with its groups and items.', todo: 'A to-do list, with its groups and to-dos.', note: 'A note, kept as a Google Doc.' };
+  // ---------- the Notes tab: a grid of cards ----------
+  var PROJECT_NOTES = 'pnote';
+  var narrow = window.matchMedia('(max-width: 760px)');
+  var CARD_LINES_ON_A_PHONE = 4, CARD_LINES = 6;
+  var CARD_MIN_WIDTH = 220, CARD_GAP = 12, MOST_COLUMNS = 6, COLUMNS_ON_A_PHONE = 2, COLUMNS_WHEN_THE_WIDTH_IS_UNKNOWN = 4;
+  var KIND_LABELS = { '': '☰ List', todo: '☑ To-do list', note: '✎ Note', pnote: '◧ Project notes' };
+  var FILTERS = [['all', 'All'], ['note', 'Notes'], ['list', 'Lists'], ['todo', 'To-do lists'], ['today', 'On Today']];
+  var KINDS_BY_FILTER = { note: [NOTE, PROJECT_NOTES], list: [LIST], todo: [TODO] };
+  var NEW_MENU = [[NOTE, '✎', 'Note', 'A Google Doc of its own'], [LIST, '☰', 'List', 'Items in groups'], [TODO, '☑', 'To-do list', 'Tick off, with days']];
+  var NEW_NAMES = { note: 'New note', '': 'New list', todo: 'New to-do list' };
+  var CONTENT_CLASS_BY_KIND = { '': 'nx-list', todo: 'nx-todo', note: 'nx-note', pnote: 'nx-note' };
+  var SEARCH_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>';
+  var notesTab = { query: '', filter: 'all', menuOpen: false };
 
-  function tabHtml() {
-    var all = lists(), shown = projectNotesShown();
-    var head = '<section class="panel notes-intro"><div class="tophead"><div class="label">Notes</div><span class="actions" style="margin:0">' +
-      '<button class="btn sm primary" data-act="lists.add" data-kind="note">+ New note</button>' +
-      '<button class="btn sm" data-act="lists.add" data-kind="">+ New list</button>' +
-      '<button class="btn sm" data-act="lists.add" data-kind="todo">+ New to-do list</button></span></div>' +
-      (all.length ? '<p class="empty" style="padding:0">Notes, lists and to-do lists that are not projects: ideas, reading, things to keep in mind, errands. Use ⚙ Settings to colour one, show it on Today or link it to a project.</p>'
-                  : '<p class="empty">Nothing here yet. Make a note, a list for reading or ideas, or a to-do list.</p>') +
-      '<label class="toggle"><input type="checkbox" data-change="lists.projectNotes"' + (shown ? ' checked' : '') + '> Show project notes</label></section>';
-    var projectNotes = shown ? FT.slots('lists.tab').reduce(function (panels, s) { return panels.concat(s.render(FT) || []); }, []) : [];
-    return FT.layout('lists', [{ id: 'head', title: 'Notes intro', description: 'What the Notes tab holds, + New note, list or to-do list, and Show project notes.', html: head, w: 12 }].concat(all.map(function (l) {
-      return { id: 'list-' + l.id, title: l.name, description: TAB_DESCRIPTIONS[kindOf(l)], html: tabPanel(l), w: 6 };
-    })).concat(projectNotes));
+  function byOrder(a, b) { return (a.order || 0) - (b.order || 0); }
+
+  /** A row of the Lists tab as a card. */
+  function rowCard(l) {
+    return { id: l.id, key: l.id, kind: kindOf(l), title: l.name, row: l, onToday: !!l.show_today, color: l.color || '', project: l.project_id ? FT.project(l.project_id) : null };
   }
 
-  /** A list linked to a project says so on the Notes tab, as a way to that project's page. */
-  function linkedBadge(l) {
-    var p = l.project_id && FT.project(l.project_id);
-    return p ? '<button class="modebadge" data-act="lists.openProject" data-id="' + FT.esc(p.id) + '" title="Also shown on this project\'s page">' + FT.esc(p.name) + '</button>' : '';
+  /** Every card the tab can show, in order: the rows of the Lists tab by `order`, then the projects' notes when shown. */
+  function allCards() {
+    var rows = lists().slice().sort(byOrder).map(rowCard);
+    var projectNotes = projectNotesShown() ? FT.slots('lists.tab').reduce(function (cards, s) { return cards.concat(s.render(FT) || []); }, []) : [];
+    return rows.concat(projectNotes);
+  }
+
+  function cardById(id) { return allCards().filter(function (card) { return card.id === id; })[0] || null; }
+
+  function inFilter(card, filter) {
+    if (filter === 'today') return card.onToday;
+    return !KINDS_BY_FILTER[filter] || KINDS_BY_FILTER[filter].indexOf(card.kind) !== -1;
+  }
+
+  function isNotes(card) { return card.kind === NOTE || card.kind === PROJECT_NOTES; }
+  function notePreviewOf(card) { return FT.notes && FT.store.notes ? FT.notes.previewOf(card.key) : { text: '' }; }
+  function todosOf(listId) { return ((FT.store.todos || {}).items || []).filter(function (t) { return t.list_id === listId; }); }
+
+  /** What the search looks in: the name, the project, a list's items, a to-do list's to-dos, the notes text this page has. */
+  function searchedText(card) {
+    var words = [card.title, card.project ? card.project.name : ''];
+    var entries = card.kind === LIST ? itemsOf(card.row) : card.kind === TODO ? todosOf(card.id) : [];
+    entries.forEach(function (entry) { words.push(entry.title, entry.note || ''); });
+    if (isNotes(card)) words.push(notePreviewOf(card).text || '');
+    return words.join('\n').toLowerCase();
+  }
+
+  function isShown(card) {
+    var query = notesTab.query.trim().toLowerCase();
+    return inFilter(card, notesTab.filter) && (!query || searchedText(card).indexOf(query) !== -1);
+  }
+
+  /** Cards are dragged into a new order only while all of them show. */
+  function canReorder() { return notesTab.filter === 'all' && !notesTab.query.trim(); }
+
+  function tintStyle(color) { return color ? ' style="--card-c: var(--cat-' + FT.esc(color) + ')"' : ''; }
+
+  function cardLines() { return narrow.matches ? CARD_LINES_ON_A_PHONE : CARD_LINES; }
+
+  /** Up to the card's lines from each group in turn (group names when there are several), then "+N more" and "N done". */
+  function groupedPreviewHtml(groups, total, doneToday, emptyWords, lineHtml) {
+    var room = cardLines(), shown = 0, named = groups.length > 1, html = '';
+    groups.forEach(function (group) {
+      var lines = group.lines.slice(0, room - shown);
+      if (!lines.length) return;
+      html += (named ? '<div class="nx-group">' + FT.esc(group.name) + '</div>' : '') + '<ul class="nx-items">' + lines.map(lineHtml).join('') + '</ul>';
+      shown += lines.length;
+    });
+    var counts = [];
+    if (total > shown) counts.push('+' + (total - shown) + ' more');
+    if (doneToday) counts.push(doneToday + ' done');
+    return (html || '<p class="nx-more">' + emptyWords + '</p>') + (counts.length ? '<p class="nx-more">' + counts.join(' · ') + '</p>' : '');
+  }
+
+  function itemLineHtml(title) {
+    return '<li><span class="nx-dot" aria-hidden="true"></span><span class="nx-line">' + FT.esc(title) + '</span></li>';
+  }
+
+  /** A to-do on a card: its tick box sends the same tick as the to-do list's panel (todos.tick). */
+  function todoLineHtml(todo) {
+    return '<li><label class="nx-tick" title="Tick off"><input type="checkbox" data-change="todos.tick" data-id="' + FT.esc(todo.id) + '" aria-label="Done: ' + FT.esc(todo.title) + '"></label>' +
+      '<span class="nx-line">' + (todo.day ? '<span class="nx-day">' + FT.esc(todo.day) + '</span>' : '') + FT.esc(todo.title) + '</span></li>';
+  }
+
+  function listPreviewHtml(l) {
+    var groups = ((FT.store.kanban || {}).columns || []).filter(function (c) { return c.owner === l.id; }).sort(byOrder), items = itemsOf(l);
+    var lines = groups.map(function (group) {
+      return { name: group.name, lines: items.filter(function (t) { return t.column_id === group.id; }).sort(byOrder).map(function (t) { return t.title; }) };
+    });
+    return groupedPreviewHtml(lines, items.length, 0, 'Empty list', itemLineHtml);
+  }
+
+  function todoPreviewHtml(l) {
+    if (!FT.todos || !FT.store.todos) return missingHtml('To-dos');
+    var preview = FT.todos.cardPreview(l);
+    var groups = preview.groups.map(function (group) { return { name: group.name, lines: group.todos }; });
+    return groupedPreviewHtml(groups, preview.open, preview.doneToday, preview.doneToday ? 'All done' : 'Nothing to do', todoLineHtml);
+  }
+
+  /** The first lines of notes; quiet grey lines while nobody has them yet (the page asks for them, askForWaitingPreviews). */
+  function notePreviewHtml(preview) {
+    if (preview.waiting) return '<div class="nx-skel" role="img" aria-label="Loading the first lines"><i></i><i></i><i></i></div>';
+    return preview.text ? '<p class="nx-text">' + FT.esc(preview.text) + '</p>' : '<p class="nx-more">Empty note</p>';
+  }
+
+  function cardFootHtml(card) {
+    return '<div class="nx-cfoot"><span class="nx-kind">' + KIND_LABELS[card.kind] + '</span>' +
+      (card.project ? '<span class="nx-badge proj">' + FT.esc(card.project.name) + '</span>' : '') +
+      (card.onToday ? '<span class="nx-badge">On Today</span>' : '') + '</div>';
+  }
+
+  /** A small card: the name, the first lines, its kind, project and "On Today". A click anywhere on it opens it. */
+  function cardHtml(card) {
+    var preview = isNotes(card) ? notePreviewOf(card) : null;
+    var body = preview ? notePreviewHtml(preview) : card.kind === TODO ? todoPreviewHtml(card.row) : listPreviewHtml(card.row);
+    return '<article class="nx-card' + (card.color ? ' tinted' : '') + '" data-act="lists.openCard" data-id="' + FT.esc(card.id) + '"' +
+      (card.row ? ' data-list="' + FT.esc(card.id) + '"' : '') + (preview && preview.waiting ? ' data-wait="' + FT.esc(card.key) + '"' : '') + tintStyle(card.color) + '>' +
+      '<h3 class="nx-ctitle"><button type="button" class="nx-open">' + FT.esc(card.title) + '</button></h3>' + body + cardFootHtml(card) + '</article>';
+  }
+
+  /** As many columns as fit cards at least CARD_MIN_WIDTH wide (two on a phone). */
+  function columnCount() {
+    if (narrow.matches) return COLUMNS_ON_A_PHONE;
+    var width = (document.getElementById('app') || {}).clientWidth || 0;
+    if (!width) return COLUMNS_WHEN_THE_WIDTH_IS_UNKNOWN;
+    return Math.max(1, Math.min(MOST_COLUMNS, Math.floor((width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))));
+  }
+
+  /** The cards dealt into the columns in turn: the first row holds the first cards, and the order reads across. */
+  function resultsHtml(cards) {
+    if (!cards.length) return '<p class="nx-none">Nothing here yet. + New makes a note, a list or a to-do list.</p>';
+    var shown = cards.filter(isShown);
+    if (!shown.length) return '<p class="nx-none">Nothing matches. Try another word or filter.</p>';
+    var columns = columnCount(), cardsByColumn = [];
+    for (var column = 0; column < columns; column++) cardsByColumn.push('');
+    shown.forEach(function (card, place) { cardsByColumn[place % columns] += cardHtml(card); });
+    return '<div class="nx-grid" id="nx-grid" data-columns="' + columns + '" style="--nx-columns: ' + columns + '">' +
+      cardsByColumn.map(function (html) { return '<div class="nx-col">' + html + '</div>'; }).join('') + '</div>';
+  }
+
+  function newMenuHtml(extraClass) {
+    return '<div class="nx-menu' + extraClass + '" role="menu" aria-label="New">' + NEW_MENU.map(function (entry) {
+      return '<button type="button" role="menuitem" data-act="lists.new" data-kind="' + entry[0] + '"><span class="nx-mic" aria-hidden="true">' + entry[1] + '</span>' +
+        '<span>' + entry[2] + '<small>' + entry[3] + '</small></span></button>';
+    }).join('') + '</div>';
+  }
+
+  function chipsHtml(cards) {
+    return '<div class="nx-chips" role="group" aria-label="Show">' + FILTERS.map(function (f) {
+      var count = cards.filter(function (card) { return inFilter(card, f[0]); }).length;
+      return '<button type="button" class="nx-chip" data-act="lists.filter" data-filter="' + f[0] + '" aria-pressed="' + (notesTab.filter === f[0]) + '">' + f[1] + ' <span class="n">' + count + '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  /** Search and + New (on a phone, + New is the round button in the corner), then the chips and the Project notes switch. */
+  function toolsHtml(cards) {
+    var menuOpen = notesTab.menuOpen;
+    return '<div class="nx-tools"><label class="nx-search">' + SEARCH_ICON +
+      '<input type="search" id="nx-q" data-input="lists.search" value="' + FT.esc(notesTab.query) + '" placeholder="Search notes, lists and to-dos" aria-label="Search notes, lists and to-dos" autocomplete="off"></label>' +
+      '<span class="nx-newwrap"><button type="button" class="btn primary nx-new" data-act="lists.newMenu" aria-haspopup="menu" aria-expanded="' + menuOpen + '">+ New ▾</button>' +
+      (menuOpen ? newMenuHtml('') : '') + '</span></div>' +
+      '<div class="nx-tools">' + chipsHtml(cards) +
+      '<label class="nx-toggle"><input type="checkbox" data-change="lists.projectNotes"' + (projectNotesShown() ? ' checked' : '') + '> Project notes</label></div>';
+  }
+
+  function fabHtml() {
+    return '<button type="button" class="nx-fab" data-act="lists.newMenu" aria-label="New note, list or to-do list" aria-haspopup="menu" aria-expanded="' + notesTab.menuOpen + '">+</button>' +
+      (notesTab.menuOpen ? newMenuHtml(' nx-fabmenu') : '');
+  }
+
+  // ---------- the pop-up: the open card ----------
+  // id: the open card's id (a list's id, or 'pnote-' + a project's id); historyEntry: opening it added a browser history
+  // entry (the phone's back button closes it); entering: the first draw since it opened; selectName: put the cursor in
+  // the name (a new one); bodyScroll: how far its body is scrolled, kept while the page redraws.
+  var popup = closedPopup();
+  function closedPopup() { return { id: null, historyEntry: false, entering: false, selectName: false, bodyScroll: 0 }; }
+
+  function nameHtml(card) {
+    if (card.kind === PROJECT_NOTES) return '<h2 class="nx-name" id="nx-name" title="Project notes are named after their project">' + FT.esc(card.title) + '</h2>';
+    return '<input type="text" class="nx-name" id="nx-name" value="' + FT.esc(card.title) + '" maxlength="80" aria-label="' + kindWords(card.row).title + ' name" data-change="lists.rename" data-id="' + FT.esc(card.id) + '">';
+  }
+
+  function popupMetaHtml(card) {
+    var project = card.project, link = '';
+    if (project && card.kind === PROJECT_NOTES) link = '<span class="nx-badge proj">Project: ' + FT.esc(project.name) + '</span>';
+    else if (project) link = '<button type="button" class="nx-badge proj" data-act="lists.openProject" data-id="' + FT.esc(project.id) + '" title="Also shown on this project\'s page. Open it">' + FT.esc(project.name) + '</button>';
+    var oneAtATime = card.kind === LIST && card.row.display === 'one' && card.row.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '';
+    return '<div class="nx-meta"><span class="nx-kind">' + KIND_LABELS[card.kind] + '</span>' + link + oneAtATime + '</div>';
+  }
+
+  /** The real editor, as on Today: notes another window already shows get its placeholder instead (one copy on screen). */
+  function popupContentHtml(card) {
+    var html = card.kind === PROJECT_NOTES ? card.bodyHtml() : bodyHtml(card.row, 'tab');
+    var elsewhere = FT.popout ? FT.popout.otherCopyHtml(html) : '';
+    return '<div class="nx-content ' + CONTENT_CLASS_BY_KIND[card.kind] + '">' + (elsewhere || html) + '</div>';
+  }
+
+  function coloursHtml(card) {
+    var current = card.color || '';
+    var swatches = COLORS.map(function (c) {
+      return '<button type="button" class="nx-swatch' + (c[0] ? '' : ' none') + '" data-act="lists.colour" data-id="' + FT.esc(card.id) + '" data-color="' + c[0] + '" aria-pressed="' + (current === c[0]) + '"' +
+        ' aria-label="' + c[1] + '" title="' + c[1] + '"' + (c[0] ? ' style="--c: var(--cat-' + c[0] + ')"' : '') + '></button>';
+    }).join('');
+    return '<button type="button" class="nx-colourbtn" data-act="lists.colours" aria-expanded="false" aria-label="Colour" title="Colour"' + (current ? ' style="--c: var(--cat-' + current + ')"' : '') + '><span></span></button>' +
+      '<div class="nx-swatches" role="group" aria-label="Colour">' + swatches + '</div>';
+  }
+
+  function popupFootHtml(card) {
+    var id = FT.esc(card.id), isProjectNotes = card.kind === PROJECT_NOTES;
+    return (isProjectNotes ? '' : coloursHtml(card)) + '<span class="nx-grow"></span>' +
+      '<label class="nx-toggle"><input type="checkbox" data-change="lists.onToday" data-id="' + id + '"' + (card.onToday ? ' checked' : '') + '> On Today</label>' +
+      (isProjectNotes ? '<button type="button" class="btn sm" data-act="lists.openProject" data-id="' + FT.esc(card.project.id) + '">Go to project</button>'
+        : '<button type="button" class="btn sm" data-act="lists.settings" data-id="' + id + '" aria-label="Settings for ' + FT.esc(card.title) + '" title="Name, linked project, colour, Today">⚙<span class="nx-wordy"> Settings</span></button>' +
+          '<button type="button" class="btn sm nx-delete" data-act="lists.remove" data-id="' + id + '" aria-label="Delete ' + FT.esc(card.title) + '">Delete</button>');
+  }
+
+  function popupHtml(card) {
+    return '<div class="nx-scrim" data-act="lists.scrim" data-noswipe>' +
+      '<div class="nx-sheet' + (card.color ? ' tinted' : '') + (popup.entering ? ' nx-enter' : '') + '" id="nx-sheet" role="dialog" aria-modal="true" aria-label="' + FT.esc(card.title) + '" tabindex="-1"' + tintStyle(card.color) + '>' +
+      '<div class="nx-head">' + nameHtml(card) + '<button type="button" class="iconbtn nx-x" data-act="lists.close" aria-label="Close" title="Close (Esc)">✕</button></div>' +
+      '<div class="nx-body" id="nx-body">' + popupMetaHtml(card) + popupContentHtml(card) + '</div>' +
+      '<div class="nx-foot">' + popupFootHtml(card) + '</div></div></div>';
+  }
+
+  /** The tab: the tools and the cards, and the open card over them (which makes the rest inert). */
+  function tabHtml() {
+    var cards = allCards(), open = popup.id ? cards.filter(function (card) { return card.id === popup.id; })[0] : null;
+    return '<div class="nx-page"' + (open ? ' inert' : '') + '>' + toolsHtml(cards) + '<div id="nx-results">' + resultsHtml(cards) + '</div>' + fabHtml() + '</div>' +
+      (open ? popupHtml(open) : '');
   }
 
   /** The list as a panel on another page (Today, a project), without the name field and Delete. */
@@ -315,27 +648,260 @@
   }
   FT.lists = { create: create, KINDS: KINDS };
 
-  FT.action('lists.open', function () { FT.go('lists'); });
-  FT.action('lists.openProject', function (el) { FT.go('project', { id: el.dataset.id }); });
+  /** A project's page: from a linked list's badge or "Go to project" in the pop-up, which it leaves. */
+  FT.action('lists.openProject', function (el) {
+    popup = closedPopup();
+    FT.go('project', { id: el.dataset.id });
+  });
   FT.action('lists.rotate', function (el) {
     var l = byId(el.dataset.id);
     if (l) rotate(l, Number(el.dataset.d));
   });
 
-  var NEW_PLACEHOLDERS = { '': 'e.g. Read and watch', todo: 'e.g. Packing for the trip', note: 'e.g. Ideas' };
-
-  FT.action('lists.add', function (el) {
-    var kind = KINDS[el.dataset.kind || ''] ? el.dataset.kind || '' : LIST, words = KINDS[kind];
-    FT.dialog({
-      title: 'New ' + words.noun,
-      submit: 'Create ' + words.noun,
-      fields: [{ id: 'name', label: 'Name', placeholder: NEW_PLACEHOLDERS[kind], maxlength: 80 }],
-      onSubmit: function (v) {
-        if (!v.name) throw new Error('A ' + words.noun + ' needs a name.');
-        create(v.name, kind);
-      }
-    });
+  // ---------- the Notes tab's controls ----------
+  FT.on('input', 'lists.search', function (el) {
+    notesTab.query = el.value;
+    drawResults();
   });
+  FT.action('lists.filter', function (el) {
+    notesTab.filter = el.dataset.filter;
+    FT.render();
+  });
+  FT.action('lists.newMenu', function () {
+    notesTab.menuOpen = !notesTab.menuOpen;
+    FT.render();
+    var first = notesTab.menuOpen && document.querySelector('#app .nx-menu button');
+    if (first && !narrow.matches) first.focus();
+  });
+  // A tap outside the + New menu closes it.
+  document.addEventListener('click', function (e) {
+    if (!notesTab.menuOpen || (e.target.closest && e.target.closest('.nx-newwrap, .nx-fab, .nx-menu'))) return;
+    notesTab.menuOpen = false;
+    FT.render();
+  });
+
+  /** + New: the note, list or to-do list shows at once (saved behind) and opens, its name ready to type over. */
+  FT.action('lists.new', function (el) {
+    var kind = KINDS[el.dataset.kind || ''] ? el.dataset.kind || '' : LIST;
+    notesTab.menuOpen = false;
+    notesTab.filter = 'all';
+    notesTab.query = '';
+    var made = create(NEW_NAMES[kind], kind);
+    openPopup(made.id, true);
+  });
+
+  FT.action('lists.openCard', function (el, e) {
+    if (e && e.target.closest && e.target.closest('label, input')) return; // a to-do's tick box on the card
+    if (Date.now() - lastCardDragEnd < 400) return; // the click that ends a drag
+    openPopup(el.dataset.id, false);
+  });
+  FT.action('lists.close', function () { closePopup(true); });
+  FT.action('lists.scrim', function (el, e) { if (e && e.target === el) closePopup(true); });
+
+  FT.on('change', 'lists.onToday', function (el) {
+    var card = cardById(el.dataset.id), on = el.checked;
+    if (!card) return;
+    if (card.kind === PROJECT_NOTES) card.setOnToday(on);
+    else setList(card.row, { show_today: on ? 'yes' : '' }, 'showToday', { id: card.id, on: on });
+  });
+
+  FT.action('lists.colour', function (el) {
+    var l = byId(el.dataset.id), color = el.dataset.color || '';
+    if (!l || (l.color || '') === color) return;
+    setList(l, { color: color }, 'setColor', { id: l.id, color: color });
+  });
+  /** A phone shows the colours over the footer only when asked. */
+  FT.action('lists.colours', function (el) {
+    var picking = el.closest('.nx-foot').classList.toggle('picking');
+    el.setAttribute('aria-expanded', picking ? 'true' : 'false');
+  });
+
+  function openPopup(id, isNew) {
+    notesTab.menuOpen = false;
+    popup = { id: id, historyEntry: narrow.matches && FT.pushHistory(), entering: true, selectName: isNew, bodyScroll: 0 };
+    FT.render();
+  }
+
+  /** Close the open card. dropEntry: also drop its browser history entry (not when the back button closed it). */
+  function closePopup(dropEntry) {
+    if (!popup.id) return;
+    var sheet = document.getElementById('nx-sheet'), active = document.activeElement;
+    if (sheet && active && sheet.contains(active) && active.blur) active.blur(); // a name or note being typed is saved first
+    var cardId = popup.id, entry = popup.historyEntry;
+    popup = closedPopup();
+    if (entry && dropEntry) FT.popHistory();
+    FT.render();
+    var opener = document.querySelector('#nx-results .nx-card[data-id="' + cardId + '"] .nx-open');
+    if (opener) { try { opener.focus({ preventScroll: true }); } catch (err) {} }
+  }
+
+  // Esc closes the + New menu, else the open card. It listens before the page does, to see whether a dialog over the
+  // card is open (Esc closes that dialog only).
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || FT.state.view !== 'lists' || document.getElementById('dialogRoot').innerHTML) return;
+    if (notesTab.menuOpen) { notesTab.menuOpen = false; FT.render(); return; }
+    if (popup.id) closePopup(true);
+  }, true);
+  // The phone's back button closes the open card (the notes editor's full screen first, when it is open).
+  FT.onBack(function () {
+    if (!popup.id || document.querySelector('.notes-panel.full')) return false;
+    popup.historyEntry = false;
+    closePopup(false);
+    return true;
+  });
+  document.addEventListener('scroll', function (e) {
+    if (e.target && e.target.id === 'nx-body') popup.bodyScroll = e.target.scrollTop;
+  }, true);
+
+  /** After a draw: the open card keeps its scroll and takes the focus when it opens; the page behind cannot be used. */
+  function settlePopup(sheet) {
+    var body = document.getElementById('nx-body');
+    if (body) body.scrollTop = popup.bodyScroll;
+    if (!popup.entering) return;
+    popup.entering = false;
+    var name = popup.selectName && document.getElementById('nx-name');
+    popup.selectName = false;
+    if (name) { name.focus(); name.select(); }
+    else { try { sheet.focus({ preventScroll: true }); } catch (err) {} }
+  }
+
+  function setInert(el, on) {
+    if (!el) return;
+    if (on) el.setAttribute('inert', ''); else el.removeAttribute('inert');
+  }
+
+  FT.onRender(function () {
+    var onTab = FT.state.view === 'lists', sheet = onTab ? document.getElementById('nx-sheet') : null;
+    if (popup.id && !sheet) { // its card is gone (deleted, another mode) or the page changed
+      var entry = popup.historyEntry;
+      popup = closedPopup();
+      if (entry) FT.popHistory();
+    }
+    document.body.classList.toggle('nx-showing-card', !!sheet);
+    setInert(document.querySelector('.bar'), !!sheet);
+    setInert(document.getElementById('pager'), !!sheet);
+    if (sheet) settlePopup(sheet);
+    makeCardsSortable(); // also drops the old ones when the page changed
+    if (onTab) askForWaitingPreviews();
+  });
+
+  /** The search draws the cards again without the rest of the page, so the search box keeps the cursor. */
+  function drawResults() {
+    var box = document.getElementById('nx-results');
+    if (!box) return;
+    box.innerHTML = resultsHtml(allCards());
+    makeCardsSortable();
+    askForWaitingPreviews();
+  }
+
+  // ---------- dragging cards into a new order (a long press first on a phone) ----------
+  var cardSorts = [], lastCardDragEnd = 0;
+  var LONG_PRESS_MS = 300;
+
+  /** The order values the lists have, given out again in their new sequence (as lists.move does on the server). */
+  function ordersToGiveOut(ordered) {
+    var orders = ordered.map(function (l) { return l.order || 0; });
+    var allDifferent = orders.every(function (order, place) { return place === 0 || order > orders[place - 1]; });
+    return allDifferent ? orders : ordered.map(function (l, place) { return place + 1; });
+  }
+
+  /** A list's card put at a place in the dealt order: the lists take their new order at once, and the move is saved behind. */
+  function moveCard(id, place) {
+    var ordered = lists().slice().sort(byOrder), from = ordered.map(function (l) { return l.id; }).indexOf(id), to = Math.min(place, ordered.length - 1);
+    if (from === -1 || from === to) { FT.dragEnded(); return; }
+    var ordersBefore = ordered.map(function (l) { return l.order; });
+    FT.optimistic(function () {
+      var orders = ordersToGiveOut(ordered), moved = ordered.slice();
+      moved.splice(to, 0, moved.splice(from, 1)[0]);
+      moved.forEach(function (l, place) { l.order = orders[place]; });
+      FT.store.lists = lists().slice().sort(byOrder);
+      return function () { ordered.forEach(function (l, place) { l.order = ordersBefore[place]; }); FT.store.lists = lists().slice().sort(byOrder); };
+    }, function () { return FT.rpc('lists', 'move', { id: id, d: to - from }, { render: false }); }).catch(function () {});
+  }
+
+  /** Where a dropped card now sits in the dealt order: its row among the lists' cards of its column, times the columns, plus its column. */
+  function placeOfDroppedCard(card, columns) {
+    var column = card.parentNode, row = Array.prototype.filter.call(column.children, function (el) { return el.matches('.nx-card[data-list]'); }).indexOf(card);
+    return row * columns.length + columns.indexOf(column);
+  }
+
+  /** Each column takes cards from the others; a project's notes stay after the lists. */
+  function makeCardsSortable() {
+    cardSorts.forEach(function (sortable) { sortable.destroy(); });
+    cardSorts = [];
+    var grid = document.getElementById('nx-grid');
+    if (!grid || !window.Sortable || !canReorder() || popup.id) return;
+    var columns = Array.prototype.slice.call(grid.children);
+    columns.forEach(function (column) {
+      cardSorts.push(window.Sortable.create(column, {
+        group: 'nx-cards', draggable: '.nx-card[data-list]', animation: 150, delay: LONG_PRESS_MS, delayOnTouchOnly: true,
+        filter: 'input, label', preventOnFilter: false, ghostClass: 'nx-ghost', chosenClass: 'nx-chosen',
+        onStart: function () { FT.state.dragging = true; },
+        onEnd: function (evt) {
+          lastCardDragEnd = Date.now();
+          FT.state.dragging = false;
+          moveCard(evt.item.dataset.list, placeOfDroppedCard(evt.item, columns));
+        }
+      }));
+    });
+  }
+
+  // A window made wider or narrower deals the cards into as many columns as now fit.
+  window.addEventListener('resize', function () {
+    var grid = document.getElementById('nx-grid');
+    if (grid && !FT.state.dragging && Number(grid.dataset.columns) !== columnCount()) drawResults();
+  });
+
+  // ---------- notes whose first lines nobody kept yet (written before the server kept them) ----------
+  // Their cards ask for the notes once they are on screen, two at a time, once per page load. The server keeps the
+  // first lines from then on, so each note is read once, not every time the tab opens.
+  var PREVIEW_LOADS_AT_ONCE = 2, PREVIEW_WAIT_MS = 600;
+  var previewQueue = [], previewsLoading = 0, previewAsked = {}, previewWatch = null, previewTimer = null;
+
+  function askForWaitingPreviews() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(watchWaitingCards, PREVIEW_WAIT_MS); // a fresh load may bring the first lines meanwhile
+  }
+
+  function watchWaitingCards() {
+    if (previewWatch) { previewWatch.disconnect(); previewWatch = null; }
+    var waiting = Array.prototype.slice.call(document.querySelectorAll('#nx-results .nx-card[data-wait]'));
+    if (!waiting.length || !FT.notes) return;
+    if (!window.IntersectionObserver) { waiting.forEach(function (card) { askForPreview(card.dataset.wait); }); return; }
+    previewWatch = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) { if (entry.isIntersecting) askForPreview(entry.target.dataset.wait); });
+    });
+    waiting.forEach(function (card) { previewWatch.observe(card); });
+  }
+
+  function askForPreview(key) {
+    if (previewAsked[key]) return;
+    previewAsked[key] = true;
+    previewQueue.push(key);
+    loadNextPreviews();
+  }
+
+  function loadNextPreviews() {
+    while (previewsLoading < PREVIEW_LOADS_AT_ONCE && previewQueue.length) {
+      var key = previewQueue.shift();
+      previewsLoading++;
+      FT.notes.loadPreview(key).then(previewLoaded(key), previewLoaded(key));
+    }
+  }
+
+  /** Draw again the cards that waited for these notes. */
+  function previewLoaded(key) {
+    return function () {
+      previewsLoading--;
+      if (!FT.state.dragging) {
+        Array.prototype.forEach.call(document.querySelectorAll('#nx-results .nx-card[data-wait="' + key + '"]'), function (el) {
+          var card = cardById(el.dataset.id);
+          if (card) el.outerHTML = cardHtml(card);
+        });
+      }
+      loadNextPreviews();
+    };
+  }
 
   FT.on('change', 'lists.rename', function (el) {
     var name = el.value.trim(), l = byId(el.dataset.id);

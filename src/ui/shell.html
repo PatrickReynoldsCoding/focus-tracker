@@ -14,7 +14,8 @@
  *     // things that can be put on that page; add() shows one at once and saves it (see FT.optimistic).
  *     // A Today panel may also give short (its name in a phone's pill), count (a short number on its pill) and kind; see FT.layout.
  *     // 'today.pillPanels' (same shape as 'today.panels') offers panels only a phone's pill shows, such as lists not on Today.
- *     // 'lists.tab' (same shape) adds panels to the Notes tab after its lists, such as the projects' notes.
+ *     // 'lists.tab' adds cards to the Notes tab after its own, such as the projects' notes: render() returns
+ *     // [{ id, key, kind, title, project, onToday, bodyHtml(), setOnToday(on) }] (see the lists and notes modules).
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
  *   });
  * Interactions use data attributes handled by delegation:
@@ -208,7 +209,7 @@ var FT = (function () {
     'kanban.addTask': 'Card added', 'kanban.deleteTask': 'Card deleted', 'kanban.moveTask': 'Card moved', 'kanban.updateTask': 'Card edit',
     'kanban.addColumn': 'Column added', 'kanban.renameColumn': 'Column rename', 'kanban.moveColumn': 'Column moved', 'kanban.deleteColumn': 'Column deleted',
     'projects.create': 'Project added', 'projects.update': 'Project edit', 'projects.remove': 'Project deleted',
-    'lists.create': 'List added', 'lists.rename': 'List rename', 'lists.remove': 'List deleted', 'lists.setColor': 'List colour',
+    'lists.create': 'List added', 'lists.rename': 'List rename', 'lists.remove': 'List deleted', 'lists.setColor': 'List colour', 'lists.move': 'List moved',
     'backlog.add': 'Backlog item added', 'backlog.update': 'Backlog item change', 'backlog.remove': 'Backlog item deleted', 'backlog.start': 'Project started from the backlog',
     'criteria.add': 'Criterion added', 'criteria.update': 'Criterion change', 'criteria.remove': 'Criterion deleted',
     'categories.add': 'Category added', 'categories.update': 'Category edit', 'categories.remove': 'Category deleted',
@@ -1806,6 +1807,7 @@ var FT = (function () {
   document.addEventListener('touchmove', function (e) {
     var s = swipeStart, el = s && s.steps.el;
     if (!s || !el || !e.touches.length || FT.state.editLayout || !motionOk()) return;
+    if (FT.state.dragging) { if (s.dragging) snapBack(el); swipeStart = null; return; } // a card or item is being dragged, not the page
     var dx = e.touches[0].clientX - s.x, dy = e.touches[0].clientY - s.y;
     if (!s.dragging) {
       if (Math.abs(dx) > 16 && Math.abs(dx) > Math.abs(dy) * 1.6) { s.dragging = true; s.blocked = canScrollThatWay(s.scrollers, dx); s.decided = true; } else return;
@@ -1818,7 +1820,7 @@ var FT = (function () {
   document.addEventListener('touchcancel', function () { if (swipeStart && swipeStart.dragging) snapBack(swipeStart.steps.el); swipeStart = null; }, { passive: true });
   document.addEventListener('touchend', function (e) {
     var s = swipeStart; swipeStart = null;
-    if (!s || !e.changedTouches.length || FT.state.editLayout) return;
+    if (!s || !e.changedTouches.length || FT.state.editLayout || FT.state.dragging) return;
     var dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y;
     var dir = dx < 0 ? 1 : -1, at = s.steps.at(), next = at + dir;
     if (!s.decided) s.blocked = canScrollThatWay(s.scrollers, dx);
