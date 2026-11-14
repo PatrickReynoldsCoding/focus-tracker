@@ -152,7 +152,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
 
   assertNoDataLost(s);
   const sh = s.ss.sheets;
-  assert.deepStrictEqual(sh.Projects.rows[0], ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at', 'my_column'], 'people columns first, a person\'s own column kept at the end');
+  assert.deepStrictEqual(sh.Projects.rows[0], ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at', 'my_column', 'show_next_action'], 'people columns first, a person\'s own column kept at the end, then app columns added since (Table adds them)');
   assert.deepStrictEqual(sh.Tasks.rows[0], ['title', 'column', 'project', 'list', 'note', 'color', 'problem', 'id', 'project_id', 'list_id', 'column_id', 'order', 'note_html', 'created', 'updated_at']);
   assert.deepStrictEqual(sh.Columns.rows[0], ['id', 'project_id', 'list_id', 'name', 'order']);
   assert.deepStrictEqual(sh.Lists.rows[0], ['name', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created']);
@@ -221,8 +221,9 @@ test('tabs are coloured, ordered people first, with a Start here guide; app colu
     assert.strictEqual(st.tabColor, spec[n].color, n + ' is bright');
     assert.strictEqual(st.frozen, 1, n + ' header frozen');
     assert.ok(st.filter, n + ' has a filter');
-    const idCol = s.ss.sheets[n].rows[0].indexOf('id') + 1;
-    assert.ok(st.backgrounds.some((b) => b.r === 1 && b.c === idCol && b.c + b.nc - 1 === s.ss.sheets[n].rows[0].length), n + ' app columns have a grey header');
+    const idCol = s.ss.sheets[n].rows[0].indexOf('id') + 1, width = s.ss.sheets[n].rows[0].length;
+    const greyHeader = (c) => st.backgrounds.some((b) => b.r === 1 && b.c <= c && c <= b.c + b.nc - 1);
+    assert.ok(Array.from({ length: width - idCol + 1 }, (_, i) => idCol + i).every(greyHeader), n + ' app columns have a grey header, also those added later');
     (spec[n].wrap || []).forEach((h) => assert.ok(st.wraps.some((w) => w.c === s.ss.sheets[n].rows[0].indexOf(h) + 1 && w.on), n + '.' + h + ' wraps'));
   });
   ['Columns', 'Notes', 'Stickies', 'Skips', 'Reminders', 'Settings', 'Undo'].forEach((n) => {

@@ -295,19 +295,59 @@ async function run(browser, size) {
   log('Project: Mark done, Reopen, Pause and Resume answer at once and reach the server');
 
   await quick('Project: Edit dialog', pg.locator('[data-act="projects.edit"]')); await closeDialog();
-  await quick('Project: ⋯ More menu', pg.locator('.phead [data-act="projects.more"]'));
-  await quick('Project: Lock dialog (from More)', pg.locator('#pj-menu [data-act="projects.lock"]')); await closeDialog();
-  // Hide next action (More) shows at once and reaches the mode's Settings; Show brings it back
+  await quick('Project: ⚙ Project settings menu', pg.locator('.phead [data-act="projects.settings"]'));
+  await quick('Project: Lock dialog (from Project settings)', pg.locator('#pj-menu [data-act="projects.lock"]')); await closeDialog();
+  // Next action: hidden by default; Show (Project settings) shows at once and reaches the project's row; Use default hides it again
   const projectView = () => env.server.run('bootstrap()').data.layout['project.view'] || {};
-  await quick('Project: More', pg.locator('.phead [data-act="projects.more"]'));
-  await quick('Project: Hide next action', pg.locator('#pj-menu [data-act="projects.toggleNextAction"]'));
-  assert.ok(!(await pg.isVisible('#app .phead ~ .next')), 'the next action goes at once');
+  assert.ok(!(await pg.isVisible('#app .phead ~ .next')) && !projectView().nextAction, 'hidden by default');
+  await quick('Project: Project settings', pg.locator('.phead [data-act="projects.settings"]'));
+  await quick('Project: Show next action', pg.locator('#pj-menu [data-act="projects.nextAction"][data-choice="on"]'));
+  assert.ok(await pg.isVisible('#app .phead ~ .next'), 'the next action shows at once');
   await settle();
-  assert.strictEqual(projectView().nextAction, 'hidden', 'and that reached the server');
-  await quickly(async () => { await pg.click('.phead [data-act="projects.more"]'); await pg.click('#pj-menu [data-act="projects.toggleNextAction"]'); await sleep(150); });
+  assert.strictEqual(projectRow(id).show_next_action, 'on', 'and that reached the server');
+  await quickly(async () => { await pg.click('.phead [data-act="projects.settings"]'); await pg.click('#pj-menu [data-act="projects.nextAction"][data-choice=""]'); await sleep(150); });
   await settle();
-  assert.ok(await pg.isVisible('#app .phead ~ .next') && !projectView().nextAction, 'shown again');
-  log('Project: ⋯ More opens at once; Lock and Hide next action answer at once and reach the server');
+  assert.ok(!(await pg.isVisible('#app .phead ~ .next')) && projectRow(id).show_next_action === '', 'back to the default: hidden');
+  // Settings → Show next action on projects: the mode's default, shown on the page behind at once and saved for the mode
+  await quickly(async () => { await pg.click('#settingsBtn'); await pg.waitForSelector('input[name="dlg-nextaction"]'); });
+  await quick('Settings: Show next action on projects', pg.locator('label:has(input[name="dlg-nextaction"][value="shown"])'));
+  assert.ok(await pg.isVisible('#app .phead ~ .next'), 'the page behind shows it at once');
+  await settle();
+  assert.strictEqual(projectView().nextAction, 'shown', 'the default reached the mode\'s Settings');
+  await quickly(async () => { await pg.click('label:has(input[name="dlg-nextaction"][value="hidden"])'); await sleep(150); });
+  await settle();
+  assert.ok(!projectView().nextAction, 'and back to hidden');
+  await closeDialog();
+  log('Project: ⚙ Project settings opens at once; Lock, Show next action and the Settings default answer at once and reach the server');
+
+  // The top panel fits the window, with the next action hidden or shown, a long name, and at every width up to a wide desktop
+  const headerOverflow = () => pg.evaluate(() => {
+    const panel = document.querySelector('#app .phead').closest('.panel'), box = panel.getBoundingClientRect(), width = document.documentElement.clientWidth;
+    const outside = [...panel.querySelectorAll('*')].filter((el) => { const r = el.getBoundingClientRect(); return r.width && (r.right > box.right + 0.5 || r.left < box.left - 0.5); });
+    return { panelRight: Math.round(box.right), width, pageWidth: document.documentElement.scrollWidth, outside: outside.map((el) => el.dataset.act || el.className || el.tagName) };
+  });
+  const assertHeaderFits = async (label) => {
+    const fit = await headerOverflow();
+    assert.ok(fit.panelRight <= fit.width && fit.pageWidth <= fit.width && !fit.outside.length, '[' + size.name + '] the project top panel runs past the window (' + label + '): ' + JSON.stringify(fit));
+  };
+  const nameBefore = await pg.evaluate(() => FT.project(FT.state.projectId).name);
+  for (const shown of [false, true]) {
+    await pg.evaluate((on) => { FT.store.layout['project.view'] = on ? { nextAction: 'shown' } : {}; FT.render(); }, shown);
+    await sleep(100);
+    await assertHeaderFits('next action ' + (shown ? 'shown' : 'hidden'));
+  }
+  await pg.evaluate(() => { FT.project(FT.state.projectId).name = 'Rewire the garage workshop lights and sockets Supercalifragilisticexpialidociouslylongunbrokenword'; FT.render(); });
+  await sleep(100);
+  await assertHeaderFits('a long name');
+  if (!size.mobile) {
+    for (const width of [800, 1000, 1440]) {
+      await pg.setViewportSize({ width, height: size.viewport.height }); await sleep(250);
+      await assertHeaderFits(width + ' px wide');
+    }
+    await pg.setViewportSize(size.viewport); await sleep(250);
+  }
+  await pg.evaluate((name) => { FT.project(FT.state.projectId).name = name; FT.store.layout['project.view'] = {}; FT.render(); }, nameBefore);
+  log('Project: the top panel fits the window with the next action hidden or shown and a long name' + (size.mobile ? '' : ', at 800 to 1440 px'));
   // the category picker: a pick shows at once and reaches the server; New category… is made and given at once
   const categoryOnServer = () => projectRow(id).category;
   const startCategory = await pg.evaluate(() => FT.project(FT.state.projectId).category);
@@ -482,7 +522,7 @@ async function run(browser, size) {
     } else {
       await pg.evaluate(() => window.scrollTo(0, 0));
       const focusBefore = await box('#app .grid-stack-item[gs-id="focus"]');
-      const next = await box('#app .grid-stack-item[gs-id="focus"] .next');
+      const next = await box('#app .grid-stack-item[gs-id="focus"] .lastnote');
       await pg.mouse.move(next.x + 10, next.y + next.h / 2);
       await pg.mouse.down();
       await pg.mouse.move(next.x + 200, next.y + next.h / 2 + 120, { steps: 8 });
@@ -951,9 +991,11 @@ async function run(browser, size) {
     log('Pop out: a phone has no windows or Pop out buttons; a window popped out on a desktop waits and comes back when the screen is wide again');
   } else {
     const start = await popWin.boundingBox(), title = await popWin.locator('.poptitle').boundingBox();
-    await drag({ x: title.x + 30, y: title.y + title.height / 2 }, 150, 80);
+    const ROOM_BELOW_FOR_THE_MOVE_AND_THE_CORNER_RESIZE = 200;
+    const moveDownBy = DESKTOP_VIEWPORT.height - (start.y + start.height) >= ROOM_BELOW_FOR_THE_MOVE_AND_THE_CORNER_RESIZE ? 80 : -200;
+    await drag({ x: title.x + 30, y: title.y + title.height / 2 }, 150, moveDownBy);
     const moved = await popWin.boundingBox();
-    near(moved.x, start.x + 150, 'dragged by its title bar (x)'); near(moved.y, start.y + 80, 'dragged by its title bar (y)');
+    near(moved.x, start.x + 150, 'dragged by its title bar (x)'); near(moved.y, start.y + moveDownBy, 'dragged by its title bar (y)');
     near(moved.width, start.width, 'same width after a move');
     const grip = await popWin.locator('[data-pop-resize="se"]').boundingBox();
     await drag({ x: grip.x + grip.width / 2, y: grip.y + grip.height / 2 }, 120, 90);

@@ -79,6 +79,42 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('.timer') === null);
   });
 
+  await step('next action is hidden by default (Today, the Projects table and its search, the project page, Finish session); Settings → Show turns it on for the mode', async () => {
+    const savedDefault = () => (JSON.parse(JSON.stringify(server.run('bootstrap()').data.layout))['project.view'] || {}).nextAction;
+    assert.ok(!$('#app .next'), 'not on Today\'s focus');
+    click($('[data-act="today.start"]'));
+    await waitFor(() => $('[data-act="today.finish"]'), 'a session');
+    click($('[data-act="today.finish"]'));
+    await waitFor(() => $('#dlg-where'), 'finish dialog');
+    assert.ok(!$('#dlg-next'), 'Finish session asks only where you stopped');
+    click($('#dlg-discard'));
+    await waitFor(() => $('#dlg-submit') && $('#dlg-submit').textContent === 'Delete session', 'delete the session instead');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('[data-act="today.finish"]') && !JSON.parse(JSON.stringify(server.run('bootstrap()').data.today)).session, 'no session left');
+    showAllProjects();
+    await waitFor(() => $$('tr.row').length, 'project rows');
+    assert.ok($('table.ptable').classList.contains('nonext'), 'no Next action column');
+    assert.ok($$('td.pnext').every((td) => td.textContent === ''));
+    assert.strictEqual($('#pj-text').placeholder, 'Search projects');
+    setVal($('#pj-text'), 'duct');
+    assert.deepStrictEqual($$('tr.row'), [], 'search does not find a hidden next action');
+    setVal($('#pj-text'), '');
+    click($('.rowlink'));
+    await waitFor(() => $('.phead'), 'project page');
+    assert.ok(!$('.phead ~ .next'), 'not on the project page');
+
+    click($('#settingsBtn'));
+    await waitFor(() => $('input[name="dlg-nextaction"]'), 'Settings has the default');
+    assert.deepStrictEqual($$('input[name="dlg-nextaction"]').map((r) => [r.value, r.checked]), [['shown', false], ['hidden', true]]);
+    const show = $('input[name="dlg-nextaction"][value="shown"]');
+    show.checked = true; show.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok($('.phead ~ .next'), 'the page behind shows it at once');
+    await waitFor(() => savedDefault() === 'shown', 'saved for the mode');
+    click($('#dlg-submit'));
+    click(tab('Today'));
+    await waitFor(() => $('#app .next'), 'Today\'s focus shows it too');
+  });
+
   await step('full-width icon stretches the page and is remembered', async () => {
     assert.ok(!d.body.classList.contains('wide'));
     click($('#wideBtn'));
@@ -1262,21 +1298,60 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.phead .pill').textContent === 'House', 'and the page follows');
   });
 
-  await step('the top panel: ⋯ More holds Lock and Hide next action (kept for the mode), and the panel cannot be hidden', async () => {
-    const more = () => $('.phead [data-act="projects.more"]');
-    assert.strictEqual(more().textContent, '⋯');
+  await step('the top panel: ⚙ Project settings holds this project\'s Next action (Use default, Show, Hide) and Lock, and the panel cannot be hidden', async () => {
+    const more = () => $('.phead [data-act="projects.settings"]');
+    const id = w.FT.state.projectId, other = w.FT.store.projects.find((p) => p.id !== id && p.status === 'active');
+    const choiceOnServer = () => serverProject(id).show_next_action;
+    const items = () => $$('#pj-menu [role^="menuitem"]');
+    const pick = (label) => click(items().find((i) => i.textContent === label));
+    const savedDefault = () => (JSON.parse(JSON.stringify(server.run('bootstrap()').data.layout))['project.view'] || {}).nextAction;
+    assert.ok(more().getAttribute('aria-label').startsWith('Project settings for '));
     assert.ok(!$('#app [data-panel="header"] .actions [data-act="projects.lock"]') && !$('.grid-stack-item[gs-id="header"] .actions [data-act="projects.lock"]'), 'Lock is not a button of its own');
     click(more());
-    assert.deepStrictEqual($$('#pj-menu [role="menuitem"]').map((i) => i.textContent), ['Lock…', 'Hide next action']);
-    assert.strictEqual(d.activeElement, $('#pj-menu [role="menuitem"]'));
-    key(d.activeElement, 'ArrowDown');
+    assert.deepStrictEqual(items().map((i) => i.textContent), ['Use default (shown)', 'Show', 'Hide', 'Lock…']);
+    assert.strictEqual(d.activeElement, $('#pj-menu [aria-checked="true"]'), 'focus starts on the current choice');
+    assert.strictEqual(d.activeElement.textContent, 'Use default (shown)');
+    key(d.activeElement, 'ArrowDown'); key(d.activeElement, 'ArrowDown');
     click(d.activeElement);
+    assert.ok(!$('#pj-menu'), 'the menu closes');
     assert.ok(!$('.phead ~ .next'), 'the next action is hidden at once');
-    await waitFor(() => (JSON.parse(JSON.stringify(server.run('bootstrap()').data.layout))['project.view'] || {}).nextAction === 'hidden', 'and that reached the mode\'s Settings');
+    assert.ok($('#toast').textContent.includes('Next action hidden on this project.'));
+    await waitFor(() => choiceOnServer() === 'off', 'kept in the project\'s row');
+    assert.strictEqual(savedDefault(), 'shown', 'the mode\'s default is unchanged');
+    click($('#toast .toastbtn'));
+    await waitFor(() => choiceOnServer() === '' && $('.phead ~ .next'), 'Undo: the default again');
+
+    click(more()); pick('Show');
+    await waitFor(() => choiceOnServer() === 'on', 'Show is kept for this project');
+    click($('#settingsBtn'));
+    await waitFor(() => $('input[name="dlg-nextaction"]'), 'Settings');
+    const hide = $('input[name="dlg-nextaction"][value="hidden"]');
+    hide.checked = true; hide.dispatchEvent(new w.Event('change', { bubbles: true }));
+    click($('#dlg-submit'));
+    await waitFor(() => savedDefault() === undefined, 'default back to hidden');
+    assert.ok($('.phead ~ .next'), 'this project still shows it: its own choice wins');
     click(more());
-    assert.strictEqual($$('#pj-menu [role="menuitem"]')[1].textContent, 'Show next action');
-    click($$('#pj-menu [role="menuitem"]')[1]);
-    assert.ok($('.phead ~ .next'), 'shown again');
+    assert.deepStrictEqual(items().map((i) => [i.textContent, i.getAttribute('aria-checked')]).slice(0, 3), [['Use default (hidden)', 'false'], ['Show', 'true'], ['Hide', 'false']]);
+    click(more());
+    assert.ok(!$('#pj-menu'), 'a second press closes it');
+    w.FT.go('project', { id: other.id });
+    await waitFor(() => w.FT.state.projectId === other.id && $('.phead'), 'another project');
+    assert.ok(!$('.phead ~ .next'), 'another project follows the default: hidden');
+    showAllProjects();
+    await waitFor(() => $$('tr.row').length, 'project rows');
+    assert.ok(!$('table.ptable').classList.contains('nonext'), 'the column shows while one project shows its next action');
+    const cellOf = (projectId) => $(`tr.row[data-id="${projectId}"] td.pnext`);
+    assert.ok(cellOf(id).textContent && !cellOf(other.id).textContent, 'only that project has it');
+    w.FT.go('project', { id });
+    await waitFor(() => w.FT.state.projectId === id && $('.phead'), 'back on the project');
+    click(more()); pick('Use default (hidden)');
+    await waitFor(() => choiceOnServer() === '' && !$('.phead ~ .next'), 'Use default: hidden like the rest');
+    click($('#settingsBtn'));
+    await waitFor(() => $('input[name="dlg-nextaction"]'), 'Settings');
+    const show = $('input[name="dlg-nextaction"][value="shown"]');
+    show.checked = true; show.dispatchEvent(new w.Event('change', { bubbles: true }));
+    click($('#dlg-submit'));
+    await waitFor(() => savedDefault() === 'shown' && $('.phead ~ .next'), 'shown by default again for the steps after this one');
     click(more());
     click($('#pj-menu [data-act="projects.lock"]'));
     await waitFor(() => $('#lk-date'), 'the lock dialog');
