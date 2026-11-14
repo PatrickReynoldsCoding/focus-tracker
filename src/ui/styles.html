@@ -245,8 +245,8 @@ body.reordering, body.reordering * { user-select: none; -webkit-user-select: non
 .pcount { font-family: var(--font-mono); font-size: 12px; font-weight: 500; opacity: 0.85; }
 .pgear { flex: none; margin-left: auto; min-width: 44px; min-height: 44px; border-radius: 22px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
 .pgear:hover { color: var(--ink); }
-.ppanels { min-height: 50vh; touch-action: pan-y; }
-.ppanel { display: grid; gap: 16px; }
+.ppanels { min-height: 50vh; touch-action: pan-y; overflow-x: clip; }
+.ppanel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .pempty { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 24px 12px; }
 .pswipehint { margin: 0; text-align: center; color: var(--muted); font-size: 12.5px; }
 @media (prefers-reduced-motion: no-preference) {
