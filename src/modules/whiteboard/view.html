@@ -217,17 +217,25 @@ body.wb-open .scrim { z-index: 55; }
     return FT.layout('whiteboards', [{ id: 'boards', title: 'Whiteboards', description: 'Every whiteboard, on a project or on its own.', html: html, w: 12 }]);
   }
 
-  /** Boards marked "On Today": one panel each, with its thumbnail. A click opens the board. */
+  /** A board as a panel with its thumbnail; a click opens the board. On Today it has its "On Today" chip; in a phone's pill only, none. */
+  function todayPanel(w) {
+    var project = FT.project(w.project_id);
+    return {
+      id: 'whiteboard-' + w.id, kind: 'whiteboard', title: 'Whiteboard: ' + w.name, short: w.name, description: 'A whiteboard\'s picture; click it to open the board.', w: 4,
+      html: '<section class="panel wbtodaypanel"><div class="tophead"><div class="label">Whiteboard: ' + FT.esc(w.name) + '</div>' + (w.show_today ? todayChip(w) : '') + '</div>' +
+        '<ul class="wblist" style="grid-template-columns:1fr"><li>' + thumbHtml(w) +
+        '<span class="wbmeta">' + (project ? FT.esc(project.name) + ' · ' : '') + 'Saved ' + FT.fmtDate(w.updated) + '</span></li></ul></section>'
+    };
+  }
+
+  /** Boards marked "On Today": one panel each. */
   function todayPanels() {
-    return boards().filter(function (w) { return w.show_today; }).sort(byCreated).map(function (w) {
-      var project = FT.project(w.project_id);
-      return {
-        id: 'whiteboard-' + w.id, title: 'Whiteboard: ' + w.name, short: w.name, description: 'A whiteboard\'s picture; click it to open the board.', w: 4,
-        html: '<section class="panel wbtodaypanel"><div class="tophead"><div class="label">Whiteboard: ' + FT.esc(w.name) + '</div>' + todayChip(w) + '</div>' +
-          '<ul class="wblist" style="grid-template-columns:1fr"><li>' + thumbHtml(w) +
-          '<span class="wbmeta">' + (project ? FT.esc(project.name) + ' · ' : '') + 'Saved ' + FT.fmtDate(w.updated) + '</span></li></ul></section>'
-      };
-    });
+    return boards().filter(function (w) { return w.show_today; }).sort(byCreated).map(todayPanel);
+  }
+
+  /** A phone's pill can hold any board, also one not on Today. */
+  function pillPanels() {
+    return boards().filter(function (w) { return !w.show_today; }).sort(byCreated).map(todayPanel);
   }
 
   function loadScript(src) {
@@ -396,6 +404,7 @@ body.wb-open .scrim { z-index: 55; }
     slots: {
       'project.page': [{ id: 'whiteboard', title: 'Whiteboards', description: 'Excalidraw whiteboards for this project.', order: 25, span: 'half', render: panel }],
       'today.panels': [{ order: 20, render: todayPanels }],
+      'today.pillPanels': [{ order: 20, render: pillPanels }],
       'addable.today': [{ order: 20, render: addableToday }]
     }
   });

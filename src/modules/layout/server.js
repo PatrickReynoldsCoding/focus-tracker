@@ -8,6 +8,9 @@
  * which reaches the page as { '<page>.phone': [...] } next to the pages.
  * A page's view choices (the Projects tab's status filter, the project page's hidden next action) are a row of their own
  * too: layout.<page>.view = {"status":["active"]}, reaching the page as { '<page>.view': {...} }. Reset leaves them.
+ * A phone's pills (Today): layout.<page>.pills = [{ "id", "name", "icon", "panels": ["habits", "list-ab12cd34"] }], the
+ * pills in order, each a name, an icon (or "") and the panels it shows, top to bottom. Saving them can be undone. Their
+ * switches are view choices: focusCard (compact, full, hidden), pillCounts, pillSwipe and pillLast (on or off).
  */
 
 function layoutModule() {
@@ -68,6 +71,40 @@ function layoutModule() {
   var MAX_VIEW_KEYS = 10;
   var MAX_VIEW_LIST = 10;
   var MAX_VIEW_TEXT = 60;
+  var ON_OFF = ['on', 'off'];
+  var VIEW_CHOICES_BY_NAME = { focusCard: ['compact', 'full', 'hidden'], pillCounts: ON_OFF, pillSwipe: ON_OFF, pillLast: ON_OFF };
+
+  var PILLS = '.pills';
+  var MAX_PILLS = 12;
+  var MAX_PILL_NAME = 24;
+  var MAX_PANELS_IN_A_PILL = 40;
+  var PILL_ICONS = ['☀️', '✅', '📝', '🛒', '🏠', '💼', '🎯', '🌙', '📋', '🌱'];
+  var PANEL_ID = /^[a-zA-Z0-9_-]{1,60}$/;
+  var PILL_ID = /^[a-zA-Z0-9_-]{1,60}$/;
+
+  /** One pill as it is stored: a known icon or none, a name of 1 to 24 characters, each panel once. */
+  function cleanPill_(pill, takenIds) {
+    assert_(pill && typeof pill === 'object', 'Bad pill.');
+    var id = String(pill.id || ''), name = String(pill.name || '').trim(), icon = String(pill.icon || '');
+    assert_(PILL_ID.test(id) && !takenIds[id], 'Bad pill id.');
+    takenIds[id] = true;
+    assert_(name.length >= 1 && name.length <= MAX_PILL_NAME, 'A pill needs a name of up to ' + MAX_PILL_NAME + ' characters.');
+    assert_(icon === '' || PILL_ICONS.indexOf(icon) !== -1, 'Unknown pill icon.');
+    assert_(Array.isArray(pill.panels), 'Bad pill panels.');
+    assert_(pill.panels.length <= MAX_PANELS_IN_A_PILL, 'Too many panels in a pill.');
+    var panels = [];
+    pill.panels.map(String).forEach(function (panelId) {
+      assert_(PANEL_ID.test(panelId), 'Bad panel id.');
+      if (panels.indexOf(panelId) === -1) panels.push(panelId);
+    });
+    return { id: id, name: name, icon: icon, panels: panels };
+  }
+
+  function viewChoice_(name, value) {
+    var allowed = VIEW_CHOICES_BY_NAME[name];
+    assert_(!allowed || value === null || allowed.indexOf(value) !== -1, 'Bad view setting: ' + name);
+    return value;
+  }
 
   function viewText_(value) {
     var text = String(value);
@@ -165,12 +202,24 @@ function layoutModule() {
         var all = load_(), view = all[key] || {};
         Object.keys(a.view).forEach(function (name) {
           assert_(/^[a-zA-Z]{1,30}$/.test(name), 'Bad view setting: ' + name);
-          var value = viewValue_(a.view[name]);
+          var value = viewChoice_(name, viewValue_(a.view[name]));
           if (value === null) delete view[name]; else view[name] = value;
         });
         assert_(Object.keys(view).length <= MAX_VIEW_KEYS, 'Too many view settings.');
         all[key] = view;
         save_(all);
+        return true;
+      },
+
+      /** The phone's pills of a page (a.pills, in order), replacing the saved ones. Recorded for undo. */
+      savePills: function (a) {
+        var key = PREFIX + pageKey_(a.page) + PILLS;
+        assert_(Array.isArray(a.pills), 'Bad pills.');
+        assert_(a.pills.length <= MAX_PILLS, 'At most ' + MAX_PILLS + ' pills.');
+        var takenIds = {}, pills = a.pills.map(function (pill) { return cleanPill_(pill, takenIds); });
+        var values = {};
+        values[key] = JSON.stringify(pills);
+        setSettingsWithUndo_(values);
         return true;
       },
 

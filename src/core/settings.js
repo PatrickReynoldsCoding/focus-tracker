@@ -4,7 +4,8 @@
  * the sheet holds everything a mode needs (docs/schema.md). Session and pomodoro state stay in user properties: they
  * change every few seconds.
  *
- * An empty value means "not set". Settings are not undone (they never were), so writes here skip the undo journal.
+ * An empty value means "not set". Most settings are not undone (they never were), so setSettings_ skips the undo journal.
+ * setSettingsWithUndo_ is for the few a person edits and would want back (the phone's Today pills).
  */
 
 // Settings keys name weekdays in words, so a row reads `rotation.monday = coding`. ISO weekday numbers, as Today uses.
@@ -58,4 +59,18 @@ function setSettings_(values) {
     });
     d.sh.getRange(first + 2, 1, span.length, width).setNumberFormat('@').setValues(span);
   });
+}
+
+/**
+ * setSettings_, recorded for undo: each key whose value changes goes in the change journal with its value before, so
+ * undo (and redo) put that value back (revertChanges_ in sheetdb.js).
+ */
+function setSettingsWithUndo_(values) {
+  var current = settingsWithPrefix_('', true);
+  Object.keys(values).forEach(function (key) {
+    var before = current[key] === undefined ? '' : current[key];
+    var after = values[key] === null || values[key] === undefined ? '' : String(values[key]);
+    if (before !== after) recordChange_({ table: 'Settings', op: 'setting', key: key, before: before });
+  });
+  setSettings_(values);
 }

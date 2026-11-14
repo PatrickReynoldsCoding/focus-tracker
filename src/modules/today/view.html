@@ -67,6 +67,14 @@
   var NO_LIMIT = 'none', CUSTOM_LENGTH = 'custom';
   var KEEP_GOING_CHOICES_MIN = [10, 25];
   var PLAN_ALERT_TITLE = '⏰ Time is up';
+  // Today settings' Quick add on a phone: a pill in one tap, offered only when its panels exist. "Plan my week" is a
+  // button in the Weekly rotation panel, not a panel of its own, so Week holds the rotation and Not touched.
+  var PILL_TEMPLATES = [
+    { name: 'Routine', icon: '☀️', panels: ['habits', 'todos'] },
+    { name: 'Shopping', icon: '🛒', panels: [{ kind: 'list', like: 'shop|grocer' }, 'todos'] },
+    { name: 'Thinking', icon: '📝', panels: ['notes', { kind: 'list' }] },
+    { name: 'Week', icon: '🎯', panels: ['rotation', 'stale'] }
+  ];
   var timer = null, alertedKey = null, audio = null, audioRequested = false;
   var chosenLengthMin; // the length picked in the Start session box; until one is picked, the server's remembered one
   var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
@@ -167,6 +175,11 @@
     return FT.slots('today.panels').reduce(function (all, s) { return all.concat(s.render(FT) || []); }, []);
   }
 
+  /** Panels only a phone's pill shows: the lists and whiteboards that are not on Today (slot today.pillPanels). */
+  function pillOnlyPanels() {
+    return FT.slots('today.pillPanels').reduce(function (all, s) { return all.concat(s.render(FT) || []); }, []);
+  }
+
   function focusHtml(t, f) {
     var n = FT.daysSince(f.last_touched), running = !!t.session;
     var lastLog = (FT.store.log || []).filter(function (l) { return l.project_id === f.id; })[0];
@@ -246,13 +259,14 @@
       : '<section class="panel"><p class="empty">No active projects yet. Add one to get a focus for the day.</p><button class="btn primary" data-act="core.tab" data-view="projects">Go to Projects</button></section>';
     // A panel marked beside: true (the small tasks) sits next to the focus by default; the rest go after the rotation.
     var extra = extraPanels();
-    return remindersHtml(t) + FT.layout('today', [
+    var reminders = FT.pills && FT.pills.settingsOpen('today') ? '' : remindersHtml(t);
+    return reminders + FT.layout('today', [
       { id: 'stale', title: 'Not touched for a while', short: 'Not touched', count: stale.length, description: 'Active projects you have not worked on for a few days. Shows only when there are some.',
         html: staleBanner(stale), w: 12, top: true },
       { id: 'focus', title: 'Today\'s focus', description: 'The project picked for today, its next action and the session timer.', html: focus, compact: working ? focusCompactHtml(t, f) : '', w: 7 }]
       .concat(extra.filter(function (p) { return p.beside; }))
       .concat([{ id: 'rotation', title: 'Weekly rotation', short: 'Rotation', description: 'Which category leads on each day of the week.', html: f ? rotationHtml(t) : '', w: extra.some(function (p) { return p.beside; }) ? 7 : 5 }])
-      .concat(extra.filter(function (p) { return !p.beside; })), { pager: { pinned: 'focus' } });
+      .concat(extra.filter(function (p) { return !p.beside; })), { pager: { pinned: 'focus', offPage: pillOnlyPanels, templates: PILL_TEMPLATES } });
   }
 
   // ---------- alerts ----------

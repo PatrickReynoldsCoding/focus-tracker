@@ -273,13 +273,20 @@ function withChangeJournal_(fn) {
   }
 }
 
-/** Put rows back as they were before the recorded changes, newest change first. */
+/** Put rows (and settings recorded for undo) back as they were before the recorded changes, newest change first. */
 function revertChanges_(changes) {
   changes.slice().reverse().forEach(function (c) {
     if (c.op === 'insert') new Table(c.table, ['id']).remove(c.id);
     else if (c.op === 'update') new Table(c.table, ['id']).update(c.id, c.before);
     else if (c.op === 'remove') new Table(c.table, Object.keys(c.row)).insertMany([c.row]);
+    else if (c.op === 'setting') setSettingsWithUndo_(settingValue_(c.key, c.before));
   });
+}
+
+function settingValue_(key, value) {
+  var values = {};
+  values[key] = value;
+  return values;
 }
 
 // How many withLock_ calls are open in this request, so a locked step can call another without waiting on itself.

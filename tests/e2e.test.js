@@ -2164,37 +2164,50 @@ async function waitFor(fn, label, ms = 3000) {
     }
   });
 
-  await step('phone: Edit layout has ▲ ▼ and Remove, the focus stays pinned; the phone order is saved apart from the desktop', async () => {
-    click(tab('Today'));
+  await step('phone: Edit layout on Today points to Today settings; ▲ ▼ and Remove order another page, apart from the desktop', async () => {
+    const project = w.FT.store.projects.find((p) => p.status === 'active' && !w.FT.lockedUntil(p));
+    w.FT.go('project', { id: project.id });
     const desktop = panelIds();
     w.__narrow = true;
+    w.FT.go('today');
     click($('#menuLayoutBtn'));
     assert.strictEqual($('#menuLayoutBtn').textContent, 'Done editing layout');
+    assert.ok($('.editbar [data-act="core.pagerSettings"]') && /Today settings/.test($('.editbar').textContent), 'Edit layout on a phone\'s Today points to Today settings');
+    assert.ok(!$('[data-act="core.movePanel"]') && !$('.editbar [data-act="core.addFeature"]') && $('#app .ppager'), 'no ▲ ▼ for Today: the pills stay');
+    w.FT.go('project', { id: project.id });
     const before = panelIds();
-    assert.strictEqual(before[0], 'focus', 'the pinned focus comes first');
-    assert.ok(!$('.lcell[data-panel="focus"] [data-act="core.movePanel"]') && /Pinned at the top/.test($('.lcell[data-panel="focus"] .pedit').textContent), 'and has no ▲ ▼');
-    const rest = before.slice(1);
-    assert.ok(rest.length >= 3, 'others to move: ' + rest.join(','));
-    assert.ok($('.lcell[data-panel="' + rest[0] + '"] [data-act="core.movePanel"][data-d="-1"]').disabled, 'the first cannot go up');
-    click($('.lcell[data-panel="' + rest[0] + '"] [data-act="core.movePanel"][data-d="1"]'));
-    const want = ['focus', rest[1], rest[0]].concat(rest.slice(2));
+    assert.ok(before.length >= 3, 'panels to move: ' + before.join(','));
+    assert.ok($('.lcell[data-panel="' + before[0] + '"] [data-act="core.movePanel"][data-d="-1"]').disabled, 'the first cannot go up');
+    click($('.lcell[data-panel="' + before[0] + '"] [data-act="core.movePanel"][data-d="1"]'));
+    const want = [before[1], before[0]].concat(before.slice(2));
     assert.deepStrictEqual(panelIds(), want, 'moved down at once');
-    await waitFor(() => JSON.stringify((serverData().layout['today.phone'] || []).filter((id) => want.includes(id) && id !== 'focus')) === JSON.stringify(want.slice(1)), 'the phone order reached the server');
+    await waitFor(() => JSON.stringify((serverData().layout['project.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the phone order reached the server');
     click($('#menuLayoutBtn'));
     assert.ok(!$('.pedit'), 'leaving Edit layout');
     w.__narrow = false;
     w.FT.render();
     assert.deepStrictEqual(panelIds(), desktop, 'the desktop keeps its own order');
+    w.FT.go('today');
   });
 
   const chips = () => $$('#app .pchip');
   const chipIds = () => chips().map((c) => c.dataset.id);
   const chosenChip = () => chips().find((c) => c.getAttribute('aria-selected') === 'true').dataset.id;
-  const shownPanels = () => $$('#app .ppanel').filter((p) => !p.hidden).map((p) => p.dataset.panel);
+  const shownPanels = () => $$('#app .ppanel .pitem').map((p) => p.dataset.panel);
+  const savedPills = () => serverData().layout['today.pills'];
+  const pillCards = () => $$('#app .ts-pill').map((c) => c.dataset.id);
+  const openTodaySettings = () => { click($('#app .pgear')); assert.ok($('#app .tsettings'), 'Today settings is open'); };
+  const doneWithSettings = () => { click($('#app .ts-bar [data-act="layout.pillsDone"].btn')); assert.ok($('#app .ppager'), 'back to the pills'); };
+  const swipe = (el, dx) => { touch(el, 'touchstart', 200, 300); touch(el, 'touchend', 200 + dx, 305); };
+  const panelArea = () => $('#app .ppanels');
+  let defaultIds = null;
 
-  await step('phone Today: the focus pinned and short, a chip per panel in the phone order with counts, one panel at a time', async () => {
+  await step('phone Today: with no pills saved, each panel on Today is its own pill in the phone order, with counts; the focus is pinned and short', async () => {
+    await w.FT.rpc('layout', 'saveOrder', { page: 'today', order: ['todos', 'habits'] });
+    await w.FT.reload();
     w.__narrow = true;
     w.FT.render();
+    assert.strictEqual(savedPills(), undefined, 'no pills saved yet');
     assert.ok($('.ppinned .fcompact .fc-name') && $('.ppinned [data-act="today.start"]'), 'the pinned focus: its name and Start');
     assert.ok(/Next/.test($('.ppinned .fc-next').textContent), 'and the next action');
     assert.ok(!$('.ppinned [data-act="today.swap"]'), 'the rest waits behind More');
@@ -2202,41 +2215,45 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('.ppinned [data-act="today.swap"]') && $('.ppinned-more').getAttribute('aria-expanded') === 'true', 'More shows the whole focus');
     click($('.ppinned-more'));
     assert.ok($('.ppinned .fcompact'), 'Less goes back');
-    const order = (serverData().layout['today.phone'] || []).filter((id) => chipIds().includes(id));
-    assert.deepStrictEqual(chipIds().slice(0, order.length), order, 'chips follow the phone order (▲ ▼)');
-    assert.ok(!chipIds().includes('focus'), 'the pinned focus has no chip');
+    assert.deepStrictEqual(chipIds().slice(0, 2), ['todos', 'habits'], 'pills follow the phone order');
+    assert.ok(!chipIds().includes('focus'), 'the pinned focus has no pill');
+    const someday = w.FT.store.lists.find((l) => l.name === 'Someday ideas');
+    assert.ok(chipIds().includes('list-' + someday.id), 'a list on Today is a pill of its own');
     const openTodos = w.FT.store.todos.items.filter((t) => !t.done && (!t.day || t.day <= w.FT.store.todos.day)).length;
     assert.strictEqual($('.pchip[data-id="todos"] .pcount').textContent, String(openTodos), 'To-dos shows how many are open');
     assert.ok(/^\d+\/\d+$/.test($('.pchip[data-id="habits"] .pcount').textContent), 'Habits shows done of how many');
-    assert.strictEqual($('.pchip[data-id="rotation"]').textContent, 'Rotation', 'a short name');
-    assert.strictEqual(shownPanels().length, 1, 'one panel at a time');
+    assert.strictEqual($('.pchip[data-id="rotation"]').textContent, 'Rotation', 'named after the panel');
+    assert.ok($('#app .pchips > .pgear'), '⚙ at the end of the row');
+    assert.strictEqual(shownPanels().length, 1, 'one panel in each pill');
     click($('.pchip[data-id="habits"]'));
-    assert.deepStrictEqual(shownPanels(), ['habits'], 'a chip shows its panel');
+    assert.deepStrictEqual(shownPanels(), ['habits'], 'a pill shows its panels');
     assert.strictEqual($('.pchip[data-id="habits"]').getAttribute('aria-selected'), 'true');
+    assert.strictEqual(d.activeElement, $('.pchip[data-id="habits"]'), 'focus stays on the pill');
     w.FT.render();
-    assert.strictEqual(chosenChip(), 'habits', 'the chosen panel is remembered');
+    assert.strictEqual(chosenChip(), 'habits', 'the chosen pill is remembered');
+    defaultIds = Array.from(w.FT.pills.list('today'), (p) => p.id);
+    assert.ok(defaultIds.includes('stale') && !chipIds().includes('stale'), 'Not touched has its pill, left out of the row while nothing is stale');
   });
 
-  await step('phone Today: a swipe on the panel changes panel and stops at the ends; a swipe on the focus changes tab', async () => {
+  await step('phone Today: a swipe on the panels changes pill and stops at the ends; a swipe on the focus changes tab', async () => {
     const ids = chipIds();
     click($('.pchip[data-id="' + ids[0] + '"]'));
-    const swipe = (el, dx) => { touch(el, 'touchstart', 200, 300); touch(el, 'touchend', 200 + dx, 305); };
-    const panelArea = () => $('#app .ppanel:not([hidden])');
     swipe(panelArea(), -120);
-    assert.deepStrictEqual(shownPanels(), [ids[1]], 'a swipe to the left shows the next panel');
+    assert.strictEqual(chosenChip(), ids[1], 'a swipe to the left shows the next pill');
     assert.strictEqual(w.FT.state.view, 'today', 'and stays on Today');
     swipe(panelArea(), 120);
-    assert.deepStrictEqual(shownPanels(), [ids[0]], 'a swipe to the right goes back');
+    assert.strictEqual(chosenChip(), ids[0], 'a swipe to the right goes back');
     swipe(panelArea(), 120);
-    assert.deepStrictEqual(shownPanels(), [ids[0]], 'the first panel is the end: no tab change');
+    assert.strictEqual(chosenChip(), ids[0], 'the first pill is the end: no tab change');
     assert.strictEqual(w.FT.state.view, 'today');
     click(chips()[chips().length - 1]);
     swipe(panelArea(), -120);
-    assert.strictEqual(w.FT.state.view, 'today', 'nor past the last panel');
+    assert.strictEqual(w.FT.state.view, 'today', 'nor past the last pill');
     $('.pchip[aria-selected="true"]').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    assert.strictEqual(chosenChip(), ids[0], 'Home on the chips goes to the first');
+    assert.strictEqual(chosenChip(), ids[0], 'Home on the pills goes to the first');
     chips()[0].dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     assert.strictEqual(chosenChip(), ids[1], 'the arrow keys move along them');
+    assert.strictEqual(d.activeElement, $('.pchip[data-id="' + ids[1] + '"]'), 'and focus follows');
     swipe($('.ppinned .fc-name'), -120);
     // the Projects tab, or the project it was left on (it reopens that one)
     await waitFor(() => ['projects', 'project'].includes(w.FT.state.view), 'a swipe on the pinned focus goes to the next tab');
@@ -2268,7 +2285,7 @@ async function waitFor(fn, label, ms = 3000) {
     w.FT.render();
     assert.ok(!$('#popRoot .popwin') && !$('.ppinned .popslot'), 'back on a phone: no window and no placeholder');
     assert.ok($('.ppinned .fcompact #timer') && $$('#timer').length === 1, 'the pinned focus draws in place, one session clock');
-    assert.deepStrictEqual(chipIds(), chipsBefore, 'the chips are unchanged');
+    assert.deepStrictEqual(chipIds(), chipsBefore, 'the pills are unchanged');
     w.__narrow = false;
     w.FT.render();
     assert.ok($('#popRoot .popwin[data-key="today::focus"]') && $('#app .lcell[data-panel="focus"] .popslot'), 'wide again, the window is back');
@@ -2283,65 +2300,266 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => !w.FT.store.today.session && $('.ppinned [data-act="today.start"]'), 'the session deleted');
   });
 
-  const placeInRow = (els, axis) => els.forEach((el, i) => {
-    el.getBoundingClientRect = () => axis === 'x' ? { left: i * 100, right: i * 100 + 90, width: 90, top: 0, bottom: 44, height: 44 }
-      : { left: 0, right: 390, width: 390, top: i * 200, bottom: i * 200 + 180, height: 180 };
+  const placeInColumn = (els) => els.forEach((el, i) => {
+    el.getBoundingClientRect = () => ({ left: 0, right: 390, width: 390, top: i * 200, bottom: i * 200 + 180, height: 180 });
   });
 
-  await step('phone: press and hold a chip, then drag it, reorders the chips and saves the phone order', async () => {
+  await step('phone: holding a pill does nothing; a finger that moves before the hold is a scroll; press and hold a panel on another page moves it', async () => {
     const ids = chipIds();
-    // where the pinned focus sits among the panels drawn now (a saved panel not drawn now, such as stale, keeps its own place)
-    const focusAmongDrawn = () => serverData().layout['today.phone'].filter((id) => id === 'focus' || ids.includes(id)).indexOf('focus');
-    const focusAt = focusAmongDrawn();
-    const undrawn = serverData().layout['today.phone'].filter((id) => id !== 'focus' && !ids.includes(id));
-    placeInRow(chips(), 'x');
-    const first = chips()[0];
-    touch(first, 'touchstart', 40, 20);
-    touch(first, 'touchmove', 46, 22);
-    await sleep(LONG_PRESS_WAIT);
-    assert.ok(first.classList.contains('lifted') && d.body.classList.contains('reordering'), 'a short wobble does not stop the hold, and the chip lifts');
-    const move = touch(first, 'touchmove', ids.length * 100 + 50, 20);
-    assert.ok(move.defaultPrevented, 'the page does not scroll while a chip is dragged');
-    touch(first, 'touchend', ids.length * 100 + 50, 20);
-    const want = ids.slice(1).concat([ids[0]]);
-    assert.deepStrictEqual(chipIds(), want, 'the chip is last at once');
-    assert.ok(!d.body.classList.contains('reordering'));
-    await waitFor(() => JSON.stringify((serverData().layout['today.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the new order reached the server');
-    assert.ok(focusAt !== -1 && focusAmongDrawn() === focusAt, 'the pinned focus keeps its place in the order');
-    assert.ok(undrawn.every((id) => serverData().layout['today.phone'].includes(id)), 'saved panels not drawn now keep a place: ' + undrawn);
-  });
-
-  await step('phone: a finger that moves before the hold is a scroll; press and hold a panel on another page moves it', async () => {
-    const ids = chipIds();
-    placeInRow(chips(), 'x');
     touch(chips()[0], 'touchstart', 40, 20);
-    touch(chips()[0], 'touchmove', 40, 60);
     await sleep(LONG_PRESS_WAIT);
-    assert.ok(!$('.lifted'), 'moving first cancels the hold');
-    touch(chips()[0], 'touchend', 40, 60);
+    assert.ok(!$('.lifted') && !d.body.classList.contains('reordering'), 'pills are ordered in Today settings, not by a long press');
+    touch(chips()[0], 'touchend', 40, 20);
     assert.deepStrictEqual(chipIds(), ids, 'nothing moved');
 
     const project = w.FT.store.projects.find((p) => p.status === 'active' && !w.FT.lockedUntil(p));
     w.FT.go('project', { id: project.id });
     const cells = $$('#app .lflow > .lcell');
     const before = cells.map((c) => c.dataset.panel);
-    placeInRow(cells, 'y');
+    placeInColumn(cells);
+    const grab = cells[0].querySelector('.label, h2') || cells[0];
+    touch(grab, 'touchstart', 100, 20);
+    touch(grab, 'touchmove', 100, 60);
+    await sleep(LONG_PRESS_WAIT);
+    assert.ok(!$('.lifted'), 'moving first cancels the hold');
+    touch(grab, 'touchend', 100, 60);
     const editor = cells.map((c) => c.querySelector('[contenteditable="true"], input, textarea, button')).find(Boolean);
     touch(editor, 'touchstart', 100, 100);
     await sleep(LONG_PRESS_WAIT);
     assert.ok(!$('.lifted'), 'a field, button or editor keeps its own long press');
     touch(editor, 'touchend', 100, 100);
-    const grab = cells[0].querySelector('.label, h2') || cells[0];
     touch(grab, 'touchstart', 100, 20);
+    touch(grab, 'touchmove', 104, 24);
     await sleep(LONG_PRESS_WAIT);
-    assert.ok(cells[0].classList.contains('lifted'), 'the panel lifts');
-    touch(grab, 'touchmove', 100, 330);
+    assert.ok(cells[0].classList.contains('lifted') && d.body.classList.contains('reordering'), 'a short wobble does not stop the hold, and the panel lifts');
+    const move = touch(grab, 'touchmove', 100, 330);
+    assert.ok(move.defaultPrevented, 'the page does not scroll while a panel is dragged');
     touch(grab, 'touchend', 100, 330);
     const want = [before[1], before[0]].concat(before.slice(2));
     assert.deepStrictEqual(panelIds(), want, 'dropped below the next panel at once');
     await waitFor(() => JSON.stringify((serverData().layout['project.phone'] || []).filter((id) => want.includes(id))) === JSON.stringify(want), 'the project page\'s phone order reached the server');
+    w.FT.go('today');
+  });
+
+  await step('Today settings: ⚙ and the ☰ item open it in the page\'s place; Done and the phone\'s back button leave it', async () => {
+    openTodaySettings();
+    assert.ok(!$('#app .ppager') && !$('#app .reminders'), 'in the page\'s place');
+    assert.strictEqual($('#app .ts-bar h2').textContent, 'Today settings');
+    assert.deepStrictEqual(pillCards(), defaultIds, 'it lists the pills, the ones made from the panels too');
+    assert.ok($('#app .ts-pill[data-id="habits"] .ts-grip') && $('#app .ts-pill[data-id="habits"] [data-act="layout.pillEdit"]'), 'each with ⠿, ▲ ▼ and Edit');
+    assert.ok($('#app .tsettings[data-noswipe]'), 'a swipe there does not change tab');
+    assert.ok($('#menuLayoutBtn').hidden, 'Edit layout is not offered there');
+    doneWithSettings();
+    await sleep(50);
+    w.FT.go('lists');
+    assert.ok(!$('#menuPagerSettings').hidden && $('#menuPagerSettings').textContent === 'Today settings', 'the phone menu has Today settings');
+    click($('#menuBtn'));
+    click($('#menuPagerSettings'));
+    assert.ok(w.FT.state.view === 'today' && $('#app .tsettings'), 'from another tab it opens on Today');
+    assert.ok(!d.body.classList.contains('menuopen'), 'and the menu closes');
+    w.history.back();
+    await waitFor(() => !$('#app .tsettings') && $('#app .ppager'), 'the phone\'s back button leaves it');
+    assert.strictEqual(w.FT.state.view, 'today');
+    openTodaySettings();
+    d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.ok(!$('#app .tsettings') && $('#app .ppager'), 'so does Esc');
+    await sleep(50);
+  });
+
+  let groceries = null, morningId = null;
+
+  await step('Today settings: a new pill holds Habits and a list that is not on Today, in its order; it is saved for the mode and shows both, stacked', async () => {
+    groceries = await w.FT.rpc('lists', 'create', { name: 'Groceries' });
+    const listPanel = 'list-' + groceries.id;
+    openTodaySettings();
+    click($('#app [data-act="layout.pillNew"]'));
+    assert.strictEqual($('#dlg-heading').textContent, 'New pill');
+    assert.ok($('.dialog.sheet') && !$('[data-act="layout.sheetDelete"]'), 'a sheet, with no Delete for a new pill');
+    assert.deepStrictEqual($$('#ps-add .ps-kind').map((k) => k.textContent), ['Panels', 'Lists', 'Whiteboards'], 'what can be added, grouped');
+    assert.ok($('#ps-add [data-act="layout.sheetAdd"][data-id="' + listPanel + '"]'), 'every list is offered, also one not on Today');
+    assert.ok(!$('#ps-add [data-id="focus"]'), 'but not the pinned focus');
+    setVal($('#dlg-pname'), 'Morning');
+    click($('#ps-icons [data-icon="☀️"]'));
+    assert.strictEqual($('#ps-icons [data-icon="☀️"]').getAttribute('aria-pressed'), 'true', 'an icon');
+    click($('#ps-add [data-id="habits"]'));
+    click($('#ps-add [data-id="' + listPanel + '"]'));
+    const inPill = () => $$('#ps-in [data-panel]').map((r) => r.dataset.panel);
+    assert.deepStrictEqual(inPill(), ['habits', listPanel], 'added in the order tapped');
+    assert.ok(!$('#ps-add [data-id="habits"]'), 'and no longer offered');
+    assert.strictEqual($('#dlg-pname').value, 'Morning', 'the name stays while panels are added');
+    click($('#ps-in [data-panel="' + listPanel + '"] [data-act="layout.sheetMove"][data-d="-1"]'));
+    assert.deepStrictEqual(inPill(), [listPanel, 'habits'], '▲ moves a panel up');
+    assert.strictEqual(d.activeElement, $('#ps-in [data-panel="' + listPanel + '"] [data-act="layout.sheetMove"][data-d="1"]'), 'at the top, focus moves to its ▼');
+    click(d.activeElement);
+    assert.deepStrictEqual(inPill(), ['habits', listPanel], '▼ moves it back');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'the sheet closes');
+    assert.ok(/Pill “Morning” added/.test($('#toast').textContent), 'it says so');
+    const card = $$('#app .ts-pill').find((c) => /Morning/.test(c.textContent));
+    assert.ok(card && /☀️ Morning/.test(card.querySelector('.ts-name').textContent), 'the pill is in the list at once');
+    assert.deepStrictEqual(Array.from(card.querySelectorAll('.ts-tag')).map((t) => t.textContent), ['Habits', 'Groceries'], 'with its panels as tags');
+    await waitFor(() => (savedPills() || []).some((p) => p.name === 'Morning'), 'the pill reached the server');
+    const morning = savedPills().find((p) => p.name === 'Morning');
+    morningId = morning.id;
+    assert.deepStrictEqual([morning.icon, morning.panels], ['☀️', ['habits', listPanel]]);
+    assert.deepStrictEqual(savedPills().slice(0, -1).map((p) => p.id), defaultIds, 'the pills it had are saved as they were');
+    assert.strictEqual(JSON.parse(JSON.stringify(server.run("bootstrap('work')"))).data.layout['today.pills'], undefined, 'Work keeps its own');
+    doneWithSettings();
+    click($('.pchip[data-id="' + morningId + '"]'));
+    assert.deepStrictEqual(shownPanels(), ['habits', listPanel], 'the pill shows both panels, one under the other');
+    assert.ok($('.pchip[data-id="' + morningId + '"] .picon').textContent === '☀️' && /Morning/.test($('.pchip[data-id="' + morningId + '"]').textContent), 'its icon and name');
+    assert.ok($('#app .pitem[data-panel="' + listPanel + '"] .label') && /Groceries/.test($('#app .pitem[data-panel="' + listPanel + '"]').textContent), 'the list draws in the pill');
+    assert.ok($('.pchip[data-id="habits"]'), 'Habits is still in its own pill too');
     w.__narrow = false;
-    click(tab('Today'));
+    w.FT.render();
+    assert.ok(!panelIds().includes(listPanel), 'the desktop\'s Today does not show the list');
+    w.__narrow = true;
+    w.FT.render();
+  });
+
+  await step('Today settings: ▲ ▼ and a drag by ⠿ reorder the pills, at once and on the server', async () => {
+    openTodaySettings();
+    const start = pillCards();
+    click($('#app .ts-pill[data-id="' + start[0] + '"] [data-act="layout.pillMove"][data-d="1"]'));
+    let want = [start[1], start[0]].concat(start.slice(2));
+    assert.deepStrictEqual(pillCards(), want, '▼ moves it at once');
+    assert.strictEqual(d.activeElement, $('#app .ts-pill[data-id="' + start[0] + '"] [data-act="layout.pillMove"][data-d="1"]'), 'the button keeps focus');
+    await waitFor(() => JSON.stringify(savedPills().map((p) => p.id)) === JSON.stringify(want), '▼ reached the server');
+    click($('#app .ts-pill[data-id="' + start[0] + '"] [data-act="layout.pillMove"][data-d="-1"]'));
+    assert.deepStrictEqual(pillCards(), start, '▲ moves it back');
+    await waitFor(() => JSON.stringify(savedPills().map((p) => p.id)) === JSON.stringify(start), '▲ reached the server');
+    placeInColumn($$('#app .ts-pill'));
+    const grip = $('#app .ts-pill[data-id="' + start[0] + '"] .ts-grip');
+    const pointer = (el, type, y) => { const e = new w.Event(type, { bubbles: true, cancelable: true }); e.clientX = 20; e.clientY = y; e.pointerId = 1; e.button = 0; el.dispatchEvent(e); return e; };
+    const down = pointer(grip, 'pointerdown', 20);
+    assert.ok(down.defaultPrevented && $('#app .ts-pill[data-id="' + start[0] + '"]').classList.contains('lifted'), 'held by ⠿, the card lifts');
+    pointer(grip, 'pointermove', 500);
+    pointer(grip, 'pointerup', 500);
+    want = [start[1], start[2], start[0]].concat(start.slice(3));
+    assert.deepStrictEqual(pillCards(), want, 'dropped below the third card at once');
+    assert.ok(!$('.lifted') && !d.body.classList.contains('reordering'));
+    await waitFor(() => JSON.stringify(savedPills().map((p) => p.id)) === JSON.stringify(want), 'the drag reached the server');
+    doneWithSettings();
+    assert.deepStrictEqual(chipIds(), want.filter((id) => chipIds().includes(id)), 'the row follows the new order');
+  });
+
+  await step('Today settings: Edit renames and takes a panel out (an empty name falls back to the first panel\'s); Delete shows Undo', async () => {
+    openTodaySettings();
+    click($('#app .ts-pill[data-id="' + morningId + '"] [data-act="layout.pillEdit"]'));
+    assert.strictEqual($('#dlg-heading').textContent, 'Edit pill');
+    assert.ok($('.dialog .dlg-head [data-act="layout.sheetDelete"]'), 'Delete sits beside the title');
+    assert.strictEqual($('#dlg-pname').value, 'Morning');
+    setVal($('#dlg-pname'), '   ');
+    click($('#ps-in [data-panel="habits"] [data-act="layout.sheetRemove"]'));
+    assert.ok($('#ps-add [data-id="habits"]'), 'taken out, it is offered again');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'the sheet closes');
+    assert.strictEqual($('#app .ts-pill[data-id="' + morningId + '"] .ts-name').textContent, '☀️ Groceries', 'named after its first panel');
+    await waitFor(() => { const p = savedPills().find((x) => x.id === morningId); return p.name === 'Groceries' && p.panels.join() === 'list-' + groceries.id; }, 'the edit reached the server');
+    click($('#app .ts-pill[data-id="' + morningId + '"] [data-act="layout.pillEdit"]'));
+    click($('[data-act="layout.sheetDelete"]'));
+    assert.ok(!$('.dialog') && !$('#app .ts-pill[data-id="' + morningId + '"]'), 'gone at once');
+    assert.ok(/Pill “Groceries” deleted/.test($('#toast').textContent) && $('#toast .toastbtn').textContent === 'Undo', 'with the Undo message');
+    await waitFor(() => !savedPills().some((p) => p.id === morningId), 'the delete reached the server');
+    click($('#toast .toastbtn'));
+    await waitFor(() => $('#app .ts-pill[data-id="' + morningId + '"]'), 'Undo brings the pill back');
+    assert.ok(/Undone: Pill change/.test($('#toast').textContent));
+    assert.ok(savedPills().some((p) => p.id === morningId), 'on the server too');
+  });
+
+  const templateNames = () => $$('#app [data-act="layout.pillTemplate"]').map((b) => b.getAttribute('aria-label').replace('Add the pill ', ''));
+  const switchMode = async (mode) => {
+    setVal($('#modeSelect'), mode, 'change');
+    await waitFor(() => d.body.dataset.mode === mode && w.FT.ready && w.FT.state.view === 'today' && $('#app .ppager'), mode + ' loaded on Today');
+  };
+
+  await step('Today settings: Quick add makes a pill in one tap, and offers only templates whose panels exist', async () => {
+    assert.deepStrictEqual(templateNames(), ['Routine', 'Shopping', 'Thinking', 'Week']);
+    click($$('#app [data-act="layout.pillTemplate"]').find((b) => /Shopping/.test(b.getAttribute('aria-label'))));
+    assert.ok(/Pill “Shopping” added/.test($('#toast').textContent));
+    const card = $$('#app .ts-pill .ts-name').find((n) => n.textContent === '🛒 Shopping');
+    assert.ok(card, 'in the list at once');
+    await waitFor(() => (savedPills() || []).some((p) => p.name === 'Shopping'), 'the pill reached the server');
+    assert.deepStrictEqual(savedPills().find((p) => p.name === 'Shopping').panels, ['list-' + groceries.id, 'todos'], 'with the list that sounds like shopping, and the to-dos');
+    doneWithSettings();
+    await switchMode('work');
+    openTodaySettings();
+    assert.deepStrictEqual(templateNames(), ['Routine', 'Week'], 'a mode with no lists has no Shopping or Thinking');
+    doneWithSettings();
+    await switchMode('personal');
+  });
+
+  await step('a pill whose list was deleted leaves it out quietly; a pill left with no panels offers Add panels', async () => {
+    await w.FT.rpc('lists', 'remove', { id: groceries.id });
+    const shopping = savedPills().find((p) => p.name === 'Shopping');
+    click($('.pchip[data-id="' + shopping.id + '"]'));
+    assert.deepStrictEqual(shownPanels(), ['todos'], 'Shopping shows its to-dos, without the deleted list');
+    click($('.pchip[data-id="' + morningId + '"]'));
+    assert.ok(/has no panels yet/.test($('#app .ppanel').textContent), 'a pill whose only panel is gone says so');
+    click($('#app .ppanel [data-act="core.pagerSettings"][data-edit="' + morningId + '"]'));
+    assert.ok($('#app .tsettings') && $('#dlg-heading').textContent === 'Edit pill' && !$$('#ps-in [data-panel]').length, 'Add panels opens its sheet, with nothing in it');
+    click($('#dlg-cancel'));
+    assert.deepStrictEqual(Array.from($('#app .ts-pill[data-id="' + shopping.id + '"]').querySelectorAll('.ts-tag'), (t) => t.textContent), ['To-dos'], 'its card lists what is left');
+    doneWithSettings();
+    assert.strictEqual(errors.length, 0, 'and nothing breaks');
+  });
+
+  await step('Today settings: counts, swiping and the remembered pill can be switched off', async () => {
+    openTodaySettings();
+    const toggle = (name, on) => { const box = $('#ts-' + name); box.checked = on; box.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    assert.ok(['pillCounts', 'pillSwipe', 'pillLast'].every((name) => $('#ts-' + name).checked && $('#ts-' + name).getAttribute('role') === 'switch'), 'all on at first');
+    toggle('pillCounts', false);
+    assert.strictEqual(d.activeElement, $('#ts-pillCounts'), 'the switch keeps focus');
+    await waitFor(() => (serverData().layout['today.view'] || {}).pillCounts === 'off', 'saved for the mode');
+    doneWithSettings();
+    assert.ok(!$('#app .pcount'), 'no counts on the pills');
+    openTodaySettings();
+    toggle('pillCounts', true);
+    toggle('pillSwipe', false);
+    doneWithSettings();
+    assert.ok($('#app .pchip[data-id="todos"] .pcount'), 'counts are back');
+    assert.ok(panelArea().hasAttribute('data-noswipe') && !$('#app .pswipehint'), 'swiping is off');
+    const before = chosenChip();
+    swipe($('#app .ppanel'), -120);
+    assert.strictEqual(chosenChip(), before, 'a swipe on the panels does not change pill');
+    assert.strictEqual(w.FT.state.view, 'today', 'nor tab');
+    openTodaySettings();
+    toggle('pillSwipe', true);
+    doneWithSettings();
+    click(chips()[2]);
+    const third = chipIds()[2];
+    await waitFor(() => w.FT.pendingSaves() === 0, 'saved');
+    await switchMode('work');
+    await switchMode('personal');
+    assert.strictEqual(chosenChip(), third, 'the app opens on the pill used last');
+    openTodaySettings();
+    toggle('pillLast', false);
+    doneWithSettings();
+    click(chips()[1]);
+    await waitFor(() => (serverData().layout['today.view'] || {}).pillLast === 'off', 'saved');
+    await switchMode('work');
+    await switchMode('personal');
+    assert.strictEqual(chosenChip(), chipIds()[0], 'switched off, it opens on the first pill');
+    openTodaySettings();
+    toggle('pillLast', true);
+    doneWithSettings();
+  });
+
+  await step('Today settings: the focus card is compact, full or hidden; hidden, the corner timer still runs', async () => {
+    const size = (value) => { openTodaySettings(); click($('#app [data-act="layout.pillView"][data-name="focusCard"][data-value="' + value + '"]')); assert.strictEqual($('#app [data-act="layout.pillView"][data-value="' + value + '"]').getAttribute('aria-pressed'), 'true'); doneWithSettings(); };
+    size('full');
+    assert.ok($('.ppinned .focus-name') && !$('.ppinned .fcompact') && !$('.ppinned-more'), 'full: the whole focus panel, no More');
+    await waitFor(() => serverData().layout['today.view'].focusCard === 'full', 'saved for the mode');
+    size('hidden');
+    assert.ok(!$('#app .ppinned') && $('#app .pchips'), 'hidden: no focus card, the pills at the top');
+    await w.FT.rpc('today', 'start', { projectId: w.FT.store.today.focusId, plannedMin: 25 });
+    await waitFor(() => !$('#cornerTimer').hidden, 'the corner timer runs during a session');
+    await w.FT.rpc('today', 'discard', {});
+    size('compact');
+    assert.ok($('.ppinned .fcompact') && $('.ppinned-more'), 'compact: the short focus with More');
+    w.__narrow = false;
+    w.FT.render();
+    assert.ok(panelIds().includes('focus') && !$('#app .ppager'), 'the desktop\'s Today is unchanged');
   });
 
   await step('a page whose panels are all removed says so and how to bring them back', async () => {
