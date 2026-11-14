@@ -43,6 +43,9 @@
 .ps-add { display: flex; flex-wrap: wrap; gap: 6px; }
 .ps-add button { border: 1px dashed var(--line-strong); border-radius: 99px; background: var(--surface); color: var(--ink); min-height: 44px; padding: 0 12px; font: inherit; font-size: 14px; cursor: pointer; }
 .ps-add .plus { color: var(--accent); font-weight: 700; }
+.ps-newrow { display: flex; gap: 6px; align-items: center; }
+.ps-newrow input { flex: 1 1 auto; min-width: 0; width: auto; }
+.ps-newrow .btn { flex: none; min-height: 44px; }
 :root[data-theme="eink"] .ts-card, :root[data-theme="eink"] .ts-mini, :root[data-theme="eink"] .ts-seg, :root[data-theme="eink"] .ps-icons button,
 :root[data-theme="eink"] .ps-add button, :root[data-theme="eink"] .ts-addpill { border: 2px solid #000; background: #fff; color: #000; }
 :root[data-theme="eink"] .ts-card { border-width: 3px; }
@@ -64,7 +67,10 @@
  */
 (function () {
   var PILL_ICONS = ['☀️', '✅', '📝', '🛒', '🏠', '💼', '🎯', '🌙', '📋', '🌱'];
-  var KIND_GROUPS = [['panel', 'Panels'], ['list', 'Lists'], ['whiteboard', 'Whiteboards']];
+  var KIND_GROUPS = [['panel', 'Panels'], ['list', 'Lists'], ['todo', 'To-do lists'], ['note', 'Notes'], ['whiteboard', 'Whiteboards']];
+  var KIND_WORDS = { panel: 'panel', list: 'list', todo: 'to-do list', note: 'note', whiteboard: 'whiteboard' };
+  // What the pill's sheet can make on the spot, if the module behind it is installed: [kind, button, needs].
+  var NEW_IN_SHEET = [['', '+ New list', 'lists'], ['todo', '+ New to-do list', 'todos'], ['note', '+ New note', 'notes']];
   var FOCUS_CARD_SIZES = [['compact', 'Compact'], ['full', 'Full'], ['hidden', 'Hidden']];
   var PILL_ROW_SWITCHES = [
     { name: 'pillCounts', label: 'Show counts on pills', hint: 'To-dos left, habits done' },
@@ -248,7 +254,7 @@
     if (!draft.panels.length) return '<p class="empty">Nothing yet. Tap something below to add it.</p>';
     return '<ol class="ts-card ps-in">' + draft.panels.map(function (id, at) {
       var c = choiceById(draft.page, id), name = FT.esc(c.name);
-      return '<li class="ts-row" data-panel="' + FT.esc(id) + '"><div class="ts-grow"><div>' + name + '</div><div class="ps-kind">' + FT.esc(c.kind) + '</div></div>' +
+      return '<li class="ts-row" data-panel="' + FT.esc(id) + '"><div class="ts-grow"><div>' + name + '</div><div class="ps-kind">' + FT.esc(KIND_WORDS[c.kind] || c.kind) + '</div></div>' +
         '<button type="button" class="ts-mini" data-act="layout.sheetMove" data-i="' + at + '" data-d="-1" aria-label="Move ' + name + ' up"' + (at === 0 ? ' disabled' : '') + '>▲</button>' +
         '<button type="button" class="ts-mini" data-act="layout.sheetMove" data-i="' + at + '" data-d="1" aria-label="Move ' + name + ' down"' + (at === draft.panels.length - 1 ? ' disabled' : '') + '>▼</button>' +
         '<button type="button" class="ts-mini" data-act="layout.sheetRemove" data-i="' + at + '" aria-label="Take ' + name + ' out">✕</button></li>';
@@ -266,11 +272,26 @@
     return groups || '<p class="empty">Everything is in this pill.</p>';
   }
 
+  /** "+ New list", "+ New to-do list" and "+ New note"; after one is pressed, the new one's name, Create and Cancel. */
+  function newInSheetHtml() {
+    var offered = NEW_IN_SHEET.filter(function (n) { return FT.lists && FT.store[n[2]] !== undefined; }); // a module this mode loads has a slice
+    if (!offered.length) return '';
+    if (draft.newKind === null) {
+      return '<div class="ps-add">' + offered.map(function (n) {
+        return '<button type="button" data-act="layout.sheetNew" data-kind="' + n[0] + '"><span class="plus" aria-hidden="true">+</span> ' + FT.esc(n[1].slice(2)) + '</button>';
+      }).join('') + '</div>';
+    }
+    var noun = FT.lists.KINDS[draft.newKind].noun;
+    return '<label for="ps-newname">Name of the new ' + noun + '</label><div class="ps-newrow"><input type="text" id="ps-newname" maxlength="80" placeholder="e.g. ' + (draft.newKind === 'note' ? 'Ideas' : draft.newKind === 'todo' ? 'Errands' : 'Read and watch') + '" data-enter="layout.sheetCreate">' +
+      '<button type="button" class="btn primary" data-act="layout.sheetCreate">Create</button><button type="button" class="btn" data-act="layout.sheetNewCancel">Cancel</button></div>';
+  }
+
   function sheetBodyHtml() {
     return '<label for="dlg-pname">Name</label><input type="text" id="dlg-pname" maxlength="' + FT.pills.NAME_MAX + '" placeholder="e.g. Morning" value="' + FT.esc(draft.name) + '">' +
       '<div class="label ps-head" id="ps-iconlabel">Icon</div><div class="ps-icons" id="ps-icons" role="group" aria-labelledby="ps-iconlabel">' + iconsHtml() + '</div>' +
       '<div class="label ps-head">In this pill, top to bottom</div><div id="ps-in">' + inPillHtml() + '</div>' +
-      '<div class="label ps-head">Add</div><div id="ps-add">' + addableHtml() + '</div>';
+      '<div class="label ps-head">Add</div><div id="ps-add">' + addableHtml() + '</div>' +
+      '<div class="ps-kind">Make one</div><div id="ps-new">' + newInSheetHtml() + '</div>';
   }
 
   /** Draw the sheet's parts again after a change, then focus the first button that is not disabled, by the first selector that finds one. */
@@ -279,6 +300,7 @@
     $('ps-icons').innerHTML = iconsHtml();
     $('ps-in').innerHTML = inPillHtml();
     $('ps-add').innerHTML = addableHtml();
+    $('ps-new').innerHTML = newInSheetHtml();
     var target = focusSelectors.map(function (sel) { return document.querySelector('#dialogRoot ' + sel + ':not([disabled])'); }).filter(Boolean)[0];
     if (target) { try { target.focus(); } catch (e) {} }
   }
@@ -288,8 +310,8 @@
     if (pillId && !pill) return;
     if (!pill && FT.pills.list(page).length >= FT.pills.MAX) return;
     draft = pill
-      ? { page: page, id: pill.id, name: pill.name, icon: pill.icon, panels: pill.panels.filter(function (id) { return choiceById(page, id); }), isNew: false }
-      : { page: page, id: FT.newId(), name: '', icon: '', panels: [], isNew: true };
+      ? { page: page, id: pill.id, name: pill.name, icon: pill.icon, panels: pill.panels.filter(function (id) { return choiceById(page, id); }), isNew: false, newKind: null }
+      : { page: page, id: FT.newId(), name: '', icon: '', panels: [], isNew: true, newKind: null };
     var opened = draftJson();
     FT.dialog({
       title: draft.isNew ? 'New pill' : 'Edit pill',
@@ -336,6 +358,27 @@
     draft.panels.push(id);
     redrawSheet([next ? '[data-act="layout.sheetAdd"][data-id="' + next.dataset.id + '"]' : '#ps-add button', '#ps-in [data-panel="' + id + '"] [data-act="layout.sheetRemove"]']);
   });
+  FT.action('layout.sheetNew', function (el) {
+    draft.newKind = el.dataset.kind || '';
+    redrawSheet(['#ps-newname']);
+  });
+  FT.action('layout.sheetNewCancel', function () {
+    draft.newKind = null;
+    redrawSheet(['#ps-new [data-act="layout.sheetNew"]']);
+  });
+  /** Make the list, to-do list or note at once (FT.lists.create draws the page again, so it is one of the pill's choices) and put it in the pill. */
+  function createInSheet() {
+    var input = $('ps-newname'), name = input ? input.value.trim() : '';
+    if (!name || draft.newKind === null) { if (input) input.focus(); return; }
+    readName();
+    var made = FT.lists.create(name, draft.newKind), panelId = 'list-' + made.id;
+    draft.newKind = null;
+    if (choiceById(draft.page, panelId) && draft.panels.indexOf(panelId) === -1) draft.panels.push(panelId);
+    redrawSheet(['#ps-in [data-panel="' + panelId + '"] [data-act="layout.sheetRemove"]', '#ps-new button']);
+  }
+  FT.action('layout.sheetCreate', createInSheet);
+  FT.on('enter', 'layout.sheetCreate', createInSheet);
+
   FT.action('layout.sheetDelete', function () {
     var page = draft.page, id = draft.id, pills = FT.pills.list(page), gone = pills.filter(function (p) { return p.id === id; })[0];
     draft = null;

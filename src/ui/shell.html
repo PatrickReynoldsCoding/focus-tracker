@@ -14,6 +14,7 @@
  *     // things that can be put on that page; add() shows one at once and saves it (see FT.optimistic).
  *     // A Today panel may also give short (its name in a phone's pill), count (a short number on its pill) and kind; see FT.layout.
  *     // 'today.pillPanels' (same shape as 'today.panels') offers panels only a phone's pill shows, such as lists not on Today.
+ *     // 'lists.tab' (same shape) adds panels to the Notes tab after its lists, such as the projects' notes.
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
  *   });
  * Interactions use data attributes handled by delegation:
@@ -219,7 +220,8 @@ var FT = (function () {
     'habits.create': 'Habit added', 'habits.update': 'Habit edit', 'habits.remove': 'Habit deleted', 'habits.tap': 'Habit session', 'habits.setStatus': 'Habit pause or end',
     'habits.move': 'Habit moved', 'habits.plan': 'Plan change', 'habits.copyWeek': 'Plan copied', 'habits.answer': 'Step-up answer',
     'habits.aspire': 'Habit idea added', 'habits.start': 'Habit started', 'habits.acceptLevel': 'New level accepted', 'habits.postponeLevel': 'New level put off',
-    'todos.add': 'To-do added', 'todos.toggle': 'To-do tick', 'todos.remove': 'To-do deleted', 'todos.setDay': 'To-do moved', 'todos.update': 'To-do edit',
+    'todos.add': 'To-do added', 'todos.toggle': 'To-do tick', 'todos.remove': 'To-do deleted', 'todos.setDay': 'To-do moved', 'todos.update': 'To-do edit', 'todos.move': 'To-do moved',
+    'notes.setShowToday': 'Notes on Today',
     'layout.savePills': 'Pill change'
   };
   FT.undoWords = function (action) { return UNDO_WORDS[action] || 'Last change'; };

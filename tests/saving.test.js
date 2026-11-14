@@ -90,11 +90,11 @@ async function waitFor(fn, label, ms = 4000) {
   async function openProject(p, id) {
     await waitFor(() => p.w.FT.ready && p.$('#app'), 'app');
     p.w.FT.go('project', { id: id || projectId });
-    await waitFor(() => p.$('#nt-text') && p.$('#nt-text').getAttribute('contenteditable') === 'true', 'notes editable');
+    await waitFor(() => p.$('.notes-edit') && p.$('.notes-edit').getAttribute('contenteditable') === 'true', 'notes editable');
   }
   /** Type into the notes like a person would: the content changes and an input event fires. No focusout. */
   function type(p, html) {
-    const el = p.$('#nt-text');
+    const el = p.$('.notes-edit');
     el.innerHTML = html;
     el.dispatchEvent(new p.w.Event('input', { bubbles: true }));
   }
@@ -120,7 +120,7 @@ async function waitFor(fn, label, ms = 4000) {
     p = page(saved);
     await openProject(p);
     await waitFor(() => serverNotes() === 'Typed then closed at once', 'the draft was saved on the next visit');
-    assert.ok(p.$('#nt-text').textContent.includes('Typed then closed at once'), 'and is in the editor');
+    assert.ok(p.$('.notes-edit').textContent.includes('Typed then closed at once'), 'and is in the editor');
     await waitFor(() => !Object.keys(p.storage()).some((k) => k.indexOf('ft.draft.') === 0), 'the draft is cleared once saved');
     p.close();
   });
@@ -142,10 +142,10 @@ async function waitFor(fn, label, ms = 4000) {
     await openProject(p);
     net.fail['notes.save'] = 1;
     type(p, '<p>Survives a server error</p>');
-    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    p.$('.notes-edit').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => /not saved/i.test(p.$('#toast').textContent), 'an error message the user can see');
     await waitFor(() => serverNotes() === 'Survives a server error', 'saved by the retry', 9000);
-    await waitFor(() => p.$('#nt-status').textContent === 'Saved', 'and says so');
+    await waitFor(() => p.$('.nt-status').textContent === 'Saved', 'and says so');
     p.close();
   });
 
@@ -155,12 +155,12 @@ async function waitFor(fn, label, ms = 4000) {
     const fresh = page();
     await openProject(fresh);
     type(fresh, '<p>Newer notes from the phone</p>');
-    fresh.$('#nt-text').dispatchEvent(new fresh.w.FocusEvent('focusout', { bubbles: true }));
+    fresh.$('.notes-edit').dispatchEvent(new fresh.w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => serverNotes() === 'Newer notes from the phone', 'the phone saved');
     fresh.close();
     const before = conflictCopies().length;
     type(stale, '<p>Survives a server error</p><p>typed on the old laptop tab</p>');
-    stale.$('#nt-text').dispatchEvent(new stale.w.FocusEvent('focusout', { bubbles: true }));
+    stale.$('.notes-edit').dispatchEvent(new stale.w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => conflictCopies().length === before + 1, 'the other text is kept as a conflict copy');
     const texts = [serverNotes()].concat(conflictCopies().slice(before).map((f) => f.content));
     assert.ok(texts.some((t) => t === 'Newer notes from the phone'), 'the phone\'s notes still exist');
@@ -175,8 +175,8 @@ async function waitFor(fn, label, ms = 4000) {
     await waitFor(() => p.w.FT.ready, 'ready'); // its data has no notes row for the new project
     rpc('notes', 'save', { projectId: id, text: 'Written on another device' });
     p.w.FT.go('project', { id: id });
-    await waitFor(() => p.$('#nt-text') && p.$('#nt-text').getAttribute('contenteditable') === 'true', 'editable');
-    await waitFor(() => p.$('#nt-text').textContent.includes('Written on another device'), 'the existing notes are loaded first');
+    await waitFor(() => p.$('.notes-edit') && p.$('.notes-edit').getAttribute('contenteditable') === 'true', 'editable');
+    await waitFor(() => p.$('.notes-edit').textContent.includes('Written on another device'), 'the existing notes are loaded first');
     p.close();
   });
 
@@ -184,17 +184,17 @@ async function waitFor(fn, label, ms = 4000) {
     const p = page();
     await openProject(p);
     p.w.FT.go('project', { id: otherId });
-    await waitFor(() => p.$('#nt-text'), 'other project');
+    await waitFor(() => p.$('.notes-edit'), 'other project');
     rpc('notes', 'save', { projectId, text: 'Changed on the server' });
     let release; net.hold['notes.get'] = new Promise((r) => { release = r; });
     await p.w.FT.reload(); // fresh data says the notes changed, so the page loads them again when the project opens
     p.w.FT.go('project', { id: projectId });
-    await waitFor(() => p.$('#nt-text'), 'project again');
+    await waitFor(() => p.$('.notes-edit'), 'project again');
     type(p, '<p>Typed while the load was slow</p>');
     delete net.hold['notes.get']; release();
     await sleep(100);
-    assert.ok(p.$('#nt-text').textContent.includes('Typed while the load was slow'), 'the typed text stays on screen');
-    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    assert.ok(p.$('.notes-edit').textContent.includes('Typed while the load was slow'), 'the typed text stays on screen');
+    p.$('.notes-edit').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => serverNotes() === 'Typed while the load was slow' || conflictCopies().some((f) => f.content === 'Typed while the load was slow'), 'and is saved');
     p.close();
   });
@@ -209,7 +209,7 @@ async function waitFor(fn, label, ms = 4000) {
     const drafts = JSON.parse(p.storage()[key]).tabs;
     assert.deepStrictEqual(Object.keys(drafts).length, 2, 'both drafts are kept');
     assert.strictEqual(drafts.otherwindow.text, 'Typed in the other window');
-    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    p.$('.notes-edit').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => serverNotes() === 'Typed in this window', 'saved');
     await waitFor(() => Object.keys(JSON.parse(p.storage()[key] || '{"tabs":{}}').tabs).join() === 'otherwindow', 'only this window\'s draft is dropped');
     p.w.localStorage.removeItem(key);
@@ -221,9 +221,9 @@ async function waitFor(fn, label, ms = 4000) {
     await openProject(p);
     const saved = rpc('notes', 'save', { projectId, text: 'Saved in the pop-out window' }).result;
     p.w.dispatchEvent(new p.w.StorageEvent('storage', { key: 'ft.notes.saved.' + p.w.FT.state.mode + '.' + projectId, newValue: JSON.stringify({ updated: saved.updated, tab: 'popout' }) }));
-    await waitFor(() => p.$('#nt-text').textContent.includes('Saved in the pop-out window'), 'the newer notes are shown');
+    await waitFor(() => p.$('.notes-edit').textContent.includes('Saved in the pop-out window'), 'the newer notes are shown');
     type(p, '<p>Saved in the pop-out window</p><p>and added here</p>');
-    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    p.$('.notes-edit').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
     const copies = conflictCopies().length;
     await waitFor(() => serverNotes() === 'Saved in the pop-out window\nand added here', 'saved on the newer version');
     assert.strictEqual(conflictCopies().length, copies, 'with no conflict');
@@ -286,14 +286,14 @@ async function waitFor(fn, label, ms = 4000) {
   await step('typing saves straight into the notes Doc, formatting and all; "Open in Docs" shows once it exists; Done needs no second write', async () => {
     const p = page();
     await openProject(p, docsId);
-    assert.ok(p.$('#nt-link').hidden, 'no "Open in Docs" before there is a Doc');
+    assert.ok(p.$('.nt-link').hidden, 'no "Open in Docs" before there is a Doc');
     type(p, '<p>First <u>draft</u> in <font color="#2b9a5b">green</font></p>');
-    p.$('#nt-text').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
-    await waitFor(() => serverNotes(docsId) === 'First draft in green' && p.$('#nt-status').textContent === 'Saved', 'saved');
+    p.$('.notes-edit').dispatchEvent(new p.w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => serverNotes(docsId) === 'First draft in green' && p.$('.nt-status').textContent === 'Saved', 'saved');
     const doc = server.docs.docs().find((f) => f.name === 'Saving docs notes');
     assert.ok(doc.content.includes('<u>draft</u>') && doc.content.includes('<span style="color: #2b9a5b">green</span>'), 'the Doc holds the notes with their formatting');
-    await waitFor(() => !p.$('#nt-link').hidden && p.$('#nt-link').href === docOf(docsId), '"Open in Docs" links the Doc');
-    assert.strictEqual(p.$('#nt-link').textContent, 'Open in Docs');
+    await waitFor(() => !p.$('.nt-link').hidden && p.$('.nt-link').href === docOf(docsId), '"Open in Docs" links the Doc');
+    assert.strictEqual(p.$('.nt-link').textContent, 'Open in Docs');
     const before = net.calls.length;
     type(p, '<p>Third edit</p>');
     p.click(p.$('[data-act="notes.done"]'));
@@ -309,15 +309,15 @@ async function waitFor(fn, label, ms = 4000) {
     server.docs.edit(docId, '<p>Third edit</p><p>Added by an assistant in the Doc</p>');
     const p = page();
     await openProject(p, docsId);
-    await waitFor(() => p.$('#nt-text').textContent.includes('Added by an assistant in the Doc'), 'the Doc edit is shown');
+    await waitFor(() => p.$('.notes-edit').textContent.includes('Added by an assistant in the Doc'), 'the Doc edit is shown');
     assert.strictEqual(serverNotes(docsId), 'Third edit\nAdded by an assistant in the Doc');
     // and on a page that already had the notes: opening the project again reads the Doc again
     server.docs.edit(docId, '<p>Third edit</p><p>Added by an assistant in the Doc</p><p>And once more</p>');
     p.w.FT.go('project', { id: projectId });
-    await waitFor(() => p.$('#nt-text') && p.$('#nt-text').dataset.project === projectId, 'another project');
+    await waitFor(() => p.$('.notes-edit') && p.$('.notes-edit').dataset.project === projectId, 'another project');
     p.w.FT.go('project', { id: docsId });
-    await waitFor(() => p.$('#nt-text').textContent.includes('And once more'), 'the newer Doc edit is shown');
-    assert.strictEqual(p.$('#nt-status').textContent, 'Updated from the Google Doc');
+    await waitFor(() => p.$('.notes-edit').textContent.includes('And once more'), 'the newer Doc edit is shown');
+    assert.strictEqual(p.$('.nt-status').textContent, 'Updated from the Google Doc');
     p.close();
   });
 

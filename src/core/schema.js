@@ -7,9 +7,10 @@
  * this list the moment Table.ensure creates it, so adding a tab is one line here and one Table in its module.
  *
  * complete (people tabs only, see core/complete.js):
- *   refs     a row points at another row by id and shows its name: { id, name, table, label, noun, within, first, create }
+ *   refs     a row points at another row by id and shows its name: { id, name, table, label, noun, within, where, first, create }
  *            label: the target's name column (default 'name'); within: the target must share these ids with the row
- *            (a card's column must be on the card's board); first: an empty name and id means the first target by
+ *            (a card's column must be on the card's board); where: the target's columns must hold these values (a
+ *            to-do's list must be a to-do list; empty matches empty); first: an empty name and id means the first target by
  *            order; create: a board with no columns gets one, so an assistant's card always has somewhere to go (the name
  *            for an unnamed one); starter: { owner id column: names } a board of that kind starts with all of these, as
  *            if it had been made in the app (a column named that is not among them is added after them).
@@ -31,6 +32,12 @@ var RESOURCE_TYPES_ = ['link', 'drive', 'phone', 'email', 'text'];
 var HABIT_PERS_ = ['day', 'week'];
 var HABIT_STATUSES_ = ['active', 'paused', 'ended', 'aspiring']; // aspiring: an idea, not started yet (no sessions needed)
 var LINK_TYPES_ = ['blocks', 'relates'];
+// A row of the Lists tab is a list (kind ''), a to-do list ('todo') or a note ('note', its text in a Google Doc).
+var LIST_KINDS_ = ['', 'todo', 'note'];
+var TODO_LIST_KIND_ = 'todo';
+var NOTE_LIST_KIND_ = 'note';
+// A to-do list starts with one group, like a list starts with "Items".
+var FIRST_TODO_GROUP_ = 'General';
 // A project's board starts with these columns: made by the app for a new project, and for a project an assistant typed in.
 var BOARD_COLUMNS_ = ['To do', 'Doing', 'Done'];
 
@@ -80,10 +87,14 @@ var TAB_STYLE = [
     complete: { required: ['title'], fill: { order: 'next', created: 'now' }, check: function (row, look) { return checkCategory_(row, look, false); } } },
   { name: 'Tasks', people: true, color: '#43a047', wrap: ['title', 'note', 'problem'],
     complete: { required: ['title'], fill: { order: 'next', created: 'now' }, oneOf: ['project_id', 'list_id'], html: ['note', 'note_html'],
-      refs: [PROJECT_REF_, { id: 'list_id', name: 'list', table: 'Lists' },
+      refs: [PROJECT_REF_, { id: 'list_id', name: 'list', table: 'Lists', where: { kind: '' } },
         { id: 'column_id', name: 'column', table: 'Columns', within: ['project_id', 'list_id'], first: true, create: 'To do', starter: { project_id: BOARD_COLUMNS_ } }] } },
   { name: 'Lists', people: true, color: '#fdd835', wrap: ['name', 'problem'],
-    complete: { required: ['name'], fill: { order: 'next', created: 'now' }, refs: [PROJECT_REF_] } },
+    complete: { required: ['name'], fill: { order: 'next', created: 'now' }, refs: [PROJECT_REF_],
+      check: function (row) {
+        lowerWord_(row, 'kind');
+        return LIST_KINDS_.indexOf(row.kind || '') === -1 ? 'Kind must be empty (a list), todo or note.' : '';
+      } } },
   { name: 'Resources', people: true, color: '#8e24aa', wrap: ['title', 'value', 'note', 'problem'],
     complete: { required: ['title', 'value'], fill: { added: 'now' }, refs: [PROJECT_REF_],
       check: function (row, look) {
@@ -111,7 +122,9 @@ var TAB_STYLE = [
         return checkCategory_(row, look, false);
       } } },
   { name: 'To-dos', people: true, color: '#00897b', wrap: ['title', 'note', 'problem'],
-    complete: { required: ['title'], fill: { order: 'next', created: 'now' }, refs: [PROJECT_REF_] } },
+    complete: { required: ['title'], fill: { order: 'next', created: 'now' }, html: ['note', 'note_html'],
+      refs: [PROJECT_REF_, { id: 'list_id', name: 'list', table: 'Lists', noun: 'to-do list', where: { kind: TODO_LIST_KIND_ }, first: true },
+        { id: 'group_id', name: 'group', table: 'Columns', within: ['list_id'], first: true, create: FIRST_TODO_GROUP_ }] } },
   { name: 'Whiteboards', people: true, color: '#5e35b1', wrap: ['name', 'problem'],
     complete: { required: ['name'], fill: { created: 'now' }, refs: [PROJECT_REF_],
       check: function (row) { return row.file_id ? '' : 'Whiteboards are made in the app (it makes the drawing file). Delete this row or make the whiteboard there.'; } } },

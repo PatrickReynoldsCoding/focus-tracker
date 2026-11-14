@@ -32,11 +32,12 @@ function kanbanModule() {
     }
     return isList ? { project_id: '', list_id: ownerId } : { project_id: ownerId, list_id: '' };
   }
-  function initBoard_(ownerId, isList, names) {
+  /** ids: optional ids the browser made for the columns, in the order of names. */
+  function initBoard_(ownerId, isList, names, ids) {
     if (columnsOf_(ownerId).length) return;
     var owner = ownerFields_(ownerId, isList);
     COLUMNS.insertMany((names || DEFAULT_COLUMNS).map(function (name, i) {
-      return { project_id: owner.project_id, list_id: owner.list_id, name: name, order: i + 1 };
+      return { id: clientId_((ids || [])[i]), project_id: owner.project_id, list_id: owner.list_id, name: name, order: i + 1 };
     }));
   }
   /** The owner a call names: a.listId for a list's board, a.projectId for a project's. */
@@ -56,8 +57,14 @@ function kanbanModule() {
       };
     },
     api: {
-      /** Give a board its first columns: a.columns (names) or To do / Doing / Done. Does nothing if it has columns. */
-      initProject: function (a) { var o = ownerArg_(a); initBoard_(o.id, o.isList, a.columns); return true; },
+      /**
+       * Give a board its first columns: a.columns (names) or To do / Doing / Done, a.columnIds the ids the browser made
+       * for them (optional). Does nothing if it has columns.
+       */
+      initProject: function (a) { var o = ownerArg_(a); initBoard_(o.id, o.isList, a.columns, a.columnIds); return true; },
+
+      /** A list's or to-do list's groups (its columns), in order: a.listId. For the todos module. */
+      groups: function (a) { return columnsOf_(String(a.listId || '')); },
 
       addColumn: function (a, ctx) {
         var name = clean_(a.name, 60) || 'New column';
@@ -84,7 +91,10 @@ function kanbanModule() {
         return COLUMNS.update(col.id, { order: a.order });
       },
 
-      /** Deleting a column moves its tasks to the column on its left (or right if it is first). Never loses tasks. */
+      /**
+       * Deleting a column moves its tasks to the column on its left (or right if it is first). Never loses tasks. A
+       * to-do list's group moves its to-dos the same way (todos module).
+       */
       deleteColumn: function (a, ctx) {
         var col = COLUMNS.get(a.id);
         assert_(col, 'Column not found.');
@@ -97,6 +107,7 @@ function kanbanModule() {
         TASKS.all().filter(function (t) { return t.column_id === col.id; })
           .sort(function (x, y) { return x.order - y.order; })
           .forEach(function (t) { TASKS.update(t.id, { column_id: target.id, order: order++ }); });
+        if (col.list_id) ctx.optional('todos', 'moveGroup', { from: col.id, to: target.id });
         COLUMNS.remove(col.id);
         ctx.refresh('kanban');
         return true;

@@ -1,33 +1,65 @@
 <style>
-.todos { list-style: none; margin: 0; padding: 0; }
+.todos { list-style: none; margin: 0; padding: 0; min-height: 6px; }
 .todos li { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .todos li:last-child { border-bottom: 0; }
+.todos li.coloured { border-left: 4px solid var(--card); padding-left: 8px; }
 .todos input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; cursor: pointer; }
-.todos .t { min-width: 0; overflow-wrap: anywhere; }
+.todos .t { min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+.todos .t:hover .tt { text-decoration: underline; text-underline-offset: 3px; }
+.todos .tnote { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .todos .when { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
-.todos li.done .t { text-decoration: line-through; color: var(--muted); }
+.todos li.done .tt { text-decoration: line-through; color: var(--muted); }
 .todos .rm { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .todos .rm:hover { background: var(--surface-2); color: var(--ink); }
+.todos .kghost { opacity: 0.4; }
 .todoadd { display: flex; gap: 8px; margin-top: 10px; }
-.todoadd input { flex: 1 1 auto; min-width: 0; width: auto; }
+.todoadd input { flex: 1 1 auto; min-width: 0; width: 0; } /* width 0: the box fills the row but never makes a narrow panel wider */
 .todoadd .btn { flex: none; }
 .todoadd select { flex: none; width: auto; }
-.todos-panel .tophead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+/* A to-do list with one group shows no group header: it looks like a plain list. */
+.todoboard.single > .col { background: transparent; padding: 0; min-height: 0; }
+.todoboard .col { min-height: 0; }
+.todos-panel .tophead { flex-wrap: wrap; }
+.todoboard .addcol { min-height: 40px; }
+.todoboard.single .addcol { margin-top: 8px; border-width: 1px; }
 @media (max-width: 760px) { .todos input[type="checkbox"] { width: 28px; height: 28px; } .todos .rm { min-width: 44px; min-height: 44px; } }
 :root[data-theme="eink"] .todos input[type="checkbox"] { width: 36px; height: 36px; }
+:root[data-theme="eink"] .todos li.coloured { border-left: 4px double #000; }
 </style>
 <script>
 /**
- * Today's To-dos panel (id 'todos'): one-off things, for a day or anytime. Ticking, adding and deleting show at once
- * and are sent with { render: false }; a delete shows the Undo message straight away. Today shows open to-dos for today,
- * earlier days and anytime, and the ones ticked today. FT.todos lets Plan my week (habits module) move and add them.
+ * To-do lists (a row of the Lists tab with kind 'todo'). The lists module draws each one's panel (the Notes tab, Today, a
+ * pill, a project page) and asks this module for its body with FT.todos.bodyHtml(list, where): the list's groups (its
+ * board columns, with the kanban module's header when there are two or more) and their to-dos. On Today (where 'today')
+ * a list shows its open to-dos for today, earlier days and anytime, and the ones ticked today; elsewhere also the ones
+ * for later days. Ticking, adding, moving and deleting show at once and are sent with { render: false }; a delete shows
+ * the Undo message straight away. Clicking a to-do opens the card dialog (FT.kanban.openCard) with its own fields: day,
+ * project and done. FT.todos.add lets Plan my week (habits module) add to-dos, to the first to-do list.
  */
 (function () {
   var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  var addDay = 'today'; // the day picked in the add box, kept while the page redraws
+  var TODO_KIND = 'todo', ON_TODAY = 'today';
+  var ADD_DAYS = [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['', 'Anytime']];
+  var addDayByList = {}; // the day picked in a list's add boxes, kept while the page redraws
+  var sortables = [], lastDragEnd = 0, keeperAdded = false;
 
   function slice() { return FT.store.todos || { day: '', items: [] }; }
   function byId(id) { return slice().items.filter(function (t) { return t.id === id; })[0]; }
+  function byOrder(a, b) { return (a.order || 0) - (b.order || 0); }
+  function todoLists() { return (FT.store.lists || []).filter(function (l) { return l.kind === TODO_KIND; }).slice().sort(byOrder); }
+  function groupsOf(listId) { return ((FT.store.kanban || {}).columns || []).filter(function (c) { return c.owner === listId; }).slice().sort(byOrder); }
+
+  /** The list a to-do shows on: its own, or the first to-do list for one typed before any existed (or whose list is gone). */
+  function listIdOf(t) {
+    var lists = todoLists();
+    if (lists.some(function (l) { return l.id === t.list_id; })) return t.list_id;
+    return lists.length ? lists[0].id : '';
+  }
+  /** The group a to-do shows in: its own, or its list's first group. */
+  function groupIdOf(t, groups) {
+    if (groups.some(function (group) { return group.id === t.group_id; })) return t.group_id;
+    return groups.length ? groups[0].id : '';
+  }
 
   function addDays(day, n) {
     return new Date(Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) + n * 86400000).toISOString().slice(0, 10);
@@ -40,63 +72,107 @@
     return (day < today ? 'From ' : '') + DAY_NAMES[(wd + 6) % 7] + ' ' + Number(day.slice(8, 10));
   }
 
-  function shown() {
-    var s = slice(), today = s.day;
-    return s.items.filter(function (t) { return t.done ? t.done === today : !t.day || t.day <= today; }).sort(function (a, b) {
-      if (!!a.done !== !!b.done) return a.done ? 1 : -1;
-      if (!a.day !== !b.day) return a.day ? -1 : 1;
-      return (a.day || '').localeCompare(b.day || '') || a.order - b.order;
-    });
+  /** Done last; dated ones before anytime ones, by day; then in their order. */
+  function sortTodos(a, b) {
+    if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+    if (!a.day !== !b.day) return a.day ? -1 : 1;
+    return (a.day || '').localeCompare(b.day || '') || a.order - b.order;
+  }
+
+  /** A list's to-dos as a panel shows them: on Today the ones due by today; elsewhere every open one. Both: those ticked today. */
+  function shownOn(where, listId) {
+    var today = slice().day;
+    return slice().items.filter(function (t) {
+      if (listIdOf(t) !== listId) return false;
+      return t.done ? t.done === today : where !== ON_TODAY || !t.day || t.day <= today;
+    }).sort(sortTodos);
   }
 
   function itemHtml(t, today) {
     var id = FT.esc(t.id), done = !!t.done;
-    return '<li class="' + (done ? 'done' : '') + '"><input type="checkbox" aria-label="Done: ' + FT.esc(t.title) + '"' + (done ? ' checked' : '') + ' data-change="todos.tick" data-id="' + id + '">' +
-      '<span class="t">' + FT.linkify(t.title) + '</span><span class="when">' + (done ? 'Done · ' : '') + FT.esc(dayWord(t.day || (done ? today : ''), today)) + '</span>' +
+    var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
+    return '<li class="' + (done ? 'done' : '') + (t.color ? ' coloured' : '') + '" data-id="' + id + '"' + color + '><input type="checkbox" aria-label="Done: ' + FT.esc(t.title) + '"' + (done ? ' checked' : '') + ' data-change="todos.tick" data-id="' + id + '">' +
+      '<span class="t" role="button" tabindex="0" data-act="todos.open" data-id="' + id + '" title="Open this to-do"><span class="tt">' + FT.linkify(t.title) + '</span>' +
+      (t.note ? '<span class="tnote">' + FT.linkify(t.note.slice(0, 120)) + '</span>' : '') + '</span>' +
+      '<span class="when">' + (done ? 'Done · ' : '') + FT.esc(dayWord(t.day || (done ? today : ''), today)) + '</span>' +
       '<button class="rm" data-act="todos.remove" data-id="' + id + '" aria-label="Delete to-do ' + FT.esc(t.title) + '">×</button></li>';
   }
 
-  function panelHtml() {
-    var s = slice(), list = shown();
-    // Plan my week belongs to the habits module; the button shows when it is installed.
-    var plan = FT.slots('today.planWeek').length ? '<span class="actions" style="margin:0"><button class="btn sm" data-act="habits.planWeek">Plan my week</button></span>' : '';
-    return '<section class="panel todos-panel"><div class="tophead"><div class="label">To-dos</div>' + plan + '</div>' +
-      (list.length ? '<ul class="todos">' + list.map(function (t) { return itemHtml(t, s.day); }).join('') + '</ul>'
-        : '<p class="empty" style="padding:4px 0">Nothing to do today. Add one below, or plan the week.</p>') +
-      '<div class="todoadd"><input type="text" id="td-new" placeholder="Add a to-do" aria-label="New to-do" maxlength="200" data-enter="todos.add">' +
-      '<select id="td-day" aria-label="When" data-change="todos.pickDay">' + [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['', 'Anytime']].map(function (o) {
-        return '<option value="' + o[0] + '"' + (o[0] === addDay ? ' selected' : '') + '>' + o[1] + '</option>';
-      }).join('') + '</select><button class="btn" data-act="todos.addBtn">Add</button></div></section>';
+  /** The add box of a group: a title, the day (shared by the list's boxes) and Add. A list with no groups yet adds to its first. */
+  function addHtml(l, group, named) {
+    var key = FT.esc(group ? group.id : l.id), picked = has(addDayByList, l.id) ? addDayByList[l.id] : 'today';
+    var groupAttr = group ? ' data-group="' + FT.esc(group.id) + '"' : '';
+    return '<div class="todoadd"><input type="text" id="td-new-' + key + '" placeholder="Add a to-do" aria-label="New to-do' + (named ? ' in ' + FT.esc(group.name) : '') + '" maxlength="200" data-enter="todos.add" data-list="' + FT.esc(l.id) + '"' + groupAttr + '>' +
+      '<select id="td-day-' + key + '" aria-label="When" data-change="todos.pickDay" data-list="' + FT.esc(l.id) + '">' + ADD_DAYS.map(function (o) {
+        return '<option value="' + o[0] + '"' + (o[0] === picked ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('') + '</select><button class="btn" data-act="todos.addBtn" data-list="' + FT.esc(l.id) + '"' + groupAttr + '>Add</button></div>';
   }
 
-  function todayPanels() {
-    var open = shown().filter(function (t) { return !t.done; }).length;
-    return [{ id: 'todos', title: 'To-dos', description: 'One-off small tasks for today, a day this week or anytime, ticked off as you go.', html: panelHtml(), w: 5, beside: true, count: open || '' }];
+  function groupHtml(l, group, items, groups, where) {
+    var named = groups.length > 1, today = slice().day;
+    var mine = items.filter(function (t) { return groupIdOf(t, groups) === group.id; });
+    var head = named && FT.kanban ? FT.kanban.columnHeadHtml(group, mine.filter(function (t) { return !t.done; }).length, true, 'group') : '';
+    var empty = !named && !items.length ? '<p class="empty" style="padding:4px 0">' + (where === ON_TODAY ? 'Nothing to do today. Add one below, or plan the week.' : 'Nothing on this list. Add one below.') + '</p>' : '';
+    return '<div class="col todogroup" data-colid="' + FT.esc(group.id) + '">' + head + empty +
+      '<ul class="todos" data-todo-group="' + FT.esc(group.id) + '" data-list="' + FT.esc(l.id) + '">' + mine.map(function (t) { return itemHtml(t, today); }).join('') + '</ul>' +
+      addHtml(l, group, named) + '</div>';
   }
 
-  FT.module({ id: 'todos', slots: { 'today.panels': [{ order: 5, render: todayPanels }] } });
+  /** A to-do list's panel body: its groups and to-dos, and + Add group. where: 'today' (Today and pills) or anything else. */
+  function bodyHtml(l, where) {
+    var groups = groupsOf(l.id), items = shownOn(where, l.id);
+    if (!groups.length) {
+      return '<ul class="todos" data-list="' + FT.esc(l.id) + '">' + items.map(function (t) { return itemHtml(t, slice().day); }).join('') + '</ul>' + addHtml(l, null, false);
+    }
+    return '<div class="board vertical todoboard' + (groups.length > 1 ? '' : ' single') + '" data-owner="' + FT.esc(l.id) + '" data-word="group">' +
+      groups.map(function (group) { return groupHtml(l, group, items, groups, where); }).join('') +
+      (FT.kanban ? '<button class="col addcol" data-act="kanban.add-col">+ Add group</button>' : '') + '</div>';
+  }
 
-  /** Add a to-do for an ISO day ('' for anytime). Shows at once. */
-  function add(title, day) {
-    var s = slice();
-    var t = { id: FT.newId(), title: title.slice(0, 200), day: day, done: '', project_id: '', note: '', order: s.items.reduce(function (m, x) { return Math.max(m, x.order); }, 0) + 1 };
+  /** How many to-dos a list has open for today: the count on its pill. */
+  function openCount(l) {
+    return shownOn(ON_TODAY, l.id).filter(function (t) { return !t.done; }).length;
+  }
+
+  /** Plan my week belongs to the habits module; the button shows when it is installed. */
+  function planButtonHtml() {
+    return FT.slots('today.planWeek').length ? '<button class="btn sm" data-act="habits.planWeek">Plan my week</button>' : '';
+  }
+
+  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  FT.module({ id: 'todos' });
+
+  /** Add a to-do for an ISO day ('' for anytime), to a list and group (the first to-do list and its first group if not given). Shows at once. */
+  function add(title, day, listId, groupId) {
+    var s = slice(), list = listId || (todoLists()[0] || {}).id || '';
+    var group = groupId || (groupsOf(list)[0] || {}).id || '';
+    var t = {
+      id: FT.newId(), title: title.slice(0, 200), day: day, done: '', project_id: '', note: '', note_html: '', color: '',
+      list_id: list, group_id: group, order: s.items.reduce(function (m, x) { return Math.max(m, x.order); }, 0) + 1
+    };
     s.items.push(t);
     FT.render();
-    FT.rpc('todos', 'add', { id: t.id, title: t.title, day: day }, { render: false }).catch(FT.saveFailed);
+    var args = { id: t.id, title: t.title, day: day };
+    if (list) args.listId = list;
+    if (group) args.groupId = group;
+    // With no to-do list yet the server makes one; the page shows it once the reply has arrived.
+    FT.rpc('todos', 'add', args, { render: false }).then(function () { if (!list) FT.render(); }, FT.saveFailed);
     return t;
   }
 
-  function addFromBox() {
-    var el = document.getElementById('td-new'), title = el ? el.value.trim() : '';
-    if (!title) return;
-    var today = slice().day;
-    add(title, addDay === 'today' ? today : addDay === 'tomorrow' ? addDays(today, 1) : '');
-    var again = document.getElementById('td-new');
+  function addFromBox(el) {
+    var listId = el.dataset.list, groupId = el.dataset.group || '';
+    var input = document.getElementById('td-new-' + (groupId || listId)), title = input ? input.value.trim() : '';
+    if (!title) { if (input) input.focus(); return; }
+    var today = slice().day, picked = has(addDayByList, listId) ? addDayByList[listId] : 'today';
+    add(title, picked === 'today' ? today : picked === 'tomorrow' ? addDays(today, 1) : '', listId, groupId);
+    var again = document.getElementById('td-new-' + (groupId || listId));
     if (again) again.focus();
   }
   FT.on('enter', 'todos.add', addFromBox);
   FT.action('todos.addBtn', addFromBox);
-  FT.on('change', 'todos.pickDay', function (el) { addDay = el.value; });
+  FT.on('change', 'todos.pickDay', function (el) { addDayByList[el.dataset.list] = el.value; });
 
   FT.on('change', 'todos.tick', function (el) {
     var t = byId(el.dataset.id), today = slice().day;
@@ -115,8 +191,127 @@
     FT.deleted('To-do');
   });
 
+  // ---------- the card dialog: title, group, colour and description, with the to-do's day, project and done ----------
+  /** The days a to-do can be for: anytime, today to the end of next week, and its own day if that has passed. */
+  function dayOptions(t) {
+    var today = slice().day, monday = addDays(today, -((new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7)), last = addDays(monday, 13);
+    var options = [{ value: '', label: 'Anytime' }];
+    if (t.day && t.day < today) options.push({ value: t.day, label: dayWord(t.day, today) + ' (passed)' });
+    for (var day = today; day <= last; day = addDays(day, 1)) options.push({ value: day, label: dayWord(day, today) });
+    return options;
+  }
+
+  function projectOptions(t) {
+    var projects = (FT.store.projects || []).filter(function (p) { return p.status !== 'archived' || p.id === t.project_id; })
+      .slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return [{ value: '', label: 'No project' }].concat(projects.map(function (p) { return { value: p.id, label: p.name }; }));
+  }
+
+  function selectHtml(id, label, options, value) {
+    return '<label for="' + id + '">' + label + '</label><select id="' + id + '">' + options.map(function (o) {
+      return '<option value="' + FT.esc(o.value) + '"' + (o.value === value ? ' selected' : '') + '>' + FT.esc(o.label) + '</option>';
+    }).join('') + '</select>';
+  }
+
+  function todoFieldsHtml(t) {
+    return selectHtml('dlg-tdday', 'When', dayOptions(t), t.day || '') + selectHtml('dlg-tdproject', 'Project', projectOptions(t), t.project_id || '') +
+      '<label class="toggle"><input type="checkbox" id="dlg-tddone"' + (t.done ? ' checked' : '') + '> Done</label>';
+  }
+
+  function todoFieldsNow() {
+    return { day: document.getElementById('dlg-tdday').value, projectId: document.getElementById('dlg-tdproject').value, done: document.getElementById('dlg-tddone').checked };
+  }
+
+  /** A to-do's description for the editor: its formatted note, or the plain one from an older to-do. */
+  function noteHtmlOf(t) {
+    return t.note_html || (t.note ? '<p>' + FT.esc(t.note) + '</p>' : '');
+  }
+
+  FT.action('todos.open', function (el) {
+    if (Date.now() - lastDragEnd < 400 || !FT.kanban) return; // the click that ends a drag is not a click on the to-do
+    var t = byId(el.dataset.id);
+    if (!t) return;
+    var groups = groupsOf(listIdOf(t));
+    FT.kanban.openCard({ title: t.title, color: t.color, note_html: noteHtmlOf(t), columnId: groupIdOf(t, groups) }, {
+      heading: 'To-do', word: 'group',
+      columns: groups.map(function (group) { return { value: group.id, label: group.name }; }),
+      extraHtml: todoFieldsHtml(t),
+      extraState: function () { var now = todoFieldsNow(); return [now.day, now.projectId, now.done].join('|'); },
+      save: function (card) { saveCard(t, card, todoFieldsNow()); }
+    });
+  });
+
+  function saveCard(t, card, fields) {
+    var today = slice().day, project = FT.project(fields.projectId);
+    var before = { title: t.title, color: t.color, note_html: t.note_html, note: t.note, group_id: t.group_id, list_id: t.list_id, day: t.day, project_id: t.project_id, project: t.project, done: t.done };
+    var args = { id: t.id, title: card.title, color: card.color, noteHtml: card.noteHtml, day: fields.day, projectId: fields.projectId, groupId: card.columnId, done: fields.done };
+    FT.optimistic(function () {
+      t.title = card.title; t.color = card.color; t.note_html = card.noteText ? card.noteHtml : ''; t.note = card.noteText;
+      t.group_id = card.columnId; t.list_id = listIdOf(t); t.day = fields.day; t.project_id = fields.projectId; t.project = project ? project.name : '';
+      if (fields.done !== !!before.done) t.done = fields.done ? today : '';
+      return function () { Object.keys(before).forEach(function (field) { t[field] = before[field]; }); };
+    }, function () { return FT.rpc('todos', 'update', args, { render: false }); }).catch(function () {});
+  }
+
+  // ---------- drag and drop: a to-do moves within its group or to another group of its list ----------
+  /** A place between two neighbours: halfway between their orders, so no other to-do has to change. */
+  function orderBetween(before, after) {
+    if (before && after) return (before.order + after.order) / 2;
+    if (before) return before.order + 1;
+    if (after) return after.order - 1;
+    return 1;
+  }
+
+  function moveTodo(t, groupId, neighbourIds) {
+    var at = neighbourIds.indexOf(t.id);
+    var before = byId(neighbourIds[at - 1]), after = byId(neighbourIds[at + 1]);
+    var was = { group_id: t.group_id, order: t.order, list_id: t.list_id };
+    FT.optimistic(function () {
+      t.list_id = listIdOf(t); t.group_id = groupId; t.order = orderBetween(before, after);
+      return function () { t.group_id = was.group_id; t.order = was.order; t.list_id = was.list_id; };
+    }, function () { return FT.rpc('todos', 'move', { id: t.id, groupId: groupId, order: t.order }, { render: false }); }).catch(function () {});
+  }
+
+  function makeSortable(listEl) {
+    return window.Sortable.create(listEl, {
+      group: 'todos-' + listEl.dataset.list, animation: 150, delay: 180, delayOnTouchOnly: true,
+      filter: 'input, .rm', preventOnFilter: false, ghostClass: 'kghost', chosenClass: 'kchosen',
+      onStart: function () { FT.state.dragging = true; },
+      onEnd: function (evt) {
+        lastDragEnd = Date.now();
+        FT.state.dragging = false;
+        var t = byId(evt.item.dataset.id), moved = evt.from !== evt.to || evt.oldIndex !== evt.newIndex;
+        var ids = Array.prototype.map.call(evt.to.querySelectorAll(':scope > li[data-id]'), function (li) { return li.dataset.id; });
+        if (t && moved && evt.to.dataset.todoGroup) moveTodo(t, evt.to.dataset.todoGroup, ids);
+        else FT.dragEnded();
+      }
+    });
+  }
+
+  FT.onRender(function () {
+    // A deleted group's to-dos move with it (kanban's column delete); registered once the kanban module has loaded.
+    if (!keeperAdded && FT.kanban && FT.kanban.keepsColumnItems) {
+      keeperAdded = true;
+      FT.kanban.keepsColumnItems({
+        count: function (groupId) { return slice().items.filter(function (t) { return t.group_id === groupId; }).length; },
+        move: function (fromId, toId) {
+          var moved = slice().items.filter(function (t) { return t.group_id === fromId; });
+          moved.forEach(function (t) { t.group_id = toId; });
+          return function () { moved.forEach(function (t) { t.group_id = fromId; }); };
+        }
+      });
+    }
+    sortables.forEach(function (sortable) { sortable.destroy(); });
+    sortables = [];
+    if (!window.Sortable) return;
+    Array.prototype.forEach.call(document.querySelectorAll('#app .todos[data-todo-group], #popRoot .todos[data-todo-group]'), function (listEl) { sortables.push(makeSortable(listEl)); });
+  });
+
   FT.todos = {
     add: add,
+    bodyHtml: bodyHtml,
+    openCount: openCount,
+    planButtonHtml: planButtonHtml,
     /** Move a to-do to an ISO day, or anytime with ''. */
     setDay: function (id, day) {
       var t = byId(id);

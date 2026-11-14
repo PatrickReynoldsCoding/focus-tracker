@@ -6,7 +6,7 @@
  * 2026-11-14 say `hidden` instead; they are read as removed and written with the new word on the next save.
  * A phone shows panels one under the other in its own order, a row of its own: layout.<page>.phone = ["id", ...],
  * which reaches the page as { '<page>.phone': [...] } next to the pages.
- * A page's view choices (the Projects tab's status filter, whether projects show their next action) are a row of their own
+ * A page's view choices (the Projects tab's status filter, whether projects show their next action, the Notes tab's Show project notes) are a row of their own
  * too: layout.<page>.view = {"status":["active"]}, reaching the page as { '<page>.view': {...} }. Reset leaves them.
  * A phone's pills (Today): layout.<page>.pills = [{ "id", "name", "icon", "panels": ["habits", "list-ab12cd34"] }], the
  * pills in order, each a name, an icon (or "") and the panels it shows, top to bottom. Saving them can be undone. Their
@@ -72,7 +72,7 @@ function layoutModule() {
   var MAX_VIEW_LIST = 10;
   var MAX_VIEW_TEXT = 60;
   var ON_OFF = ['on', 'off'];
-  var VIEW_CHOICES_BY_NAME = { focusCard: ['compact', 'full', 'hidden'], pillCounts: ON_OFF, pillSwipe: ON_OFF, pillLast: ON_OFF, nextAction: ['shown', 'hidden'] };
+  var VIEW_CHOICES_BY_NAME = { focusCard: ['compact', 'full', 'hidden'], pillCounts: ON_OFF, pillSwipe: ON_OFF, pillLast: ON_OFF, projectNotes: ON_OFF, nextAction: ['shown', 'hidden'] };
 
   var PILLS = '.pills';
   var MAX_PILLS = 12;

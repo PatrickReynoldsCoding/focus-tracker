@@ -46,17 +46,56 @@
 .rotq .arrows button { border: 1px solid color-mix(in srgb, var(--rot-c) 55%, var(--line-strong)); background: transparent; color: inherit; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 16px; }
 .rotq .arrows button:hover { background: color-mix(in srgb, var(--rot-c) 18%, transparent); }
 @media (prefers-reduced-motion: reduce) { .rotq .rotbody { transition: none; } }
+.notes-intro .tophead { flex-wrap: wrap; }
+.notes-intro .actions { flex-wrap: wrap; }
+.notes-intro .toggle { margin-top: 10px; }
 </style>
 <script>
+/**
+ * The Notes tab (module id 'lists', page key 'lists'): every row of the Lists tab in its order, each its own panel,
+ * drawn by kind: a list (its groups and items, a vertical Kanban board), a to-do list (FT.todos.bodyHtml) or a note (an
+ * editor of its Google Doc, FT.notes.blockHtml). With "Show project notes" on (the default; saved per mode as
+ * layout.lists.view {"projectNotes":"on"|"off"}), each project's notes follow as panels too (slot 'lists.tab').
+ * Any of them can be shown on Today (show_today), put in a phone's pill, or linked to a project, whose page then shows it.
+ * FT.lists.create makes one on screen at once and saves it behind (the Notes tab and Today settings' pill sheet use it).
+ */
 (function () {
   var DEFAULT_SECONDS = 30;
   var COLORS = [['', 'No colour'], ['1', 'Teal'], ['2', 'Amber'], ['3', 'Blue'], ['4', 'Red'], ['5', 'Purple'], ['6', 'Green'], ['7', 'Grey'], ['8', 'Orange']];
+  var LIST = '', TODO = 'todo', NOTE = 'note';
+  // What each kind is called, and the first group a new one gets (as lists/server.js and FIRST_TODO_GROUP_ make them).
+  var KINDS = {
+    '': { noun: 'list', title: 'List', firstGroup: 'Items', panelKind: 'list' },
+    todo: { noun: 'to-do list', title: 'To-do list', firstGroup: 'General', panelKind: 'todo' },
+    note: { noun: 'note', title: 'Note', firstGroup: '', panelKind: 'note' }
+  };
+  var VIEW_KEY = 'lists.view', PROJECT_NOTES_ON = 'on', PROJECT_NOTES_OFF = 'off';
+  var ON_TODAY = 'today';
 
   function lists() { return FT.store.lists || []; }
+  function kindOf(l) { return KINDS[l.kind || ''] ? l.kind || '' : LIST; }
+  function kindWords(l) { return KINDS[kindOf(l)]; }
+  function byId(id) { return lists().filter(function (x) { return x.id === id; })[0]; }
+
+  var PANEL_CLASS_BY_KIND = { '': ' plainlist', todo: ' todos-panel', note: ' notelist-panel' };
 
   /** Opening tag of a list's panel, tinted with its colour. */
   function panelOpen(l) {
-    return l.color ? '<section class="panel listpanel tinted" style="--list-c: var(--cat-' + FT.esc(l.color) + ')">' : '<section class="panel listpanel">';
+    var classes = 'panel listpanel' + PANEL_CLASS_BY_KIND[kindOf(l)];
+    return l.color ? '<section class="' + classes + ' tinted" style="--list-c: var(--cat-' + FT.esc(l.color) + ')">' : '<section class="' + classes + '">';
+  }
+
+  /** What a panel holds below its head, by kind. where: 'today' on Today and in pills; 'tab' or 'project' elsewhere. */
+  function bodyHtml(l, where) {
+    var kind = kindOf(l);
+    // A module this mode loads has a slice in the store.
+    if (kind === TODO) return FT.todos && FT.store.todos ? FT.todos.bodyHtml(l, where) : missingHtml('To-dos');
+    if (kind === NOTE) return FT.notes && FT.store.notes ? FT.notes.blockHtml(l.id, l.name) : missingHtml('Notes');
+    return FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' });
+  }
+
+  function missingHtml(feature) {
+    return '<p class="empty">The ' + feature + ' feature is not installed in this mode.</p>';
   }
 
   // ---------- one item at a time (Today) ----------
@@ -92,7 +131,7 @@
 
   function quoteBodyHtml(l, r) {
     var task = (FT.store.kanban.tasks || []).filter(function (t) { return t.id === r.order[r.at]; })[0];
-    if (!task) return '<p class="empty" style="padding:0">No items yet. Add some on the Lists tab.</p>';
+    if (!task) return '<p class="empty" style="padding:0">No items yet. Add some on the Notes tab.</p>';
     return '<blockquote role="button" tabindex="0" data-act="kanban.open-card" data-id="' + FT.esc(task.id) + '" title="Open this item"><span class="rq">' + FT.linkify(task.title) + '</span></blockquote>' +
       (task.note_html ? '<div class="rotdesc">' + task.note_html + '</div>' : '');
   }
@@ -130,7 +169,7 @@
   setInterval(function () {
     if (FT.state.dragging || document.querySelector('.dialog') || document.documentElement.dataset.theme === 'eink') return; // e-ink: no self-changing screen; use ‹ ›
     Array.prototype.forEach.call(document.querySelectorAll('#app [data-rotate], #popRoot [data-rotate]'), function (panel) {
-      var l = lists().filter(function (x) { return x.id === panel.dataset.rotate; })[0];
+      var l = byId(panel.dataset.rotate);
       if (l && Date.now() - rotationOf(l).since >= secondsOf(l) * 1000) rotate(l, 1);
     });
   }, 1000);
@@ -139,43 +178,63 @@
     return '<button class="btn sm listgear" data-act="lists.settings" data-id="' + FT.esc(l.id) + '" aria-label="Settings for ' + FT.esc(l.name) + '">⚙ Settings</button>';
   }
 
-  function listPanel(l) {
+  /** A list's panel on the Notes tab: its name to edit in place, badges, ⚙ Settings, Delete, then what it holds. */
+  function tabPanel(l) {
     var id = FT.esc(l.id);
     return panelOpen(l) + '<div class="listhead">' +
-      '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="List name" data-change="lists.rename" data-id="' + id + '">' +
-      (l.display === 'one' && l.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '') +
+      '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="' + kindWords(l).title + ' name" data-change="lists.rename" data-id="' + id + '">' +
+      (kindOf(l) === LIST && l.display === 'one' && l.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '') +
       linkedBadge(l) +
       gearButton(l) +
-      '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete list ' + FT.esc(l.name) + '">Delete</button></div>' +
-      FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
+      '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete ' + kindWords(l).noun + ' ' + FT.esc(l.name) + '">Delete</button></div>' +
+      bodyHtml(l, 'tab') + '</section>';
   }
+
+  /** "Show project notes" on the Notes tab: on unless turned off, per mode. */
+  function projectNotesShown() {
+    var view = (FT.store.layout || {})[VIEW_KEY] || {};
+    return view.projectNotes !== PROJECT_NOTES_OFF;
+  }
+
+  var TAB_DESCRIPTIONS = { '': 'A list, with its groups and items.', todo: 'A to-do list, with its groups and to-dos.', note: 'A note, kept as a Google Doc.' };
 
   function tabHtml() {
-    var all = lists();
-    var head = '<section class="panel"><div class="tophead"><div class="label">Lists</div><button class="btn sm primary" data-act="lists.add">+ New list</button></div>' +
-      (all.length ? '<p class="empty" style="padding:0">Lists are for things that are not projects: reading, ideas, things to keep in mind. Use ⚙ Settings to colour a list or show it on the Today tab.</p>'
-                  : '<p class="empty">No lists yet. Make one for reading, ideas or things to keep in mind.</p>') + '</section>';
-    return FT.layout('lists', [{ id: 'head', title: 'Lists intro', description: 'What lists are for, and + New list.', html: head, w: 12 }].concat(all.map(function (l) {
-      return { id: 'list-' + l.id, title: l.name, description: 'A list, with its groups and items.', html: listPanel(l), w: 6 };
-    })));
+    var all = lists(), shown = projectNotesShown();
+    var head = '<section class="panel notes-intro"><div class="tophead"><div class="label">Notes</div><span class="actions" style="margin:0">' +
+      '<button class="btn sm primary" data-act="lists.add" data-kind="note">+ New note</button>' +
+      '<button class="btn sm" data-act="lists.add" data-kind="">+ New list</button>' +
+      '<button class="btn sm" data-act="lists.add" data-kind="todo">+ New to-do list</button></span></div>' +
+      (all.length ? '<p class="empty" style="padding:0">Notes, lists and to-do lists that are not projects: ideas, reading, things to keep in mind, errands. Use ⚙ Settings to colour one, show it on Today or link it to a project.</p>'
+                  : '<p class="empty">Nothing here yet. Make a note, a list for reading or ideas, or a to-do list.</p>') +
+      '<label class="toggle"><input type="checkbox" data-change="lists.projectNotes"' + (shown ? ' checked' : '') + '> Show project notes</label></section>';
+    var projectNotes = shown ? FT.slots('lists.tab').reduce(function (panels, s) { return panels.concat(s.render(FT) || []); }, []) : [];
+    return FT.layout('lists', [{ id: 'head', title: 'Notes intro', description: 'What the Notes tab holds, + New note, list or to-do list, and Show project notes.', html: head, w: 12 }].concat(all.map(function (l) {
+      return { id: 'list-' + l.id, title: l.name, description: TAB_DESCRIPTIONS[kindOf(l)], html: tabPanel(l), w: 6 };
+    })).concat(projectNotes));
   }
 
-  /** A list linked to a project says so on the Lists tab, as a way to that project's page. */
+  /** A list linked to a project says so on the Notes tab, as a way to that project's page. */
   function linkedBadge(l) {
     var p = l.project_id && FT.project(l.project_id);
     return p ? '<button class="modebadge" data-act="lists.openProject" data-id="' + FT.esc(p.id) + '" title="Also shown on this project\'s page">' + FT.esc(p.name) + '</button>' : '';
   }
 
   /** The list as a panel on another page (Today, a project), without the name field and Delete. */
-  function compactPanel(l) {
-    return panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' + gearButton(l) + '</div>' +
-      FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
+  function compactPanel(l, where) {
+    var plan = kindOf(l) === TODO && where === ON_TODAY && FT.todos ? FT.todos.planButtonHtml() : '';
+    return panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div><span class="actions" style="margin:0">' + plan + gearButton(l) + '</span></div>' +
+      bodyHtml(l, where) + '</section>';
   }
 
-  /** A list as a panel on Today, without the list controls. */
+  var TODAY_DESCRIPTIONS = { '': 'A list from the Notes tab.', todo: 'A to-do list from the Notes tab: tick off, add for today, tomorrow or anytime.', note: 'A note from the Notes tab, kept as a Google Doc.' };
+
+  /** A list as a panel on Today (or in a pill). A to-do list sits beside the focus by default, as the To-dos panel did. */
   function todayPanel(l) {
-    if (l.display === 'one') return { id: 'list-' + l.id, kind: 'list', title: l.name, description: 'One item of this list at a time.', w: 5, html: quotePanelHtml(l) };
-    return { id: 'list-' + l.id, kind: 'list', title: l.name, description: 'A list from the Lists tab.', w: 6, html: compactPanel(l) };
+    var kind = kindOf(l), panel = { id: 'list-' + l.id, kind: KINDS[kind].panelKind, title: l.name, description: TODAY_DESCRIPTIONS[kind], w: 6, html: compactPanel(l, ON_TODAY) };
+    if (kind === LIST && l.display === 'one') return Object.assign(panel, { description: 'One item of this list at a time.', w: 5, html: quotePanelHtml(l) });
+    if (kind === TODO) return Object.assign(panel, { w: 5, beside: true, count: FT.todos ? FT.todos.openCount(l) || '' : '' });
+    if (kind === NOTE) return Object.assign(panel, { w: 7 });
+    return panel;
   }
 
   /** On Today, each list marked for it shows as its own panel. */
@@ -191,7 +250,7 @@
   /** On a project's page, the lists linked to it: one panel each, with a stable id so its place can be saved. */
   function projectPanels(p) {
     return lists().filter(function (l) { return l.project_id === p.id; }).map(function (l) {
-      return { id: 'list-' + l.id, title: l.name, description: 'A list linked to this project.', w: 6, html: compactPanel(l) };
+      return { id: 'list-' + l.id, title: l.name, description: 'A ' + kindWords(l).noun + ' linked to this project.', w: 6, html: compactPanel(l, 'project') };
     });
   }
 
@@ -205,11 +264,11 @@
     }, function () { return FT.rpc('lists', fn, args, { render: false }); }).catch(function () {});
   }
 
-  /** Add feature on Today: every list not shown there. */
+  /** Add feature on Today: every list, to-do list and note not shown there. */
   function addableToday() {
     return lists().filter(function (l) { return !l.show_today; }).map(function (l) {
       var p = l.project_id && FT.project(l.project_id);
-      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: 'List' + (p ? ' on ' + p.name : '') + ', shown on Today as its own panel.',
+      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: kindWords(l).title + (p ? ' on ' + p.name : '') + ', shown on Today as its own panel.',
         add: function () { setList(l, { show_today: 'yes' }, 'showToday', { id: l.id, on: true }); } };
     });
   }
@@ -218,43 +277,85 @@
   function addableProject(FT, project) {
     if (!project) return [];
     return lists().filter(function (l) { return !l.project_id || !FT.project(l.project_id); }).map(function (l) {
-      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: 'List not linked to a project yet. Adding links it to ' + project.name + '.',
+      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: kindWords(l).title + ' not linked to a project yet. Adding links it to ' + project.name + '.',
         add: function () { setList(l, { project_id: project.id, project: project.name }, 'setProject', { id: l.id, projectId: project.id }); } };
     });
   }
 
   FT.module({
     id: 'lists',
-    tab: { title: 'Lists', order: 25, render: tabHtml },
+    tab: { title: 'Notes', order: 25, render: tabHtml },
     slots: {
       'today.panels': [{ order: 10, render: todayPanels }], 'today.pillPanels': [{ order: 10, render: pillPanels }], 'project.page': [{ order: 30, render: projectPanels }],
       'addable.today': [{ order: 10, render: addableToday }], 'addable.project': [{ order: 10, render: addableProject }]
     }
   });
 
+  /**
+   * Make a list (kind ''), a to-do list ('todo') or a note ('note'): it shows at once with an id made here (and a list's
+   * first group too), and is saved behind. Returns the new row.
+   */
+  function create(name, kind) {
+    var words = KINDS[kind] || KINDS[LIST];
+    var l = {
+      id: FT.newId(), name: String(name).trim().slice(0, 80), kind: kind, project: '', project_id: '', show_today: '', display: '', seconds: 0, color: '',
+      order: lists().reduce(function (m, x) { return Math.max(m, x.order || 0); }, 0) + 1, created: new Date().toISOString()
+    };
+    var groupId = words.firstGroup ? FT.newId() : '';
+    FT.store.lists = lists().concat([l]);
+    if (groupId) {
+      FT.store.kanban = FT.store.kanban || { columns: [], tasks: [] };
+      FT.store.kanban.columns.push({ id: groupId, owner: l.id, list_id: l.id, project_id: '', name: words.firstGroup, order: 1 });
+    }
+    FT.render();
+    var args = { id: l.id, name: l.name, kind: kind };
+    if (groupId) args.groupId = groupId;
+    FT.rpc('lists', 'create', args, { render: false }).catch(FT.saveFailed);
+    return l;
+  }
+  FT.lists = { create: create, KINDS: KINDS };
+
   FT.action('lists.open', function () { FT.go('lists'); });
   FT.action('lists.openProject', function (el) { FT.go('project', { id: el.dataset.id }); });
   FT.action('lists.rotate', function (el) {
-    var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
+    var l = byId(el.dataset.id);
     if (l) rotate(l, Number(el.dataset.d));
   });
 
-  FT.action('lists.add', function () {
+  var NEW_PLACEHOLDERS = { '': 'e.g. Read and watch', todo: 'e.g. Packing for the trip', note: 'e.g. Ideas' };
+
+  FT.action('lists.add', function (el) {
+    var kind = KINDS[el.dataset.kind || ''] ? el.dataset.kind || '' : LIST, words = KINDS[kind];
     FT.dialog({
-      title: 'New list',
-      submit: 'Create list',
-      fields: [{ id: 'name', label: 'Name', placeholder: 'e.g. Read and watch' }],
-      onSubmit: function (v) { return FT.rpc('lists', 'create', { name: v.name }, { quiet: true }); }
+      title: 'New ' + words.noun,
+      submit: 'Create ' + words.noun,
+      fields: [{ id: 'name', label: 'Name', placeholder: NEW_PLACEHOLDERS[kind], maxlength: 80 }],
+      onSubmit: function (v) {
+        if (!v.name) throw new Error('A ' + words.noun + ' needs a name.');
+        create(v.name, kind);
+      }
     });
   });
 
   FT.on('change', 'lists.rename', function (el) {
-    var name = el.value.trim();
-    if (!name) { FT.render(); return; }
-    FT.rpc('lists', 'rename', { id: el.dataset.id, name: name }, { render: false }).catch(function () { FT.reload(); });
+    var name = el.value.trim(), l = byId(el.dataset.id);
+    if (!name || !l) { FT.render(); return; }
+    l.name = name.slice(0, 80);
+    FT.rpc('lists', 'rename', { id: l.id, name: name }, { render: false }).catch(FT.saveFailed);
   });
 
-  // ---------- list settings: name, colour (with a live preview) and Show on Today ----------
+  /** Show project notes, or not: shown at once, saved for the mode. */
+  FT.on('change', 'lists.projectNotes', function (el) {
+    var change = { projectNotes: el.checked ? PROJECT_NOTES_ON : PROJECT_NOTES_OFF };
+    FT.store.layout = FT.store.layout || {};
+    var before = FT.store.layout[VIEW_KEY];
+    FT.optimistic(function () {
+      FT.store.layout[VIEW_KEY] = Object.assign({}, before || {}, change);
+      return function () { if (before) FT.store.layout[VIEW_KEY] = before; else delete FT.store.layout[VIEW_KEY]; };
+    }, function () { return FT.rpc('layout', 'saveView', { page: 'lists', view: change }, { render: false }); }).catch(function () {});
+  });
+
+  // ---------- list settings: name, colour (with a live preview), Show on Today, linked project; a list's display ----------
   function swatchesHtml(current) {
     return '<label>Colour</label><div class="swatches" role="radiogroup" aria-label="List colour">' + COLORS.map(function (c) {
       return '<label title="' + c[1] + '"><input type="radio" name="dlg-listcolor" value="' + c[0] + '"' + ((current || '') === c[0] ? ' checked' : '') + ' aria-label="' + c[1] + '">' +
@@ -296,20 +397,22 @@
   }
 
   FT.action('lists.settings', function (el) {
-    var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
+    var l = byId(el.dataset.id);
     if (!l) return;
+    var isList = kindOf(l) === LIST, words = kindWords(l);
     FT.dialog({
-      title: 'List settings',
+      title: words.title + ' settings',
       wide: true,
       fields: [{ id: 'listname', label: 'Name', value: l.name },
-        { id: 'listproject', label: 'Linked project (the list also shows on its page)', type: 'select', value: l.project_id || '', options: projectOptions(l) }],
-      after: displayHtml(l) + swatchesHtml(l.color) + previewHtml(l) +
-        '<label class="toggle"><input type="checkbox" id="dlg-showtoday"' + (l.show_today ? ' checked' : '') + '> Show this list on Today</label>',
+        { id: 'listproject', label: 'Linked project (the ' + words.noun + ' also shows on its page)', type: 'select', value: l.project_id || '', options: projectOptions(l) }],
+      after: (isList ? displayHtml(l) : '') + swatchesHtml(l.color) + (isList ? previewHtml(l) : '') +
+        '<label class="toggle"><input type="checkbox" id="dlg-showtoday"' + (l.show_today ? ' checked' : '') + '> Show this ' + words.noun + ' on Today</label>',
       onOpen: function () {
         showPreview(l.color || '');
         Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-listcolor"]'), function (radio) {
           radio.addEventListener('change', function () { showPreview(radio.value); });
         });
+        if (!isList) return;
         var secs = document.getElementById('dlg-secsrow');
         function syncDisplay() { secs.hidden = !document.querySelector('input[name="dlg-display"][value="one"]').checked; }
         Array.prototype.forEach.call(document.querySelectorAll('input[name="dlg-display"]'), function (radio) { radio.addEventListener('change', syncDisplay); });
@@ -319,15 +422,17 @@
         });
       },
       onSubmit: function (v) {
-        if (!v.listname) throw new Error('A list needs a name.');
+        if (!v.listname) throw new Error('A ' + words.noun + ' needs a name.');
         var picked = document.querySelector('input[name="dlg-listcolor"]:checked');
         var color = picked ? picked.value : '', showToday = document.getElementById('dlg-showtoday').checked;
-        var display = document.querySelector('input[name="dlg-display"]:checked').value;
-        var seconds = Number(document.getElementById('dlg-seconds').value);
+        var displayPicked = document.querySelector('input[name="dlg-display"]:checked');
+        var display = displayPicked ? displayPicked.value : (l.display || '');
+        var secondsField = document.getElementById('dlg-seconds');
+        var seconds = secondsField ? Number(secondsField.value) : secondsOf(l);
         if (display === 'one' && !(Math.floor(seconds) === seconds && seconds >= 5 && seconds <= 3600)) throw new Error('Show each item for 5 to 3600 seconds.');
         if (display !== 'one') seconds = secondsOf(l);
         var changes = [];
-        if (display !== (l.display || '') || seconds !== secondsOf(l)) changes.push(['setDisplay', { id: l.id, display: display, seconds: seconds }]);
+        if (isList && (display !== (l.display || '') || seconds !== secondsOf(l))) changes.push(['setDisplay', { id: l.id, display: display, seconds: seconds }]);
         if (v.listname !== l.name) changes.push(['rename', { id: l.id, name: v.listname }]);
         if (color !== (l.color || '')) changes.push(['setColor', { id: l.id, color: color }]);
         if (showToday !== !!l.show_today) changes.push(['showToday', { id: l.id, on: showToday }]);
@@ -342,20 +447,29 @@
     });
   });
 
+  /** What deleting takes with it, by kind. */
+  function deleteText(l) {
+    var name = '"' + FT.esc(l.name) + '"';
+    if (kindOf(l) === NOTE) return 'Delete the note ' + name + '? Its Google Doc goes to Drive\'s bin. You can undo this.';
+    if (kindOf(l) === TODO) return 'Delete the to-do list ' + name + ' and its to-dos? You can undo this.';
+    return 'Delete ' + name + ' and everything in it? You can undo this.';
+  }
+
   FT.action('lists.remove', function (el) {
-    var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
+    var l = byId(el.dataset.id);
     if (!l) return;
+    var words = kindWords(l);
     FT.dialog({
-      title: 'Delete list',
-      body: '<p>Delete "' + FT.esc(l.name) + '" and everything in it? You can undo this.</p>',
-      submit: 'Delete list', danger: true,
+      title: 'Delete ' + words.noun,
+      body: '<p>' + deleteText(l) + '</p>',
+      submit: 'Delete ' + words.noun, danger: true,
       onSubmit: function () {
         var before = FT.store.lists;
         FT.optimistic(function () {
           FT.store.lists = before.filter(function (x) { return x.id !== l.id; });
           return function () { FT.store.lists = before; };
         }, function () { return FT.rpc('lists', 'remove', { id: l.id }); }).catch(function () {});
-        FT.deleted('List');
+        FT.deleted(words.title);
       }
     });
   });

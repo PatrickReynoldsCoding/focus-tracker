@@ -107,6 +107,8 @@ function v1Server() {
 
 // v5: the notes file's columns went when its text moved into the notes Doc (checked in the v5 test below).
 const NOTES_MOVED_INTO_THE_DOC = ['file_id', 'file_url', 'updated'];
+// v6: the to-dos became the to-do list "To-dos" (with its first group) and Today's own note the note "Today notes".
+const ADDED_BY_V6 = { Lists: 2, Columns: 1 };
 
 /** Every v1 value is in the v2 tab, under its v2 column name; a list's board moved from project_id to list_id. */
 function assertNoDataLost(s) {
@@ -133,7 +135,7 @@ function assertNoDataLost(s) {
         }
       });
     });
-    assert.strictEqual(rowsOf(sh).length, V1[tab].length - 1, tab + ': no rows added or lost');
+    assert.strictEqual(rowsOf(sh).length, V1[tab].length - 1 + (ADDED_BY_V6[tab] || 0), tab + ': no rows added or lost');
   });
 }
 
@@ -155,13 +157,13 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.deepStrictEqual(sh.Projects.rows[0], ['name', 'category', 'status', 'next_action', 'locked_until', 'last_touched', 'notes', 'problem', 'id', 'created', 'updated_at', 'my_column', 'show_next_action'], 'people columns first, a person\'s own column kept at the end, then app columns added since (Table adds them)');
   assert.deepStrictEqual(sh.Tasks.rows[0], ['title', 'column', 'project', 'list', 'note', 'color', 'problem', 'id', 'project_id', 'list_id', 'column_id', 'order', 'note_html', 'created', 'updated_at']);
   assert.deepStrictEqual(sh.Columns.rows[0], ['id', 'project_id', 'list_id', 'name', 'order']);
-  assert.deepStrictEqual(sh.Lists.rows[0], ['name', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created']);
+  assert.deepStrictEqual(sh.Lists.rows[0], ['name', 'kind', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'], 'v6: lists have a kind');
   assert.deepStrictEqual(sh.Resources.rows[0], ['title', 'type', 'value', 'group', 'project', 'category', 'note', 'problem', 'id', 'project_id', 'added']);
   assert.deepStrictEqual(sh.Whiteboards.rows[0], ['name', 'project', 'show_today', 'file', 'updated', 'problem', 'id', 'project_id', 'file_id', 'created']);
   assert.deepStrictEqual(sh.Criteria.rows[0], ['text', 'done', 'project', 'problem', 'id', 'project_id', 'order', 'created', 'updated_at']);
   assert.deepStrictEqual(sh.Log.rows[0], ['date', 'project', 'where_stopped', 'next_action', 'minutes', 'id', 'project_id']);
   assert.deepStrictEqual(sh.Categories.rows[0], ['label', 'color', 'id', 'order']);
-  assert.deepStrictEqual(sh.Notes.rows[0], ['id', 'project_id', 'doc_id', 'updated', 'written'], 'v5: the notes are their Doc');
+  assert.deepStrictEqual(sh.Notes.rows[0], ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today'], 'v5: the notes are their Doc; v6: a note of the Notes tab has list_id');
   assert.deepStrictEqual(sh.Undo.rows, [['id', 'created', 'action', 'changes', 'kind']], 'old undo steps use old columns, so they are cleared');
   assert.deepStrictEqual(sh['My sums'].rows, V1['My sums'], 'a person\'s own tab is not touched');
 
@@ -169,7 +171,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   const tasks = byId(sh.Tasks);
   assert.deepStrictEqual(['t0000001', 't0000002', 't0000003', 't0000004', 't0000005'].map((id) => [tasks[id].project, tasks[id].list, tasks[id].column]),
     [['Android MIDI', '', 'To do'], ['Android MIDI', '', 'Doing'], ['', 'Read and watch', 'Watch'], ['', 'Read and watch', 'Read'], ['Bathroom fan', '', 'To do']]);
-  assert.deepStrictEqual(Object.values(byId(sh.Columns)).map((c) => [c.id, c.project_id, c.list_id]),
+  assert.deepStrictEqual(Object.values(byId(sh.Columns)).filter((c) => /^[cg]0/.test(c.id)).map((c) => [c.id, c.project_id, c.list_id]),
     [['c0000001', 'p0000001', ''], ['c0000002', 'p0000001', ''], ['c0000003', 'p0000001', ''], ['c0000004', 'p0000002', ''], ['g0000001', '', 'l0000001'], ['g0000002', '', 'l0000001']]);
   const res = byId(sh.Resources);
   assert.deepStrictEqual(['r0000001', 'r0000002', 'r0000003'].map((id) => [res[id].type, res[id].group, res[id].project]), [['drive', '', 'Android MIDI'], ['link', '', ''], ['drive', '', 'Android MIDI']]);
@@ -178,7 +180,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.strictEqual(projects.p0000002.notes, '');
   assert.ok(rowsOf(sh.Projects).every((p) => p.problem === ''));
   assert.deepStrictEqual(rowsOf(sh.Whiteboards).map((w) => [w.project, w.show_today]), [['Android MIDI', ''], ['Android MIDI', '']]);
-  assert.deepStrictEqual(rowsOf(sh.Lists).map((l) => [l.project_id, l.project]), [['', '']]);
+  assert.deepStrictEqual(rowsOf(sh.Lists).map((l) => [l.name, l.kind, l.project_id, l.project]), [['Read and watch', '', '', ''], ['To-dos', 'todo', '', ''], ['Today notes', 'note', '', '']], 'v6: the to-dos are a to-do list, Today\'s note a note');
   assert.deepStrictEqual(rowsOf(sh.Criteria).map((c) => c.project), ['Android MIDI']);
   assert.deepStrictEqual(rowsOf(sh.Log).map((l) => l.project), ['Android MIDI', '']);
 
@@ -204,7 +206,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.deepStrictEqual(b.data.resources.map((r) => r.value), V1.Resources.slice(1).map((r) => r[4]));
   assert.deepStrictEqual(b.data.whiteboard.map((w) => [w.name, w.url]), [['Pad layout', 'https://docs.google.com/file/file-wb-1'], ['Whiteboard', 'https://docs.google.com/file/file-wb-2']]);
   const notesDoc = 'https://docs.google.com/document/d/' + byId(s.ss.sheets.Notes).n0000001.doc_id + '/edit';
-  assert.deepStrictEqual(b.data.notes, [{ project_id: 'p0000001', url: notesDoc, updated: byId(s.ss.sheets.Notes).n0000001.updated, doc: notesDoc }], 'v5: the notes are their Doc');
+  assert.deepStrictEqual(b.data.notes, [{ project_id: 'p0000001', list_id: '', url: notesDoc, updated: byId(s.ss.sheets.Notes).n0000001.updated, doc: notesDoc, show_today: '' }], 'v5: the notes are their Doc');
   assert.strictEqual(s.drive.files['file-notes-1'].trashed, true, 'the old notes file is in the bin');
   assert.strictEqual(b.data.projects.length, 2);
   assert.strictEqual(b.data.categories.length, 3);
@@ -286,11 +288,11 @@ test('a failure part way leaves the old tab, and the next load finishes the job'
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 1, 'one backup, taken before the first try');
   // a run stopped after the old tab was deleted but before the new one was renamed is finished
   const s2 = v1Server();
-  const v2Lists = (() => { const t = v1Server(); t.boot(); return t.ss.sheets.Lists.rows; })();
+  const v2Lists = (() => { const t = v1Server(); t.run('SCHEMA_VERSION = 2; SCHEMA_STEPS_.length = 1'); t.boot(); return t.ss.sheets.Lists.rows; })();
   s2.ss.deleteSheet(s2.ss.sheets.Lists);
   s2.ss.insertSheet('Lists (updating)').rows = v2Lists.map((r) => r.slice());
   s2.boot();
-  assert.deepStrictEqual(s2.ss.sheets.Lists.rows, v2Lists);
+  assert.deepStrictEqual(rowsOf(s2.ss.sheets.Lists).filter((l) => !l.kind).map((l) => [l.id, l.name]), [['l0000001', 'Read and watch']], 'the list from the finished tab, once');
   assert.ok(!s2.ss.order().some((n) => /updating/.test(n)));
 });
 
@@ -593,7 +595,7 @@ test('v4 to v5: each project\'s notes become its Google Doc; old files go to the
   assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
   assert.ok(s.script._m['SCHEMA_BACKUP.v5.personal'], 'the sheet was backed up first');
   const notes = Object.fromEntries(rowsOf(s.ss.sheets.Notes).map((r) => [r.id, r]));
-  assert.deepStrictEqual(s.ss.sheets.Notes.rows[0], ['id', 'project_id', 'doc_id', 'updated', 'written', 'my_note'], 'the notes are their Doc; a person\'s own column stays');
+  assert.deepStrictEqual(s.ss.sheets.Notes.rows[0], ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today', 'my_note'], 'the notes are their Doc (v6 adds list_id and show_today); a person\'s own column stays');
   assert.strictEqual(notes.n1.my_note, 'keep me');
   // Fan: a new Doc from the formatted copy, colours and all
   const get = (id) => s.call('notes', 'get', { projectId: id }).result;
@@ -612,10 +614,81 @@ test('v4 to v5: each project\'s notes become its Google Doc; old files go to the
   assert.ok(boot.data.notes.every((n) => !n.url || /docs\.google\.com\/document/.test(n.url)));
   // again: nothing changes, no second backup
   const before = copyRows(s.ss), docCount = s.docs.docs().length;
-  s.run('migrateToV5_(getSpreadsheet_())');
+  s.run('migrateToV5_(getSpreadsheet_()); migrateToV6_(getSpreadsheet_())'); // the steps run in order: v6 lays the Notes tab out again
   assert.deepStrictEqual(copyRows(s.ss), before);
   assert.strictEqual(s.docs.docs().length, docCount);
   assert.strictEqual(Object.values(s.drive.files).filter((f) => /backup/.test(f.name)).length, 1);
+});
+
+test('v5 to v6: the to-dos become the to-do list "To-dos", Today\'s own note the note "Today notes", and Today\'s layout, phone order and pills follow them', () => {
+  const s = loadServer();
+  s.run('setup()');
+  s.boot = (mode) => json(s.run('bootstrap')(mode));
+  s.call = (m, fn, args) => json(s.run('rpc')(m, fn, json(args || {})));
+  const fan = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  const todayDoc = s.run(`Drive.Files.create({ name: 'Today notes', mimeType: NOTES_DOC_MIME_, parents: [getSubfolder_('Notes').getId()] }, Utilities.newBlob('<p>Call the plumber</p>', 'text/html', 'n.html'), { fields: 'id,modifiedTime' })`);
+  const sheets = s.ss.sheets;
+  // the tabs as v5 left them
+  sheets.Lists.rows = [['name', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'],
+    ['Read and watch', '', 'yes', '', '', '', '', 'l0000001', '', '1', T0]];
+  sheets['To-dos'].rows = [['title', 'day', 'done', 'project', 'note', 'problem', 'id', 'project_id', 'order', 'created', 'updated_at', 'my_column'],
+    ['Grocery shopping', TODAY, '', '', '', '', 'd0000001', '', '1', T0, T0, 'mine'],
+    ['Post parcel', '', '', 'Fan', 'blue one', '', 'd0000002', fan.id, '2', T0, T0, '']];
+  sheets.Notes.rows = [['id', 'project_id', 'doc_id', 'updated', 'written'], ['n0000001', 'today', todayDoc.id, todayDoc.modifiedTime, '']];
+  const settings = {
+    'layout.today': { focus: { x: 0, y: 0, w: 7 }, todos: { x: 7, y: 0, w: 5 }, notes: { x: 0, y: 4, w: 7, removed: true } },
+    'layout.today.phone': ['notes', 'habits', 'todos'],
+    'layout.today.pills': [{ id: 'ab12cd34', name: 'Morning', icon: '', panels: ['habits', 'todos'] }, { id: 'ab12cd35', name: 'Think', icon: '', panels: ['notes', 'list-l0000001'] }]
+  };
+  sheets.Settings.rows = [['key', 'value']].concat(Object.keys(settings).map((k) => [k, JSON.stringify(settings[k])]));
+  s.script._m['SCHEMA_VERSION.personal'] = '5';
+
+  const boot = s.boot();
+  assert.strictEqual(s.script._m['SCHEMA_VERSION.personal'], LATEST);
+  assert.ok(s.script._m['SCHEMA_BACKUP.v6.personal'], 'the sheet was backed up first');
+  assert.deepStrictEqual(sheets.Lists.rows[0], ['name', 'kind', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'], 'lists have a kind, next to the name');
+  const lists = rowsOf(sheets.Lists);
+  const todoList = lists.find((l) => l.kind === 'todo'), todayNote = lists.find((l) => l.kind === 'note');
+  assert.deepStrictEqual(lists.map((l) => [l.name, l.kind, l.show_today, l.order]), [['Read and watch', '', 'yes', '1'], ['To-dos', 'todo', 'yes', '2'], ['Today notes', 'note', 'yes', '3']]);
+  const group = rowsOf(sheets.Columns).find((c) => c.list_id === todoList.id);
+  assert.strictEqual(group.name, 'General', 'the to-do list has one group');
+  assert.deepStrictEqual(sheets['To-dos'].rows[0], ['title', 'list', 'group', 'day', 'done', 'project', 'note', 'color', 'problem', 'id', 'list_id', 'group_id', 'project_id', 'order', 'note_html', 'created', 'updated_at', 'my_column'], 'a person\'s own column stays, at the end');
+  assert.deepStrictEqual(rowsOf(sheets['To-dos']).map((t) => [t.title, t.list, t.group, t.list_id, t.group_id, t.project, t.note, t.my_column]),
+    [['Grocery shopping', 'To-dos', 'General', todoList.id, group.id, '', '', 'mine'], ['Post parcel', 'To-dos', 'General', todoList.id, group.id, 'Fan', 'blue one', '']], 'every to-do is on it, nothing else changed');
+  assert.deepStrictEqual(rowsOf(sheets.Notes).map((n) => [n.project_id, n.list_id, n.doc_id]), [['', todayNote.id, todayDoc.id]], 'Today\'s note is the note "Today notes", the same Doc');
+  assert.strictEqual(s.call('notes', 'get', { listId: todayNote.id }).result.text, 'Call the plumber');
+  const saved = Object.fromEntries(sheets.Settings.rows.slice(1).map((r) => [r[0], JSON.parse(r[1])]));
+  const todosPanel = 'list-' + todoList.id, notePanel = 'list-' + todayNote.id;
+  assert.deepStrictEqual(saved['layout.today'], { focus: { x: 0, y: 0, w: 7 }, [todosPanel]: { x: 7, y: 0, w: 5 }, [notePanel]: { x: 0, y: 4, w: 7, removed: true } }, 'their places on Today, removed or not');
+  assert.deepStrictEqual(saved['layout.today.phone'], [notePanel, 'habits', todosPanel]);
+  assert.deepStrictEqual(saved['layout.today.pills'].map((p) => p.panels), [['habits', todosPanel], [notePanel, 'list-l0000001']], 'pills keep showing them');
+  assert.deepStrictEqual(boot.data.todos.items.map((t) => t.list_id), [todoList.id, todoList.id]);
+  assert.ok(boot.data.lists.some((l) => l.id === todoList.id && l.kind === 'todo'));
+
+  // a save from a page loaded before the update (or one that waited offline) still says projectId 'today'
+  s.call('notes', 'save', { projectId: 'today', html: '<p>Call the plumber</p><p>Buy fuses</p>' });
+  assert.strictEqual(s.call('notes', 'get', { listId: todayNote.id }).result.text, 'Call the plumber\nBuy fuses', 'it reaches the note');
+  assert.strictEqual(s.docs.docs().filter((d) => d.name === 'Today notes').length, 1, 'the same Doc');
+  // a to-do added by an older page goes on the to-do list
+  s.call('todos', 'add', { title: 'Dentist', day: '' });
+  assert.strictEqual(rowsOf(sheets['To-dos']).find((t) => t.title === 'Dentist').list_id, todoList.id);
+
+  // again: nothing changes, no second list or note
+  const before = copyRows(s.ss);
+  delete s.script._m['SCHEMA_VERSION.personal'];
+  s.script._m['SCHEMA_VERSION.personal'] = '5';
+  s.boot();
+  assert.deepStrictEqual(copyRows(s.ss), before, 'running it again changes nothing');
+});
+
+test('v5 to v6: a Today layout from before Habits and To-dos were split names the to-do list in To-dos\' place', () => {
+  const s = loadServer();
+  s.run('setup()');
+  (s.ss.sheets.Settings || s.ss.insertSheet('Settings')).rows = [['key', 'value'], ['layout.today', JSON.stringify({ smalltasks: { x: 7, y: 0, w: 5 } })]];
+  s.script._m['SCHEMA_VERSION.personal'] = '5';
+  json(s.run('bootstrap')());
+  const todoList = rowsOf(s.ss.sheets.Lists).find((l) => l.kind === 'todo');
+  assert.deepStrictEqual(JSON.parse(s.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.today')[1]), { habits: { x: 7, y: 0, w: 5 }, ['list-' + todoList.id]: { x: 7, y: 1, w: 5 } });
 });
 
 console.log(passed + ' migration tests passed');

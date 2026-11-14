@@ -1,14 +1,17 @@
 /**
- * Lists module: named lists, such as "Keep in mind" or "Read and watch", that are not projects.
- * Each list's groups and items are a Kanban board owned by the list, so they are edited the same way.
- * A list can be shown as a panel on Today, either in full or one item at a time (display 'one'): a random item that
- * changes every `seconds` seconds.
- * A list can be linked to a project (project_id, with the project's name in `project`): it then shows as a panel on that
- * project's page as well as on the Lists tab. Deleting the project unlinks its lists; it does not delete them.
+ * Lists module: the rows of the Lists tab, shown together on the Notes tab. A row is one of three kinds (`kind`):
+ *  - a list ('') such as "Keep in mind" or "Read and watch": its groups and items are a Kanban board owned by the list,
+ *    so they are edited the same way;
+ *  - a to-do list ('todo'): its groups are board columns too, its to-dos are rows of the To-dos tab (todos module);
+ *  - a note ('note'): its text is a Google Doc, kept by the notes module like a project's notes.
+ * Every kind has a name, a colour, a place in the order, can be shown on Today as its own panel and linked to a project
+ * (project_id, with the project's name in `project`): it then shows as a panel on that project's page as well.
+ * Deleting the project unlinks its lists; it does not delete them.
+ * A list can be shown on Today in full or one item at a time (display 'one'): a random item that changes every `seconds` seconds.
  */
 
 function listsModule() {
-  var T = new Table('Lists', ['name', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'], ['order', 'seconds']);
+  var T = new Table('Lists', ['name', 'kind', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'], ['order', 'seconds']);
   var DISPLAYS = ['', 'one'];
   var COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var FIRST_GROUP = 'Items';
@@ -23,27 +26,57 @@ function listsModule() {
     return name;
   }
 
+  function kind_(value) {
+    var kind = String(value || '');
+    assert_(LIST_KINDS_.indexOf(kind) !== -1, 'Unknown kind of list: ' + kind);
+    return kind;
+  }
+
+  /** The first groups a new list or to-do list starts with: names, and the ids the browser made for them (optional). */
+  function firstGroups_(a, kind) {
+    if (kind === TODO_LIST_KIND_) return { names: [FIRST_TODO_GROUP_], ids: a.groupId ? [a.groupId] : [] };
+    return { names: a.groups && a.groups.length ? a.groups : [FIRST_GROUP], ids: a.groupId ? [a.groupId] : [] };
+  }
+
   return {
     title: 'Lists',
     tables: [T],
     snapshot: list_,
     api: {
-      /** a.groups: optional names of the first groups. */
+      /**
+       * a.name; a.kind '' (a list), 'todo' or 'note'; a.id and a.groupId made by the browser (optional); a.groups:
+       * optional names of a list's first groups; a.showToday. A note has no board: its Doc is made on its first save.
+       */
       create: function (a, ctx) {
-        var lists = list_();
+        var kind = kind_(a.kind);
         var row = T.insert({
-          name: name_(a.name),
-          order: lists.reduce(function (m, l) { return Math.max(m, l.order); }, 0) + 1,
+          id: clientId_(a.id), name: name_(a.name), kind: kind,
+          order: list_().reduce(function (m, l) { return Math.max(m, l.order); }, 0) + 1,
           show_today: a.showToday ? 'yes' : '',
           created: nowIso_()
         });
-        ctx.call('kanban', 'initProject', { listId: row.id, columns: a.groups && a.groups.length ? a.groups : [FIRST_GROUP] });
+        if (kind !== NOTE_LIST_KIND_) {
+          var groups = firstGroups_(a, kind);
+          ctx.call('kanban', 'initProject', { listId: row.id, columns: groups.names, columnIds: groups.ids });
+        }
         ctx.refresh('lists', 'kanban');
         return row;
       },
 
+      /** One row of the Lists tab, or null. For other modules (a note's name, a to-do list's kind). */
+      get: function (a) {
+        return T.get(String(a.id || ''));
+      },
+
+      /** The rows of one kind, in order. */
+      ofKind: function (a) {
+        var kind = String(a.kind || '');
+        return list_().filter(function (l) { return (l.kind || '') === kind; });
+      },
+
       rename: function (a, ctx) {
         var row = T.update(a.id, { name: name_(a.name) });
+        if (row.kind === NOTE_LIST_KIND_) ctx.optional('notes', 'renameList', { listId: row.id, name: row.name });
         ctx.refresh('lists');
         return row;
       },
@@ -99,10 +132,14 @@ function listsModule() {
         return true;
       },
 
+      /** Delete a list with everything in it: its board, a to-do list's to-dos, a note's Doc (to Drive's bin). */
       remove: function (a, ctx) {
+        var row = T.get(a.id);
         T.remove(a.id);
-        ctx.call('kanban', 'removeProject', { listId: a.id });
-        ctx.refresh('lists', 'kanban');
+        if (row && row.kind === TODO_LIST_KIND_) ctx.optional('todos', 'removeList', { listId: a.id });
+        if (row && row.kind === NOTE_LIST_KIND_) ctx.optional('notes', 'removeList', { listId: a.id });
+        else ctx.call('kanban', 'removeProject', { listId: a.id });
+        ctx.refresh('lists', 'kanban', 'todos', 'notes');
         return true;
       }
     }

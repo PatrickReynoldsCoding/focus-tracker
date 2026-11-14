@@ -11,13 +11,14 @@
  * The headers below are the v2 layout as it was released; later changes are new steps, not edits here.
  */
 
-var SCHEMA_VERSION = 5;
+var SCHEMA_VERSION = 6;
 
 var SCHEMA_STEPS_ = [
   { to: 2, run: migrateToV2_ },
   { to: 3, run: migrateToV3_ },
   { to: 4, run: migrateToV4_ },
-  { to: 5, run: migrateToV5_ }
+  { to: 5, run: migrateToV5_ },
+  { to: 6, run: migrateToV6_ }
 ];
 
 // Tabs that mean a spreadsheet already holds app data. A spreadsheet with none of them is new and starts at the latest version.
@@ -153,6 +154,26 @@ function readTabValues_(ss, name) {
 
 function objectsOf_(values) {
   return values.slice(1).map(function (r) { return rawRow_(values[0], r); });
+}
+
+/**
+ * Lay a tab out with these headers in this order, keeping its rows. A person's own columns (in neither headers nor
+ * olderHeaders, the app's columns before) stay, after the app's. change(o), optional, fills a row's new columns (o:
+ * plain text by header). The tab is rewritten only when something changes. Nothing happens when there is no such tab.
+ */
+function layOutTab_(ss, name, headers, olderHeaders, change) {
+  var values = readTabValues_(ss, name);
+  if (!values) return;
+  var own = values[0].filter(function (h) { return h && headers.indexOf(h) === -1 && olderHeaders.indexOf(h) === -1; });
+  var all = headers.concat(own);
+  var laidOut = [all].concat(objectsOf_(values).map(function (o) {
+    if (change) change(o);
+    return all.map(function (h) { return o[h] === undefined || o[h] === null ? '' : String(o[h]); });
+  }));
+  if (sameValues_(values, laidOut)) return;
+  var sh = rewriteTab_(ss, name, laidOut);
+  styleTab_(sh, all);
+  orderTabs_(ss);
 }
 
 /**
@@ -368,4 +389,123 @@ function migrateToV4_(ss) {
 function migrateToV5_(ss) {
   if (typeof migrateNotesToDocs_ !== 'function' || !ss.getSheetByName('Notes')) return;
   migrateNotesToDocs_(ss);
+}
+
+// ---------- v6: to-do lists and notes on the Notes tab (2026-11-14) ----------
+// The layouts as v6 released them, and the ones before.
+var V6_LISTS_HEADERS_ = ['name', 'kind', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'];
+var V6_TODOS_HEADERS_ = ['title', 'list', 'group', 'day', 'done', 'project', 'note', 'color', 'problem', 'id', 'list_id', 'group_id', 'project_id', 'order', 'note_html', 'created', 'updated_at'];
+var V5_TODOS_HEADERS_ = ['title', 'day', 'done', 'project', 'note', 'problem', 'id', 'project_id', 'order', 'created', 'updated_at'];
+var V5_NOTES_HEADERS_ = ['id', 'project_id', 'doc_id', 'updated', 'written'];
+var V6_NOTES_HEADERS_ = ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today'];
+var V6_TODO_LIST_NAME_ = 'To-dos';
+var V6_TODAY_NOTE_NAME_ = 'Today notes';
+// Today's panels before v6: the one To-dos panel and Today's own note, whose Notes row had this key for a project id.
+var V5_TODOS_PANEL_ = 'todos';
+var V5_TODAY_NOTES_PANEL_ = 'notes';
+var V5_TODAY_NOTES_KEY_ = 'today';
+// Today's "Small tasks" panel became Habits and To-dos (2026-10-30); a layout saved before then still says so.
+var V5_SMALL_TASKS_PANEL_ = 'smalltasks';
+
+function byOrder_(a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); }
+
+/**
+ * v5 to v6. Lists get a kind ('' a list, todo a to-do list, note a note) and to-dos belong to a to-do list and one of
+ * its groups, so both tabs are laid out again (a person's own columns kept), after a backup. Then:
+ *  - the to-dos become the first to-do list, "To-dos", with one group, shown on Today where the To-dos panel was;
+ *  - Today's own note (the Doc "Today notes", its Notes row keyed 'today') becomes the note "Today notes" of the Notes
+ *    tab, shown on Today; its id is kept in a script property, so a save from an older page still reaches it;
+ *  - Today's saved layout, phone order and pills name the two new panels (list-<id>) where they said todos and notes.
+ * Safe to run again: the first to-do list and the note already made are used, not made again.
+ */
+function migrateToV6_(ss) {
+  tableCache_ = {};
+  backupBeforeMigration_(ss, 'v6');
+  layOutTab_(ss, 'Lists', V6_LISTS_HEADERS_, V2_HEADERS_.Lists);
+  tableCache_ = {};
+  var lists = new Table('Lists', V6_LISTS_HEADERS_, ['order', 'seconds']);
+  var todoList = v6TodoList_(lists);
+  var group = v6FirstGroup_(todoList);
+  layOutTab_(ss, 'To-dos', V6_TODOS_HEADERS_, V5_TODOS_HEADERS_, function (todo) {
+    if (todo.list_id) return;
+    todo.list_id = todoList.id; todo.list = todoList.name;
+    todo.group_id = group.id; todo.group = group.name;
+  });
+  layOutTab_(ss, 'Notes', V6_NOTES_HEADERS_, V5_NOTES_HEADERS_);
+  tableCache_ = {};
+  var todayNote = v6TodayNote_(lists);
+  if (ss.getSheetByName('Notes')) {
+    var notes = new Table('Notes', V6_NOTES_HEADERS_);
+    notes.all().filter(function (n) { return n.project_id === V5_TODAY_NOTES_KEY_; }).forEach(function (n) {
+      notes.update(n.id, { project_id: '', list_id: todayNote.id });
+    });
+  }
+  var newPanelIds = {};
+  newPanelIds[V5_TODOS_PANEL_] = 'list-' + todoList.id;
+  newPanelIds[V5_TODAY_NOTES_PANEL_] = 'list-' + todayNote.id;
+  v6RenameTodayPanels_(newPanelIds);
+  tableCache_ = {};
+}
+
+/** The first to-do list, made ("To-dos", on Today) if there is none. */
+function v6TodoList_(lists) {
+  var first = lists.all().filter(function (l) { return l.kind === TODO_LIST_KIND_; }).sort(byOrder_)[0];
+  if (first) return first;
+  var order = lists.all().reduce(function (m, l) { return Math.max(m, Number(l.order) || 0); }, 0) + 1;
+  return lists.insert({ name: V6_TODO_LIST_NAME_, kind: TODO_LIST_KIND_, show_today: 'yes', order: order, created: nowIso_() });
+}
+
+/** A to-do list's first group, made if it has none. */
+function v6FirstGroup_(list) {
+  var columns = new Table('Columns', V2_HEADERS_.Columns, ['order']);
+  var first = columns.all().filter(function (c) { return c.list_id === list.id; }).sort(byOrder_)[0];
+  return first || columns.insert({ project_id: '', list_id: list.id, name: FIRST_TODO_GROUP_, order: 1 });
+}
+
+/** The note Today's own note became, made once per mode ("Today notes", on Today) and kept in a script property. */
+function v6TodayNote_(lists) {
+  var props = PropertiesService.getScriptProperties();
+  var made = lists.get(props.getProperty(legacyTodayNoteProperty_()) || '');
+  if (made) return made;
+  var order = lists.all().reduce(function (m, l) { return Math.max(m, Number(l.order) || 0); }, 0) + 1;
+  var note = lists.insert({ name: V6_TODAY_NOTE_NAME_, kind: NOTE_LIST_KIND_, show_today: 'yes', order: order, created: nowIso_() });
+  props.setProperty(legacyTodayNoteProperty_(), note.id);
+  return note;
+}
+
+/**
+ * Today's saved desktop layout (layout.today, panel id -> place), phone order (layout.today.phone) and pills
+ * (layout.today.pills) with old panel ids replaced: newPanelIds { old: new }. A "Small tasks" place becomes Habits and
+ * the to-do list's, as the layout module reads it. A row edited by hand into something unreadable is left as it is.
+ */
+function v6RenameTodayPanels_(newPanelIds) {
+  function renamed(id) { return newPanelIds[id] || id; }
+  var saved = settingsWithPrefix_('layout.today'), values = {};
+  function rewrite(key, change) {
+    if (!saved[key]) return;
+    try {
+      var after = JSON.stringify(change(JSON.parse(saved[key])));
+      if (after !== saved[key]) values[key] = after;
+    } catch (e) { /* not readable: the app shows its default */ }
+  }
+  rewrite('layout.today', function (places) {
+    if (!places || Array.isArray(places)) return places;
+    var small = places[V5_SMALL_TASKS_PANEL_];
+    if (small) {
+      ['habits', V5_TODOS_PANEL_].forEach(function (id, i) {
+        if (places[id]) return;
+        places[id] = { x: small.x, y: small.y + i, w: small.w };
+        if (small.removed || small.hidden) places[id].removed = true;
+      });
+      delete places[V5_SMALL_TASKS_PANEL_];
+    }
+    var out = {};
+    Object.keys(places).forEach(function (id) { out[renamed(id)] = places[id]; });
+    return out;
+  });
+  rewrite('layout.today.phone', function (order) { return Array.isArray(order) ? order.map(renamed) : order; });
+  rewrite('layout.today.pills', function (pills) {
+    return Array.isArray(pills) ? pills.map(function (pill) { return Object.assign({}, pill, { panels: (pill.panels || []).map(renamed) }); }) : pills;
+  });
+  if (Object.keys(values).length) setSettings_(values);
 }

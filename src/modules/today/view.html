@@ -70,9 +70,9 @@
   // Today settings' Quick add on a phone: a pill in one tap, offered only when its panels exist. "Plan my week" is a
   // button in the Weekly rotation panel, not a panel of its own, so Week holds the rotation and Not touched.
   var PILL_TEMPLATES = [
-    { name: 'Routine', icon: '☀️', panels: ['habits', 'todos'] },
-    { name: 'Shopping', icon: '🛒', panels: [{ kind: 'list', like: 'shop|grocer' }, 'todos'] },
-    { name: 'Thinking', icon: '📝', panels: ['notes', { kind: 'list' }] },
+    { name: 'Routine', icon: '☀️', panels: ['habits', { kind: 'todo' }] },
+    { name: 'Shopping', icon: '🛒', panels: [{ kind: 'list', like: 'shop|grocer' }, { kind: 'todo', like: 'shop|grocer' }] },
+    { name: 'Thinking', icon: '📝', panels: [{ kind: 'note' }, { kind: 'list' }] },
     { name: 'Week', icon: '🎯', panels: ['rotation', 'stale'] }
   ];
   var timer = null, alertedKey = null, audio = null, audioRequested = false;
