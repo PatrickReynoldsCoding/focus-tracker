@@ -570,6 +570,25 @@ async function run(browser, size) {
     assert.deepStrictEqual(stacked.map((p) => p.id), ['habits', 'list-' + listId], 'the pill shows both panels');
     assert.ok(stacked[1].top >= stacked[0].top + stacked[0].height && stacked.every((p) => p.height > 40), 'one under the other: ' + JSON.stringify(stacked));
     log('Today settings: a new pill is added in a sheet at once, reaches the server, and shows its panels stacked');
+
+    const panelsPastTheScreen = () => pg.evaluate(() => {
+      const screenWidth = document.documentElement.clientWidth;
+      return [...document.querySelectorAll('#app .ppinned, #app .ppanel .pitem, #app .ppanel .pitem > *')]
+        .map((el) => ({ panel: el.closest('[data-panel]').dataset.panel, right: Math.round(el.getBoundingClientRect().right) }))
+        .filter((panel) => panel.right > screenWidth)
+        .concat(document.documentElement.scrollWidth > screenWidth ? [{ page: 'scrolls sideways', scrollWidth: document.documentElement.scrollWidth }] : []);
+    });
+    const pillIds = await chipIds();
+    for (const phoneWidth of [360, size.viewport.width]) {
+      await pg.setViewportSize({ width: phoneWidth, height: size.viewport.height });
+      for (const pillId of pillIds) {
+        await quickly(() => pg.click(`#app .pchip[data-id="${pillId}"]`));
+        assert.strictEqual(await pg.evaluate(() => window.innerWidth), phoneWidth, `[${phoneWidth} px] pill ${pillId}: the phone does not zoom out to fit a wide or sliding panel`);
+        await pg.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => 'cancelled'))));
+        assert.deepStrictEqual(await panelsPastTheScreen(), [], `[${phoneWidth} px] pill ${pillId}: every panel fits the screen`);
+      }
+    }
+    log('Today pills: every panel of every pill fits a phone 360 px wide and ' + size.viewport.width + ' px wide');
   }
 
   // ---------- Edit layout: the header button (desktop) or menu item (phone), ▲ ▼ on a phone, Remove and Add feature ----------
