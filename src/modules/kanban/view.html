@@ -96,11 +96,19 @@
       '<button class="mvb kdel" data-act="kanban.del-task" data-id="' + id + '" aria-label="Delete ' + FT.esc(t.title) + '">×</button></span></div>';
   }
 
+  /**
+   * A column's header: the grip it is dragged by, its name (renamed in place), how many it holds and Delete (off for a
+   * board's only column). Also the header of a to-do list's group (todos module).
+   */
+  function columnHeadHtml(c, count, deletable, word) {
+    var name = FT.esc(c.name);
+    return '<div class="colhead"><span class="colgrip" title="Drag to move this ' + word + '" aria-hidden="true">⠿</span><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
+      '<span class="count">' + count + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete ' + word + ' ' + name + '"' + (deletable ? '' : ' disabled') + '>Delete</button></div>';
+  }
+
   function columnHtml(c, b, word) {
     var mine = b.tasks.filter(function (t) { return t.column_id === c.id; });
-    var name = FT.esc(c.name);
-    return '<div class="col" data-colid="' + FT.esc(c.id) + '"><div class="colhead"><span class="colgrip" title="Drag to move this ' + word + '" aria-hidden="true">⠿</span><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
-      '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete ' + word + ' ' + name + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' +
+    return '<div class="col" data-colid="' + FT.esc(c.id) + '">' + columnHeadHtml(c, mine.length, b.cols.length > 1, word) +
       '<div class="cards" data-col="' + FT.esc(c.id) + '">' + mine.map(cardHtml).join('') + '</div>' + addTaskHtml(c) + '</div>';
   }
 
@@ -206,7 +214,16 @@
     Array.prototype.forEach.call(document.querySelectorAll('#app .board[data-owner], #popRoot .board[data-owner]'), function (b) { sortables.push(makeColumnSortable(b)); });
   });
 
-  FT.kanban = { boardHtml: boardHtml };
+  // Other modules' items that sit in a board's columns (a to-do list's to-dos in its groups): [{ count(columnId),
+  // move(fromId, toId) -> function that puts them back }], so deleting a column says how many move and moves them first.
+  var columnItemKeepers = [];
+
+  FT.kanban = {
+    boardHtml: boardHtml,
+    columnHeadHtml: columnHeadHtml,
+    openCard: function (card, opts) { openCardDialog(card, opts); },
+    keepsColumnItems: function (keeper) { columnItemKeepers.push(keeper); }
+  };
   FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', title: 'Kanban', description: 'The project\'s task board: columns of cards.', order: 10, span: 'full', render: panel }] } });
 
   FT.action('kanban.dir', function () {
@@ -258,20 +275,26 @@
     if (i < 0 || b.cols.length < 2) return;
     var col = b.cols[i], target = b.cols[i > 0 ? i - 1 : 1];
     var count = b.tasks.filter(function (t) { return t.column_id === col.id; }).length;
+    var kept = columnItemKeepers.reduce(function (n, keeper) { return n + keeper.count(col.id); }, 0);
+    var what = kept ? (kept === 1 ? ' item moves' : ' items move') : count === 1 ? ' card moves' : ' cards move';
     FT.dialog({
       title: 'Delete ' + word,
-      body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count ? count + (count === 1 ? ' card moves' : ' cards move') + ' to "' + FT.esc(target.name) + '".' : 'It has no cards.') + ' You can undo this.</p>',
+      body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count + kept ? (count + kept) + what + ' to "' + FT.esc(target.name) + '".' : 'It has no ' + (word === 'group' ? 'items' : 'cards') + '.') + ' You can undo this.</p>',
       submit: 'Delete ' + word, danger: true,
       // Like the server: the cards go to the end of the column on the left (or the next one), then the column goes.
       onSubmit: function () {
-        var k = FT.store.kanban, columns = k.columns, moved = [];
+        var k = FT.store.kanban, columns = k.columns, moved = [], putBack = [];
         FT.optimistic(function () {
           var order = b.tasks.filter(function (t) { return t.column_id === target.id; }).reduce(function (m, t) { return Math.max(m, t.order); }, 0) + 1;
           b.tasks.filter(function (t) { return t.column_id === col.id; }).forEach(function (t) {
             moved.push([t, t.order]); t.column_id = target.id; t.order = order++;
           });
+          putBack = columnItemKeepers.map(function (keeper) { return keeper.move(col.id, target.id); });
           k.columns = columns.filter(function (c) { return c.id !== col.id; });
-          return function () { k.columns = columns; moved.forEach(function (m) { m[0].column_id = col.id; m[0].order = m[1]; }); };
+          return function () {
+            k.columns = columns; moved.forEach(function (m) { m[0].column_id = col.id; m[0].order = m[1]; });
+            putBack.forEach(function (back) { if (typeof back === 'function') back(); });
+          };
         }, function () { return FT.rpc('kanban', 'deleteColumn', { id: col.id }); }).catch(function () {});
         FT.deleted(word.charAt(0).toUpperCase() + word.slice(1));
       }
@@ -319,7 +342,7 @@
 
   /** Toolbar buttons keep the editor's text selection: mousedown would otherwise move focus away from it. */
   function wireToolbar() {
-    var bar = document.querySelector('.rtbar');
+    var bar = document.querySelector('#dialogRoot .rtbar'); // a notes editor on the page has a toolbar of its own
     if (!bar) return;
     FT.richShortcuts(document.getElementById('dlg-note'));
     FT.headingKeys(document.getElementById('dlg-note'));
@@ -338,41 +361,58 @@
     });
   }
 
-  FT.action('kanban.open-card', function (el) {
-    if (Date.now() - lastDragEnd < 400) return; // the click that ends a drag is not a click on the card
-    var t = taskById(el.dataset.id);
-    if (!t) return;
-    var host = el.closest('[data-owner]'), word = (host && host.dataset.word) || 'column';
-    var columns = board(t.owner).cols.map(function (c) { return { value: c.id, label: c.name }; });
+  /**
+   * The card dialog: title, column (or group), colour and a rich-text note. Also opens a to-do (todos module) with its
+   * own fields. card: { title, color, note_html, columnId }. opts: { columns: [{ value, label }], word, heading,
+   * extraHtml (fields after the column), extraState() (for the unsaved-changes check), save(values) }. save gets
+   * { title, color, noteHtml, noteText, columnId } and shows and saves the change.
+   */
+  function openCardDialog(card, opts) {
+    var word = opts.word || 'column', noun = (opts.heading || 'Card').toLowerCase();
     var opened = '';
     function cardState() {
       var title = document.getElementById('dlg-cardtitle'), note = document.getElementById('dlg-note'), col = document.getElementById('dlg-cardcolumn');
       var picked = document.querySelector('input[name="dlg-color"]:checked');
-      return [title && title.value, note && note.innerHTML, col && col.value, picked && picked.value].join('\u0000');
+      return [title && title.value, note && note.innerHTML, col && col.value, picked && picked.value, opts.extraState ? opts.extraState() : ''].join('\u0000');
     }
     FT.dialog({
-      title: 'Card',
+      title: opts.heading || 'Card',
       wide: true,
       fields: [
-        { id: 'cardtitle', label: 'Title', value: t.title, maxlength: 200 },
-        { id: 'cardcolumn', label: word.charAt(0).toUpperCase() + word.slice(1), type: 'select', options: columns, value: t.column_id }
+        { id: 'cardtitle', label: 'Title', value: card.title, maxlength: 200 },
+        { id: 'cardcolumn', label: word.charAt(0).toUpperCase() + word.slice(1), type: 'select', options: opts.columns, value: card.columnId }
       ],
-      after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
-        '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>' +
+      after: (opts.extraHtml || '') + swatchesHtml(card.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
+        '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (card.note_html || '') + '</div>' +
         '<div class="hint" style="background:none;padding:4px 0 0">Type <b>- </b> for a list, <b># </b>, <b>## </b> or <b>### </b> for a heading, **bold** or _italic_ and they format as you go. Web addresses become links when you save.</div>',
       onOpen: function () { wireToolbar(); opened = cardState(); },
       // A tap outside the dialog or Esc would throw away what was typed: the dialog asks first.
       isDirty: function () { return cardState() !== opened; },
       onSubmit: function (v) {
-        assert(v.cardtitle, 'A card needs a title.');
+        assert(v.cardtitle, 'A ' + noun + ' needs a title.');
         var picked = document.querySelector('input[name="dlg-color"]:checked');
-        var color = picked ? picked.value : '', noteHtml = document.getElementById('dlg-note').innerHTML;
-        // Shown at once; the server cleans the note and sends the stored version back.
-        t.title = v.cardtitle.slice(0, 200); t.color = color;
         var editor = document.getElementById('dlg-note');
-        t.note_html = noteHtml; t.note = (editor.innerText || editor.textContent || '').trim();
-        FT.rpc('kanban', 'updateTask', { id: t.id, title: t.title, color: color, noteHtml: noteHtml }).catch(FT.saveFailed);
-        if (v.cardcolumn !== t.column_id) moveCard(t, v.cardcolumn); else FT.render();
+        opts.save({
+          title: v.cardtitle.slice(0, 200), color: picked ? picked.value : '', columnId: v.cardcolumn,
+          noteHtml: editor.innerHTML, noteText: (editor.innerText || editor.textContent || '').trim()
+        });
+      }
+    });
+  }
+
+  FT.action('kanban.open-card', function (el) {
+    if (Date.now() - lastDragEnd < 400) return; // the click that ends a drag is not a click on the card
+    var t = taskById(el.dataset.id);
+    if (!t) return;
+    var host = el.closest('[data-owner]');
+    openCardDialog({ title: t.title, color: t.color, note_html: t.note_html, columnId: t.column_id }, {
+      word: (host && host.dataset.word) || 'column',
+      columns: board(t.owner).cols.map(function (c) { return { value: c.id, label: c.name }; }),
+      save: function (card) {
+        // Shown at once; the server cleans the note and sends the stored version back.
+        t.title = card.title; t.color = card.color; t.note_html = card.noteHtml; t.note = card.noteText;
+        FT.rpc('kanban', 'updateTask', { id: t.id, title: t.title, color: card.color, noteHtml: card.noteHtml }).catch(FT.saveFailed);
+        if (card.columnId !== t.column_id) moveCard(t, card.columnId); else FT.render();
       }
     });
   });

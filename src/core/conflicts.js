@@ -12,7 +12,8 @@ var CONFLICT_TARGETS_ = {
   'projects.update': { table: 'Projects', fields: { name: 'name', category: 'category', status: 'status', next_action: 'next_action' }, owner: 'self', label: function (r) { return 'project "' + r.name + '"'; } },
   'kanban.updateTask': { table: 'Tasks', fields: { title: 'title', color: 'color', noteHtml: 'note' }, owner: 'project_id', label: function (r) { return 'card "' + r.title + '"'; } },
   'kanban.moveTask': { table: 'Tasks', fields: { columnId: 'column_id', order: 'order' }, owner: 'project_id', label: function (r) { return 'card "' + r.title + '"'; } },
-  'criteria.update': { table: 'Criteria', fields: { text: 'text', done: 'done', order: 'order' }, owner: 'project_id', label: function (r) { return 'criterion "' + r.text + '"'; } }
+  'criteria.update': { table: 'Criteria', fields: { text: 'text', done: 'done', order: 'order' }, owner: 'project_id', label: function (r) { return 'criterion "' + r.text + '"'; } },
+  'todos.update': { table: 'To-dos', fields: { title: 'title', noteHtml: 'note', color: 'color', day: 'day', projectId: 'project_id', groupId: 'group_id', done: 'done' }, owner: 'project_id', label: function (r) { return 'to-do "' + r.title + '"'; } }
 };
 
 // Conflicts found while the current request runs, sent back to the browser with the reply.

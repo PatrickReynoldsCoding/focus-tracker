@@ -142,7 +142,7 @@ async function waitFor(fn, label, ms = 3000) {
   await step('by default a reload opens Today, then the focus project once the fresh data shows a session started on another device', async () => {
     const warm = page();
     await waitFor(() => warm.$('.focus-name'), 'warm up');
-    warm.click(tabOf(warm, 'Lists'));
+    warm.click(tabOf(warm, 'Notes'));
     const saved = warm.storage(); warm.close();
     const focusId = data().today.focusId;
     rpc('today', 'start', { projectId: focusId, plannedMin: 25 });
@@ -183,7 +183,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(p.w.FT.ready, false, 'nothing is drawn from a copy with a different version');
     net.hold = null; net.release();
     await waitFor(() => p.$('.focus-name'), 'loads normally');
-    await waitFor(() => JSON.parse(p.w.localStorage.getItem('ft.kv.snap:personal')).v === 5, 'and writes a fresh copy');
+    await waitFor(() => JSON.parse(p.w.localStorage.getItem('ft.kv.snap:personal')).v === 6, 'and writes a fresh copy');
     p.close();
     const blocked = page({}, { blockedStorage: true });
     await waitFor(() => blocked.$('.focus-name'), 'loads with storage blocked');

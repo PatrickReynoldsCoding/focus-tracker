@@ -413,7 +413,7 @@ test('notes are their Google Doc: one Doc per project in the Notes folder, saved
   const exports = s.docs.calls.export;
   assert.deepStrictEqual(s.call('notes', 'get', { projectId: p.id, known: again.updated }).result, { same: true, url: saved.url, updated: again.updated }, 'nothing changed: the Doc is not read');
   assert.strictEqual(s.docs.calls.export, exports);
-  assert.deepStrictEqual(json(s.run('bootstrap()')).data.notes, [{ project_id: p.id, url: saved.url, updated: again.updated, doc: saved.url }]);
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.notes, [{ project_id: p.id, list_id: '', url: saved.url, updated: again.updated, doc: saved.url, show_today: '' }]);
   assert.ok(s.mock.logs.some((l) => /^notes\.save \d+ ms$/.test(l)), 'save times go to the execution log');
 });
 
@@ -517,66 +517,76 @@ test('a notes Doc deleted in Drive: the notes read as empty and the next save ma
   assert.strictEqual(s.call('projects', 'list').result[0].notes, saved.url);
 });
 
-test('Today has its own note: the Doc "Today notes" in the Notes folder, not the focus project\'s notes', () => {
+test('a note of the Notes tab is its own Google Doc, named after it, in the Notes folder: saved, read, renamed with the note, never a project', () => {
   const s = fresh();
   const fan = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
-  assert.strictEqual(s.call('today', 'state').result.focusId, fan.id);
-  assert.deepStrictEqual(s.call('notes', 'get', { projectId: 'today' }).result, { html: '', text: '', url: '', updated: '' }, 'no Doc yet: empty');
-  const saved = s.call('notes', 'save', { projectId: 'today', html: '<p>Call the plumber</p>', _base: '', _editedAt: new Date().toISOString() }).result;
+  const note = s.call('lists', 'create', { id: 'ab12cd34', name: 'Ideas', kind: 'note' }).result;
+  assert.deepStrictEqual([note.id, note.kind], ['ab12cd34', 'note'], 'the browser\'s id; a note has no board');
+  assert.ok(!json(s.run('bootstrap()')).data.kanban.columns.some((c) => c.list_id === note.id));
+  assert.deepStrictEqual(s.call('notes', 'get', { listId: note.id }).result, { html: '', text: '', url: '', updated: '' }, 'no Doc until the first save');
+  const saved = s.call('notes', 'save', { listId: note.id, html: '<p>Call the plumber</p>', _base: '', _editedAt: new Date().toISOString() }).result;
   const [doc] = s.docs.docs();
-  assert.strictEqual(doc.name, 'Today notes');
-  assert.strictEqual(s.drive.pathOf(doc), 'Focus Tracker/Personal/Notes/Today notes');
-  assert.strictEqual(saved.url, 'https://docs.google.com/document/d/' + doc.id + '/edit');
-  assert.strictEqual(saved.updated, doc.modifiedTime, 'versioned by the Doc\'s modifiedTime, like project notes');
+  assert.strictEqual(doc.name, 'Ideas');
+  assert.strictEqual(s.drive.pathOf(doc), 'Focus Tracker/Personal/Notes/Ideas');
+  assert.deepStrictEqual([saved.url, saved.updated], ['https://docs.google.com/document/d/' + doc.id + '/edit', doc.modifiedTime], 'versioned by the Doc\'s modifiedTime, like project notes');
   tick();
-  const again = s.call('notes', 'save', { projectId: 'today', html: '<p>Call the plumber</p><p>Buy fuses</p>', _base: saved.updated, _editedAt: new Date().toISOString() }).result;
+  const again = s.call('notes', 'save', { listId: note.id, html: '<p>Call the plumber</p><p>Buy fuses</p>', _base: saved.updated, _editedAt: new Date().toISOString() }).result;
   assert.strictEqual(s.docs.docs().length, 1, 'the next save updates the same Doc');
-  const got = s.call('notes', 'get', { projectId: 'today' }).result;
+  const got = s.call('notes', 'get', { listId: note.id }).result;
   assert.deepStrictEqual([got.text, got.url, got.updated], ['Call the plumber\nBuy fuses', saved.url, again.updated]);
-  assert.strictEqual(s.call('notes', 'get', { projectId: fan.id }).result.text, '', 'the focus project\'s notes are untouched');
-  assert.deepStrictEqual(rowsOf(s.ss.sheets.Notes).map((r) => [r.project_id, r.doc_id]), [['today', doc.id]], 'one Notes row, keyed "today"');
-  s.call('notes', 'save', { projectId: 'today', html: '', _base: again.updated, _editedAt: new Date().toISOString() });
-  assert.strictEqual(s.call('notes', 'get', { projectId: 'today' }).result.text, '', 'cleared by hand, the same Doc is kept empty');
-  assert.strictEqual(s.docs.docs().length, 1);
+  assert.deepStrictEqual(rowsOf(s.ss.sheets.Notes).map((r) => [r.project_id, r.list_id, r.doc_id]), [['', note.id, doc.id]], 'one Notes row, with the note in list_id');
+  s.call('lists', 'rename', { id: note.id, name: 'House ideas' });
+  assert.strictEqual(s.docs.docs()[0].name, 'House ideas', 'renaming the note renames its Doc');
+  assert.strictEqual(s.call('notes', 'get', { listId: note.id }).result.text, 'Call the plumber\nBuy fuses', 'and keeps its text');
+  tick();
+  const clash = s.call('notes', 'save', { listId: note.id, html: '<p>from the old laptop tab</p>', _base: saved.updated, _editedAt: new Date(Date.now() + 1000).toISOString() }).result;
+  assert.strictEqual(clash.conflict.kept, 'yours');
+  assert.ok(/^House ideas - conflict \d{12}$/.test(clash.conflict.copyName), 'the conflict copy is named after the note: ' + clash.conflict.copyName);
+  const data = json(s.run('bootstrap()')).data;
+  assert.deepStrictEqual(data.projects.map((p) => [p.id, p.notes]), [[fan.id, '']], 'no project, and no project\'s notes cell links its Doc');
+  const conflictLine = data.log.find((l) => /conflict/i.test(l.where_stopped));
+  assert.ok(conflictLine && /the note "House ideas"/.test(conflictLine.where_stopped) && conflictLine.project_id === '', 'a Log line with no project says where the copy is');
+  assert.ok(!JSON.stringify(s.call('insights', 'summary').result).includes('House ideas'), 'Insights has nothing for it');
+  assert.deepStrictEqual(data.notes.map((n) => [n.project_id, n.list_id]), [['', note.id]], 'the notes slice has its row, for the editor');
+  assert.throws(() => s.call('notes', 'save', { listId: fan.id, html: '<p>x</p>' }), /no longer exists/, 'a list id must be a note');
+  assert.throws(() => s.call('notes', 'save', { projectId: 'ab12cd35', html: '<p>x</p>' }), /Project not found/, 'a project id still needs a project');
 });
 
-test('Today\'s note never shows up as a project: no project row, notes cell, Log project or Insights line', () => {
+test('deleting a note puts its Doc in Drive\'s bin; undo brings the note back and its Doc out of the bin', () => {
+  const s = fresh();
+  const note = s.call('lists', 'create', { name: 'Ideas', kind: 'note' }).result;
+  s.call('notes', 'save', { listId: note.id, html: '<p>Keep this</p>' });
+  const [doc] = s.docs.docs();
+  s.call('lists', 'remove', { id: note.id });
+  assert.ok(doc.trashed, 'the Doc is in the bin');
+  assert.deepStrictEqual([rowsOf(s.ss.sheets.Lists).length, rowsOf(s.ss.sheets.Notes).length], [0, 0], 'the note and its Notes row are gone');
+  assert.strictEqual(json(s.run('undo')()).undone, 'lists.remove');
+  assert.strictEqual(s.call('notes', 'get', { listId: note.id }).result.text, 'Keep this', 'the note reads its Doc again');
+  assert.ok(!doc.trashed, 'out of the bin');
+  assert.strictEqual(s.docs.docs().length, 1, 'no second Doc');
+});
+
+test('notes are per mode: Work keeps its notes in its own Notes folder', () => {
+  const s = fresh();
+  const inWork = (m, fn, args) => json(s.run('rpc')(m, fn, json(args), 'work')).result;
+  const home = s.call('lists', 'create', { name: 'Errands', kind: 'note' }).result;
+  s.call('notes', 'save', { listId: home.id, html: '<p>Personal errands</p>' });
+  const work = inWork('lists', 'create', { name: 'Standups', kind: 'note' });
+  assert.deepStrictEqual(inWork('notes', 'get', { listId: work.id }), { html: '', text: '', url: '', updated: '' }, 'Work starts with an empty note');
+  inWork('notes', 'save', { listId: work.id, html: '<p>Standup at ten</p>' });
+  assert.deepStrictEqual(s.docs.docs().map((d) => s.drive.pathOf(d)).sort(), ['Focus Tracker/Personal/Notes/Errands', 'Focus Tracker/Work/Notes/Standups']);
+  assert.strictEqual(s.call('notes', 'get', { listId: home.id }).result.text, 'Personal errands');
+});
+
+test('a project\'s notes can be shown on Today once they have a Doc, and that can be undone', () => {
   const s = fresh();
   const fan = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
-  const v1 = s.call('notes', 'save', { projectId: 'today', html: '<p>first</p>' }).result.updated;
-  tick();
-  s.call('notes', 'save', { projectId: 'today', html: '<p>from the phone</p>', _base: v1, _editedAt: new Date().toISOString() });
-  tick();
-  const clash = s.call('notes', 'save', { projectId: 'today', html: '<p>from the old laptop tab</p>', _base: v1, _editedAt: new Date(Date.now() + 1000).toISOString() }).result;
-  assert.strictEqual(clash.conflict.kept, 'yours');
-  assert.ok(/^Today notes - conflict \d{12}$/.test(clash.conflict.copyName), 'the conflict copy is named after Today\'s note: ' + clash.conflict.copyName);
-  const copy = s.docs.docs().find((d) => d.name === clash.conflict.copyName);
-  assert.strictEqual(s.docs.text(copy.id), 'from the phone');
-  assert.strictEqual(s.drive.pathOf(copy), 'Focus Tracker/Personal/Notes/' + copy.name, 'a Doc in the Notes folder');
-  const data = json(s.run('bootstrap()')).data;
-  assert.deepStrictEqual(data.projects.map((p) => p.id), [fan.id], 'no project for Today\'s note');
-  assert.strictEqual(data.projects[0].notes, '', 'and no project\'s notes cell links its Doc');
-  const conflictLine = data.log.find((l) => /conflict/i.test(l.where_stopped));
-  assert.ok(conflictLine && /Today's notes/.test(conflictLine.where_stopped) && /Notes folder/.test(conflictLine.where_stopped), 'a Log line says where the copy is');
-  assert.strictEqual(conflictLine.project_id, '', 'with no project');
-  const insights = JSON.stringify(s.call('insights', 'summary').result);
-  assert.ok(!/"(project_)?id":"today"/.test(insights) && !insights.includes('Today notes'), 'Insights has nothing for it');
-  assert.deepStrictEqual(data.notes.map((n) => n.project_id), ['today'], 'the notes slice has its row, for the editor');
-  s.run('ensureSchema_()');
-  assert.strictEqual(s.call('notes', 'get', { projectId: 'today' }).result.text, 'from the old laptop tab', 'schema steps leave it alone');
-  assert.throws(() => s.call('notes', 'save', { projectId: 'ab12cd34', html: '<p>x</p>' }), /Project not found/, 'any other key still needs a project');
-});
-
-test('Today\'s note is per mode: Work has its own "Today notes" Doc in its own Notes folder', () => {
-  const s = fresh();
-  const inWork = (fn, args) => json(s.run('rpc')('notes', fn, json(args), 'work')).result;
-  s.call('notes', 'save', { projectId: 'today', html: '<p>Personal errands</p>' });
-  assert.deepStrictEqual(inWork('get', { projectId: 'today' }), { html: '', text: '', url: '', updated: '' }, 'Work starts with an empty note');
-  inWork('save', { projectId: 'today', html: '<p>Standup at ten</p>' });
-  const paths = s.docs.docs().map((d) => s.drive.pathOf(d)).sort();
-  assert.deepStrictEqual(paths, ['Focus Tracker/Personal/Notes/Today notes', 'Focus Tracker/Work/Notes/Today notes']);
-  assert.strictEqual(s.call('notes', 'get', { projectId: 'today' }).result.text, 'Personal errands');
-  assert.strictEqual(inWork('get', { projectId: 'today' }).text, 'Standup at ten');
+  assert.throws(() => s.call('notes', 'setShowToday', { projectId: fan.id, on: true }), /Write something in the project's notes first/);
+  s.call('notes', 'save', { projectId: fan.id, html: '<p>100mm</p>' });
+  const shown = s.call('notes', 'setShowToday', { projectId: fan.id, on: true });
+  assert.deepStrictEqual(shown.slices.notes.map((n) => [n.project_id, n.show_today]), [[fan.id, 'yes']]);
+  assert.strictEqual(json(s.run('undo')()).undone, 'notes.setShowToday');
+  assert.strictEqual(json(s.run('bootstrap()')).data.notes[0].show_today, '');
 });
 
 test('resources only accept https links and attach to a category or a project', () => {
@@ -1904,6 +1914,96 @@ test('to-dos: add, tick, untick, delete with undo; done ones fall away after two
   assert.deepStrictEqual(json(s.run('bootstrap()')).data.todos.items.map((t) => t.title), ['Order fan'], 'ticked long ago: off the page, kept in the sheet');
   s.call('projects', 'remove', { id: p.id });
   assert.strictEqual(s.rows('To-dos').find((t) => t.id === b.id).project_id, '', 'a deleted project\'s to-dos stay, unlinked');
+});
+
+test('to-do lists: a to-do added with no list makes the first one, "To-dos"; more lists, each with groups; Plan my week\'s to-dos come from every list', () => {
+  const s = onDay(WED);
+  const first = s.call('todos', 'add', { title: 'Grocery shopping', day: WED }).result;
+  const todoLists = () => s.rows('Lists').filter((l) => l.kind === 'todo');
+  assert.deepStrictEqual(todoLists().map((l) => [l.name, l.show_today]), [['To-dos', 'yes']], 'no to-do list yet: the first is made, on Today');
+  const general = s.rows('Columns').find((c) => c.list_id === todoLists()[0].id);
+  assert.strictEqual(general.name, 'General', 'with one group');
+  assert.deepStrictEqual([first.list_id, first.group_id], [todoLists()[0].id, general.id]);
+  const packing = s.call('lists', 'create', { id: 'ab12cd34', name: 'Packing', kind: 'todo', groupId: 'ab12cd35' }).result;
+  assert.deepStrictEqual(s.rows('Columns').filter((c) => c.list_id === packing.id).map((c) => [c.id, c.name]), [['ab12cd35', 'General']], 'the browser\'s ids for the list and its group');
+  const clothes = s.call('kanban', 'addColumn', { id: 'ab12cd36', projectId: packing.id, name: 'Clothes' }).result;
+  const passport = s.call('todos', 'add', { title: 'Passport', listId: packing.id }).result;
+  const jacket = s.call('todos', 'add', { title: 'Rain jacket', listId: packing.id, groupId: clothes.id }).result;
+  assert.deepStrictEqual([passport.group_id, jacket.group_id], ['ab12cd35', clothes.id], 'its first group, or the group named');
+  assert.deepStrictEqual(s.rows('To-dos').filter((t) => t.list_id === packing.id).map((t) => [t.title, t.list, t.group]), [['Passport', 'Packing', 'General'], ['Rain jacket', 'Packing', 'Clothes']], 'list and group by name in the sheet');
+  assert.throws(() => s.call('todos', 'add', { title: 'x', listId: packing.id, groupId: general.id }), /not on this to-do list/, 'a group of another list is refused');
+  assert.throws(() => s.call('todos', 'add', { title: 'x', listId: 'ab12cd99' }), /no longer exists/);
+  assert.strictEqual(s.call('todos', 'add', { title: 'Post parcel' }).result.list_id, todoLists()[0].id, 'no list given: the first to-do list');
+  s.call('kanban', 'renameColumn', { id: clothes.id, name: 'Clothes and shoes' });
+  assert.strictEqual(s.rows('To-dos').find((t) => t.id === jacket.id).group, 'Clothes and shoes', 'a renamed group is renamed next to its to-dos');
+  s.call('todos', 'move', { id: passport.id, groupId: clothes.id, order: 0.5 });
+  assert.deepStrictEqual(s.rows('To-dos').filter((t) => t.group_id === clothes.id).sort((a, b) => Number(a.order) - Number(b.order)).map((t) => t.title), ['Passport', 'Rain jacket'], 'dropped before the jacket');
+  s.call('kanban', 'deleteColumn', { id: clothes.id });
+  assert.deepStrictEqual(s.rows('To-dos').filter((t) => t.list_id === packing.id).map((t) => [t.title, t.group_id]), [['Passport', 'ab12cd35'], ['Rain jacket', 'ab12cd35']], 'a deleted group\'s to-dos move to the group beside it');
+  assert.strictEqual(json(s.run('undo()')).undone, 'kanban.deleteColumn');
+  assert.ok(s.rows('To-dos').filter((t) => t.list_id === packing.id).every((t) => t.group_id === clothes.id), 'undo puts them back in the group');
+  const planned = s.call('todos', 'history', { from: MON, to: '2026-11-15' }).result.map((t) => t.title).sort();
+  assert.deepStrictEqual(planned, ['Grocery shopping', 'Passport', 'Post parcel', 'Rain jacket'], 'Plan my week and Insights see every list');
+  s.call('lists', 'remove', { id: packing.id });
+  assert.ok(!s.rows('To-dos').some((t) => t.list_id === packing.id) && !s.rows('Columns').some((c) => c.list_id === packing.id), 'deleting a to-do list takes its to-dos and groups');
+  assert.strictEqual(json(s.run('undo()')).undone, 'lists.remove');
+  assert.strictEqual(s.rows('To-dos').filter((t) => t.list_id === packing.id).length, 2, 'undo brings them back');
+});
+
+test('a to-do\'s card: title, description (cleaned, with a plain copy), colour, day, project, group and done in one call, each checked', () => {
+  const s = onDay(WED);
+  const fan = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  const t = s.call('todos', 'add', { title: 'Order fan' }).result;
+  const list = s.rows('Lists').find((l) => l.kind === 'todo');
+  const second = s.call('kanban', 'addColumn', { projectId: list.id, name: 'Later' }).result;
+  const saved = s.call('todos', 'update', { id: t.id, title: 'Order the fan', noteHtml: '<p>The <b>100mm</b> one<script>x()</script></p>', color: '4', day: '2026-11-06', projectId: fan.id, groupId: second.id, done: true }).result;
+  assert.deepStrictEqual([saved.title, saved.note_html, saved.note, saved.color, saved.day, saved.project, saved.group, saved.done],
+    ['Order the fan', '<p>The <b>100mm</b> one</p>', 'The 100mm one', '4', '2026-11-06', 'Fan', 'Later', WED]);
+  s.call('todos', 'update', { id: t.id, noteHtml: '', done: false });
+  assert.deepStrictEqual(['note', 'note_html', 'done'].map((k) => s.rows('To-dos').find((x) => x.id === t.id)[k]), ['', '', ''], 'an emptied description and an untick');
+  assert.throws(() => s.call('todos', 'update', { id: t.id, color: '9' }), /Unknown colour/);
+  assert.throws(() => s.call('todos', 'update', { id: t.id, day: '2027-01-01' }), /end of next week/);
+  assert.throws(() => s.call('todos', 'update', { id: t.id, projectId: 'ab12cd99' }), /Project not found/);
+  assert.throws(() => s.call('todos', 'update', { id: t.id, title: ' ' }), /needs a title/);
+  assert.strictEqual(json(s.run('undo()')).undone, 'todos.update');
+});
+
+test('a to-do typed into the sheet goes on the to-do list and group it names, or the first; a typed to-do list and note are kinds of list', () => {
+  const s = onDay(WED);
+  s.call('todos', 'add', { title: 'Grocery shopping' });
+  const packing = s.call('lists', 'create', { name: 'Packing', kind: 'todo' }).result;
+  s.call('kanban', 'addColumn', { projectId: packing.id, name: 'Clothes' });
+  const sh = s.ss.sheets['To-dos'];
+  sh.rows.push(rowFrom(sh, { title: 'Rain jacket', list: 'packing', group: 'clothes' }), rowFrom(sh, { title: 'Stamps' }), rowFrom(sh, { title: 'Ghost', list: 'Nowhere' }));
+  const ls = s.ss.sheets.Lists;
+  ls.rows.push(rowFrom(ls, { name: 'Errands', kind: 'Todo' }), rowFrom(ls, { name: 'Ideas', kind: 'note' }), rowFrom(ls, { name: 'Odd', kind: 'board' }));
+  json(s.run('bootstrap()'));
+  const rows = s.rows('To-dos'), lists = s.rows('Lists'), first = lists.find((l) => l.name === 'To-dos');
+  const jacket = rows.find((t) => t.title === 'Rain jacket'), stamps = rows.find((t) => t.title === 'Stamps');
+  assert.deepStrictEqual([jacket.list_id, jacket.list, jacket.group], [packing.id, 'Packing', 'Clothes'], 'named list and group, any capitals');
+  assert.deepStrictEqual([stamps.list_id, stamps.list, stamps.group], [first.id, 'To-dos', 'General'], 'no list: the first to-do list and its first group');
+  assert.ok(/No to-do list called "Nowhere"/.test(rows.find((t) => t.title === 'Ghost').problem), 'an unknown list is flagged');
+  assert.deepStrictEqual(['Errands', 'Ideas'].map((n) => lists.find((l) => l.name === n).kind), ['todo', 'note']);
+  const errands = lists.find((l) => l.name === 'Errands');
+  const added = s.call('todos', 'add', { title: 'Bank', listId: errands.id }).result;
+  assert.strictEqual(s.rows('Columns').find((c) => c.id === added.group_id).list_id, errands.id, 'a typed to-do list gets its first group with its first to-do');
+  assert.ok(/Kind must be/.test(s.ss.sheets.Lists.rows.find((r) => r.includes('Odd'))[s.ss.sheets.Lists.rows[0].indexOf('problem')]), 'an unknown kind is flagged');
+  const tasks = s.ss.sheets.Tasks;
+  tasks.rows.push(rowFrom(tasks, { title: 'Not on a to-do list', list: 'Packing' }));
+  json(s.run('bootstrap()'));
+  assert.ok(/No list called "Packing"/.test(s.rows('Tasks').find((t) => t.title === 'Not on a to-do list').problem), 'a card cannot go on a to-do list');
+});
+
+test('an offline to-do edit that finds the row changed since keeps the newest version and logs the older one', () => {
+  const s = onDay(WED);
+  const t = s.call('todos', 'add', { title: 'Order fan' }).result;
+  const base = s.rows('To-dos').find((x) => x.id === t.id).updated_at;
+  tick();
+  s.call('todos', 'update', { id: t.id, title: 'Order the fan (phone)' });
+  const late = s.call('todos', 'update', { id: t.id, title: 'Order fan (laptop, offline)', _base: base, _editedAt: '2020-01-01T00:00:00.000Z' });
+  assert.strictEqual(s.rows('To-dos').find((x) => x.id === t.id).title, 'Order the fan (phone)', 'the newer edit is kept');
+  assert.ok(json(s.run('bootstrap()')).data.log.some((l) => /to-do "Order the fan \(phone\)"/.test(l.where_stopped) && /offline/.test(l.where_stopped)), 'and the older one is in the Log');
+  assert.strictEqual(late.undo, false, 'a skipped edit is not undoable');
 });
 
 /** A habit at 2 a week, 15 min since `levelDay`, prompts every `pace`, and done counts by day. */

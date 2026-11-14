@@ -18,37 +18,70 @@
  * as plain text into the project's notes cell in the sheet (the guide for assistants, core/guide.js, says so). The next
  * snapshot adds that text to the end of the project's notes Doc and puts the Doc's link back in the cell (importTyped_).
  *
- * Today's note is one running note per mode, kept the same way: its own Doc, "Today notes", in the mode's Notes folder,
- * and a Notes row. It has no project. The notes key `today` (TODAY_NOTES_KEY_) stands where a project id would be (the
- * row's project_id, the api's projectId), so the editor, drafts, versions and conflict copies work as for a project.
- * Project ids are 8 hex characters, so the key never meets one. Nothing about it reaches the Projects tab or the Log's
- * project column.
+ * A note of the Notes tab (a row of the Lists tab with kind 'note', lists module) is kept the same way: its own Doc,
+ * named after the note, in the mode's Notes folder, and a Notes row with list_id where a project's has project_id. The
+ * api takes a.listId for it instead of a.projectId; the editor, drafts, versions and conflict copies work as for a
+ * project. Nothing about it reaches the Projects tab or the Log's project column. Deleting the note puts its Doc in
+ * Drive's bin; undo brings the row back, and the Doc comes out of the bin the next time the note is read or saved.
+ * A project's notes can be shown on Today too (show_today on its Notes row).
  */
 
 var NOTES_HTML_MAX_LENGTH_ = 1000000;
 var NOTES_DOC_MIME_ = 'application/vnd.google-apps.document';
-var NOTES_HEADERS_ = ['id', 'project_id', 'doc_id', 'updated', 'written'];
-var TODAY_NOTES_KEY_ = 'today';
-var TODAY_NOTES_DOC_NAME_ = 'Today notes';
+var NOTES_HEADERS_ = ['id', 'project_id', 'list_id', 'doc_id', 'updated', 'written', 'show_today'];
+// Before schema v6 Today had one running note of its own, keyed 'today' where a project id goes. v6 made it a note of
+// the Notes tab and kept its id in a script property, so a save from an older page (or one that waited offline) still
+// reaches it.
+var LEGACY_TODAY_NOTES_KEY_ = 'today';
 
-function isTodayNotes_(notesKey) { return notesKey === TODAY_NOTES_KEY_; }
+function legacyTodayNoteProperty_() {
+  return 'TODAY_NOTE_LIST.' + modeId_();
+}
 
-/** The notes Doc's name: "Today notes" for Today's note, else "<project name> notes". */
-function notesDocName_(notesKey, project) {
-  return isTodayNotes_(notesKey) ? TODAY_NOTES_DOC_NAME_ : (project ? project.name : 'Project') + ' notes';
+/** The note that Today's own note became (schema v6), for a call that still says projectId 'today'. '' if none. */
+function legacyTodayNoteId_(projectId) {
+  if (projectId !== LEGACY_TODAY_NOTES_KEY_) return '';
+  return PropertiesService.getScriptProperties().getProperty(legacyTodayNoteProperty_()) || '';
+}
+
+/** The notes Doc's name: a note's own name, else "<project name> notes". */
+function notesDocName_(project, list) {
+  return list ? list.name : (project ? project.name : 'Project') + ' notes';
 }
 
 function notesModule() {
   var T = new Table('Notes', NOTES_HEADERS_);
 
+  /** The Notes row of a project (its id) or a note (its list id). */
   function rowFor_(notesKey) {
+    if (!notesKey) return null;
     var all = T.all();
-    for (var i = 0; i < all.length; i++) if (all[i].project_id === notesKey) return all[i];
+    for (var i = 0; i < all.length; i++) if (all[i].project_id === notesKey || all[i].list_id === notesKey) return all[i];
     return null;
   }
-  function projectOf_(notesKey, ctx) {
-    if (isTodayNotes_(notesKey)) return null;
-    return ctx.call('projects', 'list', {}).filter(function (p) { return p.id === notesKey; })[0] || null;
+
+  /** The key a call names: a.listId for a note, a.projectId for a project's notes. */
+  function keyOf_(a) {
+    return String(a.listId || '') || legacyTodayNoteId_(a.projectId) || String(a.projectId || '');
+  }
+
+  /** What a save writes to: { key, list } for a note, { key, project } for a project's notes. */
+  function targetOf_(a, ctx) {
+    var key = keyOf_(a);
+    assert_(key, 'No project given.');
+    if (a.listId || legacyTodayNoteId_(a.projectId)) {
+      var list = ctx.optional('lists', 'get', { id: key });
+      assert_(list && list.kind === NOTE_LIST_KIND_, 'That note no longer exists.');
+      return { key: key, list: list, project: null };
+    }
+    var project = ctx.call('projects', 'list', {}).filter(function (p) { return p.id === key; })[0] || null;
+    return { key: key, list: null, project: project };
+  }
+
+  /** The row's Doc, or null when it is gone. A note's Doc in Drive's bin (its delete was undone) comes back out. */
+  function liveDocMeta_(row) {
+    if (!row || !row.doc_id) return null;
+    return notesDocMeta_(row.doc_id) || (row.list_id ? untrashNotesDoc_(row.doc_id) : null);
   }
 
   /** Keep the text that lost a conflict as its own Doc in the Notes folder. Returns the copy's name. */
@@ -61,20 +94,17 @@ function notesModule() {
   }
 
   /**
-   * Save notes into their Doc, checking the version. a.projectId: the project, or TODAY_NOTES_KEY_ for Today's note.
-   * a.html is the editor's HTML (cleaned here); a.text is markdown, used when there is no HTML (notes typed in the
-   * sheet). _base: the version the text builds on; _editedAt: when it was edited. No _base: written without a check
-   * (the app's own appends).
+   * Save notes into their Doc, checking the version. a.projectId: the project, or a.listId: the note. a.html is the
+   * editor's HTML (cleaned here); a.text is markdown, used when there is no HTML (notes typed in the sheet). _base: the
+   * version the text builds on; _editedAt: when it was edited. No _base: written without a check (the app's own appends).
    */
   function write_(a, ctx) {
-    assert_(a.projectId, 'No project given.');
+    var target = targetOf_(a, ctx);
     var html = typeof a.html === 'string' ? sanitizeRichText_(a.html, NOTES_HTML_MAX_LENGTH_) : notesMarkdownToHtml_(a.text);
-    var row = rowFor_(a.projectId);
-    var forToday = isTodayNotes_(a.projectId);
-    var project = projectOf_(a.projectId, ctx);
-    var docName = notesDocName_(a.projectId, project);
+    var row = rowFor_(target.key);
+    var docName = notesDocName_(target.project, target.list);
     var conflict = null;
-    var meta = row && row.doc_id ? notesDocMeta_(row.doc_id) : null;
+    var meta = liveDocMeta_(row);
     if (meta && a._base !== undefined) {
       var baseIsOld = String(a._base) !== String(row.updated);
       var docMoved = meta.modifiedTime !== row.updated;
@@ -88,7 +118,7 @@ function notesModule() {
           }
           var docNewer = timeOf_(meta.modifiedTime) >= timeOf_(a._editedAt);
           var copyName = keepCopy_(docName, docNewer ? html : current, docNewer ? 'server' : 'yours');
-          ctx.optional('log', 'conflict', { projectId: forToday ? '' : a.projectId, text: 'Conflict: ' + (forToday ? 'Today\'s notes were' : 'the notes were') + ' changed elsewhere (another device or Google Docs). ' +
+          ctx.optional('log', 'conflict', { projectId: target.list ? '' : target.key, text: 'Conflict: ' + (target.list ? 'the note "' + target.list.name + '" was' : 'the notes were') + ' changed elsewhere (another device or Google Docs). ' +
             (docNewer ? 'The newer notes were kept; your text' : 'Your text was newer and replaced them; the other text') + ' is saved as the Doc "' + copyName + '" in the Notes folder.' });
           conflict = { kept: docNewer ? 'server' : 'yours', copyName: copyName };
           if (docNewer) {
@@ -103,10 +133,10 @@ function notesModule() {
     var patch = { doc_id: file.id, updated: file.modifiedTime || nowIso_(), written: notesFingerprint_(html) };
     if (row) T.update(row.id, patch);
     else {
-      assert_(project || forToday, 'Project not found.');
-      T.insert(Object.assign({ project_id: a.projectId }, patch));
+      assert_(target.project || target.list, 'Project not found.');
+      T.insert(Object.assign(target.list ? { list_id: target.key } : { project_id: target.key }, patch));
     }
-    if (!meta && !forToday) ctx.call('projects', 'setNotesLink', { id: a.projectId, url: notesDocUrl_(file.id) });
+    if (!meta && !target.list) ctx.call('projects', 'setNotesLink', { id: target.key, url: notesDocUrl_(file.id) });
     console.log('notes.save ' + (Date.now() - t0) + ' ms' + (meta ? '' : ' (new Doc)'));
     var out = { url: notesDocUrl_(file.id), updated: patch.updated };
     if (conflict) out.conflict = conflict;
@@ -129,7 +159,7 @@ function notesModule() {
       var text = typedNotes_(p.notes);
       if (!text) return;
       var row = rowFor_(p.id);
-      var current = row && row.doc_id && notesDocMeta_(row.doc_id) ? readNotesDoc_(row.doc_id) : '';
+      var current = liveDocMeta_(row) ? readNotesDoc_(row.doc_id) : '';
       var saved = write_({ projectId: p.id, html: current + notesMarkdownToHtml_(text.replace(/\r\n?/g, '\n')) }, ctx);
       ctx.call('projects', 'setNotesLink', { id: p.id, url: saved.url });
     });
@@ -141,7 +171,7 @@ function notesModule() {
     snapshot: function (ctx) {
       importTyped_(ctx);
       return T.all().filter(function (r) { return r.doc_id; }).map(function (r) {
-        return { project_id: r.project_id, url: notesDocUrl_(r.doc_id), updated: r.updated, doc: notesDocUrl_(r.doc_id) };
+        return { project_id: r.project_id, list_id: r.list_id, url: notesDocUrl_(r.doc_id), updated: r.updated, doc: notesDocUrl_(r.doc_id), show_today: r.show_today };
       });
     },
     api: {
@@ -150,10 +180,9 @@ function notesModule() {
        * at it, { same: true } comes back without reading the Doc. An edit made in Google Docs becomes the new version.
        */
       get: function (a) {
-        var row = rowFor_(a.projectId);
+        var row = rowFor_(keyOf_(a));
         var empty = { html: '', text: '', url: '', updated: '' };
-        if (!row || !row.doc_id) return empty;
-        var meta = notesDocMeta_(row.doc_id);
+        var meta = liveDocMeta_(row);
         if (!meta) return empty;
         var url = notesDocUrl_(row.doc_id);
         if (a.known && a.known === row.updated && meta.modifiedTime === row.updated) return { same: true, url: url, updated: row.updated };
@@ -172,6 +201,32 @@ function notesModule() {
       /** Forget the link. The Doc stays in Drive. */
       removeProject: function (a) {
         T.removeWhere(function (r) { return r.project_id === a.projectId; });
+        return true;
+      },
+
+      /** A note was renamed (lists.rename): its Doc takes the new name. */
+      renameList: function (a) {
+        var row = rowFor_(String(a.listId || ''));
+        if (liveDocMeta_(row)) renameNotesDoc_(row.doc_id, clean_(a.name, 80));
+        return true;
+      },
+
+      /** A note was deleted (lists.remove): its Doc goes to Drive's bin and its row goes. Undo puts the row back. */
+      removeList: function (a, ctx) {
+        var row = rowFor_(String(a.listId || ''));
+        if (!row || !row.list_id) return true;
+        if (row.doc_id) trashNotesDoc_(row.doc_id);
+        T.remove(row.id);
+        ctx.refresh('notes');
+        return true;
+      },
+
+      /** Show a project's notes on Today as their own panel (a.on), or not. Only notes that have a Doc. */
+      setShowToday: function (a, ctx) {
+        var row = rowFor_(String(a.projectId || ''));
+        assert_(row && row.project_id && row.doc_id, 'Write something in the project\'s notes first.');
+        T.update(row.id, { show_today: a.on ? 'yes' : '' });
+        ctx.refresh('notes');
         return true;
       }
     }
@@ -215,6 +270,26 @@ function notesHtmlBlob_(name, html) {
 /** A new notes Doc in the Notes folder, converted from the editor's HTML. Returns { id, modifiedTime }. */
 function createNotesDoc_(name, html) {
   return Drive.Files.create({ name: name, mimeType: NOTES_DOC_MIME_, parents: [getSubfolder_('Notes').getId()] }, notesHtmlBlob_(name, html), { fields: 'id,modifiedTime' });
+}
+
+/** Give the Doc a new name, leaving its content. */
+function renameNotesDoc_(docId, name) {
+  try { Drive.Files.update({ name: name }, docId); } catch (e) { console.log('notes.renameList: ' + (e && e.message)); }
+}
+
+/** A deleted note's Doc goes to Drive's bin (restorable there for 30 days), like the old notes files in schema v5. */
+function trashNotesDoc_(docId) {
+  try { DriveApp.getFileById(docId).setTrashed(true); } catch (e) {}
+}
+
+/** Take a note's Doc back out of the bin (its delete was undone). Its metadata, or null when it is gone for good. */
+function untrashNotesDoc_(docId) {
+  try {
+    var file = DriveApp.getFileById(docId);
+    if (!file.isTrashed()) return null;
+    file.setTrashed(false);
+    return notesDocMeta_(docId);
+  } catch (e) { return null; }
 }
 
 /** Replace the Doc's content (and name) with the editor's HTML. Returns { id, modifiedTime }. */
@@ -485,7 +560,7 @@ function moveOldNotesIntoDoc_(row, name) {
  * v4 to v5: each project's notes become its Google Doc only. Rows that still have an old markdown file or formatted
  * copy are moved into the Doc one by one (the row forgets the files before they go, so a run that stops part way never
  * makes a Doc twice), the old files go to Drive's bin (setTrashed, not deleted), and the project's notes cell links
- * the Doc. Then the Notes tab is laid out as NOTES_HEADERS_, keeping a person's own columns. The spreadsheet is
+ * the Doc. Then the Notes tab is laid out as V5_NOTES_HEADERS_, keeping a person's own columns. The spreadsheet is
  * backed up first when there are files to move. Safe to run again.
  */
 function migrateNotesToDocs_(ss) {
@@ -496,22 +571,12 @@ function migrateNotesToDocs_(ss) {
   if (waiting.length) backupBeforeMigration_(ss, 'v5');
   waiting.forEach(function (row) {
     var project = projects.get(row.project_id);
-    var doc = moveOldNotesIntoDoc_(row, notesDocName_(row.project_id, project));
+    var doc = moveOldNotesIntoDoc_(row, notesDocName_(project, null));
     notes.update(row.id, { doc_id: doc.id, updated: doc.modifiedTime || nowIso_(), written: doc.written, file_id: '', file_url: '', html_file_id: '', html_version: '', doc_synced: '', doc_seen: '' });
     [row.file_id, row.html_file_id].filter(Boolean).forEach(trashOldNotesFile_);
     var cell = project ? String(project.notes || '').trim() : '';
     if (project && (!cell || /^https?:\/\//i.test(cell))) projects.update(project.id, { notes: notesDocUrl_(doc.id) });
   });
-  var values = readTabValues_(ss, 'Notes');
-  var extra = values[0].filter(function (h) { return h && NOTES_V4_HEADERS_.indexOf(h) === -1; });
-  var headers = NOTES_HEADERS_.concat(extra);
-  var laidOut = [headers].concat(objectsOf_(values).map(function (o) {
-    return headers.map(function (h) { return o[h] === undefined || o[h] === null ? '' : String(o[h]); });
-  }));
-  if (!sameValues_(values, laidOut)) {
-    var sh = rewriteTab_(ss, 'Notes', laidOut);
-    styleTab_(sh, headers);
-    orderTabs_(ss);
-  }
+  layOutTab_(ss, 'Notes', V5_NOTES_HEADERS_, NOTES_V4_HEADERS_);
   tableCache_ = {};
 }

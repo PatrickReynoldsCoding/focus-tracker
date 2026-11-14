@@ -74,7 +74,7 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('loads and shows tabs and today\'s focus', async () => {
     await waitFor(() => $('.focus-name'), 'focus name');
-    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Lists', 'Whiteboards', 'Insights']);
+    assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Notes', 'Whiteboards', 'Insights']);
     assert.strictEqual($('.focus-name').textContent, 'CV and portfolio', 'Wednesday leads with job, longest untouched first');
     assert.ok($('.timer') === null);
   });
@@ -194,9 +194,9 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.board'), 'board');
     assert.strictEqual($$('.colname').map((i) => i.value).join('|'), 'To do|Doing|Done');
     assert.strictEqual($$('.kcard').length, 3);
-    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('100mm'), 'notes loaded');
+    await waitFor(() => $('.notes-edit') && $('.notes-edit').getAttribute('contenteditable') === 'true' && $('.notes-edit').textContent.includes('100mm'), 'notes loaded');
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Resources: this project'));
-    assert.ok(!$('#nt-link').hidden);
+    assert.ok(!$('.nt-link').hidden);
     assert.ok($$('.lcell .label').some((l) => l.textContent === 'Whiteboards'), 'whiteboards panel');
     assert.strictEqual($('[data-act="whiteboard.new"]').textContent, '+ New whiteboard');
   });
@@ -484,12 +484,12 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('notes autosave straight into their Google Doc, formatting and all, and can be copied as markdown', async () => {
-    const ta = $('#nt-text');
-    assert.ok($$('#nt-bar [data-cmd="foreColor"]').length && $$('#nt-bar [data-cmd="hiliteColor"]').length && $('#nt-bar [data-cmd="underline"]'), 'colours, highlights and underline in the toolbar');
+    const ta = $('.notes-edit');
+    assert.ok($$('.nt-bar [data-cmd="foreColor"]').length && $$('.nt-bar [data-cmd="hiliteColor"]').length && $('.nt-bar [data-cmd="underline"]'), 'colours, highlights and underline in the toolbar');
     ta.innerHTML = '<h1>Fan</h1><div>Replacement needs to be <b>100mm</b> <u>exactly</u>.</div><ul><li>Checked the duct: <font color="#d64545">98mm</font></li></ul>';
     ta.dispatchEvent(new w.Event('input', { bubbles: true }));
     ta.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
-    await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
+    await waitFor(() => $('.nt-status').textContent === 'Saved', 'saved');
     const doc = server.docs.docs().find((f) => f.content && f.content.includes('98mm'));
     assert.ok(doc, 'the notes Doc holds the notes');
     assert.ok(doc.content.includes('<h1>Fan</h1>') && doc.content.includes('<b>100mm</b>') && doc.content.includes('<u>exactly</u>') && doc.content.includes('<span style="color: #d64545">98mm</span>'), 'with headings, bold, underline and colour');
@@ -693,66 +693,118 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
 
-  // ---------- notes on Today ----------
+  // ---------- notes on the Notes tab and on Today ----------
   const projectNamed = (name) => JSON.parse(JSON.stringify(server.run('bootstrap()').data.projects)).find((p) => p.name === name);
   const notesOf = (id) => JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { projectId: id }))).result.text;
-  const typeNotes = (html) => { const ed = $('#nt-text'); ed.innerHTML = html; ed.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  const noteText = (id) => JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { listId: id }))).result.text;
+  const editorOf = (key) => $('#app .notes-edit[data-project="' + key + '"]');
+  const typeInto = (key, html) => { const ed = editorOf(key); ed.innerHTML = html; ed.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  const statusOf = (key) => $('#nt-status-' + key);
+  const errandsDoc = () => server.docs.docs().find((f) => f.name === 'Errands');
+  const errandsNote = () => (w.FT.store.lists || []).find((l) => l.kind === 'note' && l.name === 'Errands');
+  const rowsOfTabNow = (name) => { const sh = server.ss.sheets[name]; return sh ? sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, i) => [h, r[i] === undefined ? '' : r[i]]))) : []; };
 
-  const todayDoc = () => server.docs.docs().find((f) => f.name === 'Today notes');
+  await step('the Notes tab: + New note makes a note at once, and typing saves to its own Google Doc named after it', async () => {
+    click(tab('Notes'));
+    await waitFor(() => $('[data-act="lists.add"][data-kind="note"]'), 'Notes tab');
+    assert.strictEqual($('.notes-intro .label').textContent, 'Notes', 'the tab is called Notes');
+    click($('[data-act="lists.add"][data-kind="note"]'));
+    await waitFor(() => $('#dlg-name'), 'name dialog');
+    assert.strictEqual($('#dlg-heading').textContent, 'New note');
+    setVal($('#dlg-name'), 'Errands');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && errandsNote(), 'made at once');
+    const note = errandsNote();
+    assert.ok(editorOf(note.id) && editorOf(note.id).getAttribute('contenteditable') === 'true', 'its editor is on the tab at once');
+    assert.ok($('.lcell[data-panel="list-' + note.id + '"] .listname').value === 'Errands', 'with its name to edit in place');
+    await waitFor(() => rowsOfTabNow('Lists').some((l) => l.id === note.id && l.kind === 'note'), 'saved as a row of Lists with kind note');
+    typeInto(note.id, '<p>Call the plumber about the <b>stopcock</b></p>');
+    editorOf(note.id).dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => statusOf(note.id).textContent === 'Saved', 'saved');
+    assert.ok(errandsDoc() && errandsDoc().content.includes('<b>stopcock</b>'), 'the Doc "Errands" holds it, formatting and all');
+    assert.strictEqual(server.drive.pathOf(errandsDoc()), 'Focus Tracker/Personal/Notes/Errands', 'in the Notes folder');
+    assert.strictEqual(noteText(note.id), 'Call the plumber about the **stopcock**');
+    assert.ok(!$('#nt-link-' + note.id).hidden && $('#nt-link-' + note.id).href === errandsDoc().getUrl(), '"Open in Docs" links its Doc');
+  });
 
-  await step('Today has its own Notes panel, not the focus project\'s notes: typing there saves to the Doc "Today notes"', async () => {
-    click(tab('Today'));
+  await step('project notes show on the Notes tab after the notes, lists and to-do lists; the filter hides them, and the choice is kept for the mode', async () => {
     const fan = projectNamed('Bathroom extractor fan');
-    await waitFor(() => $('.focus-name').textContent === fan.name, 'the fan is the focus');
-    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === 'today' && $('#nt-text').getAttribute('contenteditable') === 'true', 'Today\'s own note');
-    assert.ok(!$('#nt-text').textContent.includes('100mm'), 'not the focus project\'s notes');
-    assert.strictEqual($('#nt-panel .label').textContent.trim(), 'Notes', 'the label is just Notes');
-    assert.ok(!$('#nt-panel .label a, #nt-panel .label [data-act^="notes."]'), 'with no project link');
-    assert.ok($('#nt-bar [data-cmd="bold"]') && $('[data-act="notes.copy"]') && $('#nt-paper'), 'the same editor, toolbar, paper and Copy as markdown');
-    assert.ok(!todayDoc() && $('#nt-link').hidden, 'no Doc until something is typed');
-    typeNotes('<p>Call the plumber about the <b>stopcock</b></p>');
-    $('#nt-text').dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
-    await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
-    assert.ok(todayDoc() && todayDoc().content.includes('<b>stopcock</b>'), 'the Doc "Today notes" holds it, formatting and all');
-    assert.strictEqual(server.drive.pathOf(todayDoc()), 'Focus Tracker/Personal/Notes/Today notes', 'in the Notes folder');
-    assert.strictEqual(notesOf('today'), 'Call the plumber about the **stopcock**');
-    assert.ok(!notesOf(fan.id).includes('plumber'), 'the focus project\'s notes are untouched');
-    assert.ok(!$('#nt-link').hidden && $('#nt-link').href === todayDoc().getUrl(), '"Open in Docs" links Today\'s Doc');
-    assert.ok(!projectNamed('Today') && !w.FT.store.projects.some((p) => p.notes === todayDoc().getUrl()), 'no project for it, and no project\'s notes cell links it');
-    w.FT.go('project', { id: fan.id });
-    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id && $('#nt-text').textContent.includes('100mm'), 'the fan\'s page has its own notes');
-    assert.ok(!$('#nt-text').textContent.includes('plumber'));
+    await waitFor(() => $('.lcell[data-panel="pnote-' + fan.id + '"]'), 'the fan\'s notes on the Notes tab');
+    assert.strictEqual($('.lcell[data-panel="pnote-' + fan.id + '"] .label').textContent, fan.name + ' notes');
+    await waitFor(() => editorOf(fan.id) && editorOf(fan.id).textContent.includes('100mm'), 'the same notes as on its page');
+    const ids = $$('#app .lcell').map((c) => c.dataset.panel);
+    assert.ok(ids.indexOf('list-' + errandsNote().id) < ids.indexOf('pnote-' + fan.id), 'after the Notes tab\'s own');
+    const filter = $('[data-change="lists.projectNotes"]');
+    assert.ok(filter.checked, 'shown by default');
+    filter.checked = false; filter.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok(!$('.lcell[data-panel^="pnote-"]') && editorOf(errandsNote().id), 'hidden at once; the note stays');
+    await waitFor(() => (server.ss.sheets.Settings.rows.find((r) => r[0] === 'layout.lists.view') || [])[1] === '{"projectNotes":"off"}', 'kept in the mode\'s Settings');
     click(tab('Today'));
-    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === 'today' && $('#nt-text').textContent.includes('plumber'), 'back on Today, Today\'s note');
+    click(tab('Notes'));
+    assert.ok(!$('.lcell[data-panel^="pnote-"]') && !$('[data-change="lists.projectNotes"]').checked, 'still hidden');
+    click($('[data-change="lists.projectNotes"]'));
+    const again = $('[data-change="lists.projectNotes"]');
+    again.checked = true; again.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await waitFor(() => $('.lcell[data-panel="pnote-' + fan.id + '"]'), 'shown again');
+    await waitFor(() => !w.FT.pendingSaves(), 'saved');
+  });
+
+  await step('a note goes on Today through Add feature; typing there saves to the same Doc, apart from the focus project\'s notes', async () => {
+    click(tab('Today'));
+    const fan = projectNamed('Bathroom extractor fan'), note = errandsNote();
+    await waitFor(() => $('.focus-name').textContent === fan.name, 'the fan is the focus');
+    assert.ok(!editorOf(note.id), 'not on Today yet');
+    click($('#layoutBtn'));
+    click($('.editbar [data-act="core.addFeature"]'));
+    const row = $$('#dlg-features li').find((li) => li.querySelector('b').textContent === 'Errands');
+    assert.ok(row && /Note, shown on Today as its own panel/.test(row.textContent), 'Add feature offers the note');
+    const fanRow = $$('#dlg-features li').find((li) => li.querySelector('b').textContent === fan.name + ' notes');
+    assert.ok(fanRow && /project's notes/.test(fanRow.textContent), 'and a project\'s notes');
+    click(row.querySelector('[data-act="core.addFeatureItem"]'));
+    click($('#dlg-submit'));
+    click($('#layoutBtn'));
+    await waitFor(() => editorOf(note.id) && editorOf(note.id).textContent.includes('plumber'), 'the note on Today');
+    assert.strictEqual($('.notelist-panel .label').textContent, 'Errands');
+    assert.ok(!editorOf(fan.id), 'not the focus project\'s notes');
+    await waitFor(() => rowsOfTabNow('Lists').find((l) => l.id === note.id).show_today === 'yes', 'show_today saved');
+    typeInto(note.id, editorOf(note.id).innerHTML + '<p>Buy fuses</p>');
+    editorOf(note.id).dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => noteText(note.id).endsWith('Buy fuses'), 'saved to the note\'s Doc');
+    assert.ok(!notesOf(fan.id).includes('fuses'), 'the focus project\'s notes are untouched');
+    w.FT.go('project', { id: fan.id });
+    await waitFor(() => editorOf(fan.id) && editorOf(fan.id).textContent.includes('100mm'), 'the fan\'s page has its own notes');
+    assert.ok(!editorOf(note.id));
+    click(tab('Today'));
+    await waitFor(() => editorOf(note.id) && editorOf(note.id).textContent.includes('fuses'), 'back on Today, the note');
   });
 
   await step('the notes paper can be Plain, Legal pad, Graph paper or Index card, kept on this device for every notes panel', async () => {
-    const picker = $('#nt-paper');
+    const picker = $('.nt-paper');
     assert.deepStrictEqual(Array.from(picker.options).map((o) => o.textContent), ['Plain', 'Legal pad', 'Graph paper', 'Index card']);
     assert.strictEqual(picker.value, '', 'plain by default');
-    assert.ok(!$('#nt-text').classList.contains('paper'));
+    assert.ok(!$('.notes-edit').classList.contains('paper'));
     setVal(picker, 'legal', 'change');
-    assert.ok($('#nt-text').classList.contains('paper') && $('#nt-text').classList.contains('paper-legal'), 'the pad at once, no redraw');
+    assert.ok($('.notes-edit').classList.contains('paper') && $('.notes-edit').classList.contains('paper-legal'), 'the pad at once, no redraw');
     assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), 'legal');
     assert.ok(d.getElementById('nt-hand-font'), 'its handwriting font is asked for only now');
     w.FT.go('project', { id: w.FT.store.today.focusId });
-    await waitFor(() => w.FT.state.view === 'project' && $('#nt-text'), 'project page');
-    assert.ok($('#nt-text').classList.contains('paper-legal') && $('#nt-paper').value === 'legal', 'the project page uses it too');
-    setVal($('#nt-paper'), 'graph', 'change');
-    assert.ok($('#nt-text').classList.contains('paper-graph') && !$('#nt-text').classList.contains('paper-legal'));
-    setVal($('#nt-paper'), 'card', 'change');
-    assert.ok($('#nt-text').classList.contains('paper-card'));
-    setVal($('#nt-paper'), '', 'change');
-    assert.ok(!$('#nt-text').classList.contains('paper') && !$('#nt-text').className.includes('paper-'), 'Plain again');
+    await waitFor(() => w.FT.state.view === 'project' && $('.notes-edit'), 'project page');
+    assert.ok($('.notes-edit').classList.contains('paper-legal') && $('.nt-paper').value === 'legal', 'the project page uses it too');
+    setVal($('.nt-paper'), 'graph', 'change');
+    assert.ok($('.notes-edit').classList.contains('paper-graph') && !$('.notes-edit').classList.contains('paper-legal'));
+    setVal($('.nt-paper'), 'card', 'change');
+    assert.ok($('.notes-edit').classList.contains('paper-card'));
+    setVal($('.nt-paper'), '', 'change');
+    assert.ok(!$('.notes-edit').classList.contains('paper') && !$('.notes-edit').className.includes('paper-'), 'Plain again');
     assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), null);
     click(tab('Today'));
-    await waitFor(() => $('#nt-text'), 'Today');
+    await waitFor(() => $('.notes-edit'), 'Today');
   });
 
-  await step('when Today\'s focus changes, Today\'s note stays as it is, typing and all; with no focus it is still there', async () => {
-    const fan = projectNamed('Bathroom extractor fan');
-    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true', 'editable');
-    typeNotes($('#nt-text').innerHTML + '<p>Typed just before the swap</p>'); // no focusout, inside the save delay
+  await step('when Today\'s focus changes, a note on Today stays as it is, typing and all; with no focus it is still there', async () => {
+    const fan = projectNamed('Bathroom extractor fan'), note = errandsNote();
+    await waitFor(() => editorOf(note.id) && editorOf(note.id).getAttribute('contenteditable') === 'true', 'editable');
+    typeInto(note.id, editorOf(note.id).innerHTML + '<p>Typed just before the swap</p>'); // no focusout, inside the save delay
     click($('[data-act="today.swap"]'));
     await waitFor(() => $('#dlg-to'), 'swap dialog');
     const to = $('#dlg-to').options[0];
@@ -760,35 +812,35 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-to'), to.value, 'change');
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && $('.focus-name').textContent === toName, 'the new focus');
-    assert.ok($('#nt-text').dataset.project === 'today' && $('#nt-text').textContent.includes('Typed just before the swap'), 'the same note, with what was typed');
-    await waitFor(() => notesOf('today').endsWith('Typed just before the swap'), 'saved to Today\'s Doc');
+    assert.ok(editorOf(note.id).textContent.includes('Typed just before the swap'), 'the same note, with what was typed');
+    await waitFor(() => noteText(note.id).endsWith('Typed just before the swap'), 'saved to the note\'s Doc');
     assert.ok(!notesOf(fan.id).includes('Typed just before the swap') && !notesOf(to.value).includes('Typed just before the swap'), 'not to either project');
 
     const today = w.FT.store.today, focusBefore = today.focusId;
     today.focusId = null;
     w.FT.render();
-    assert.ok($('#app #nt-text') && $('#nt-text').dataset.project === 'today', 'no focus: Today\'s note is still there');
+    assert.ok(editorOf(note.id), 'no focus: the note is still there');
     today.focusId = focusBefore;
     w.FT.render();
   });
 
-  await step('Today\'s note is cleared by hand and stays the same Doc; it can be removed and added back through Add feature', async () => {
-    const doc = todayDoc();
-    typeNotes('');
-    $('#nt-text').dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
-    await waitFor(() => notesOf('today') === '', 'the cleared note is saved');
-    assert.strictEqual(server.docs.docs().filter((f) => f.name === 'Today notes').length, 1, 'still one Doc');
-    assert.strictEqual(todayDoc().id, doc.id, 'the same one');
+  await step('a note on Today is cleared by hand and stays the same Doc; it can be removed and added back through Add feature', async () => {
+    const doc = errandsDoc(), note = errandsNote();
+    typeInto(note.id, '');
+    editorOf(note.id).dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => noteText(note.id) === '', 'the cleared note is saved');
+    assert.strictEqual(server.docs.docs().filter((f) => f.name === 'Errands').length, 1, 'still one Doc');
+    assert.strictEqual(errandsDoc().id, doc.id, 'the same one');
     click($('#layoutBtn'));
-    click($('.lcell[data-panel="notes"] [data-act="core.removePanel"]'));
-    assert.ok(!$('#app #nt-text'), 'removed from Today');
+    click($('.lcell[data-panel="list-' + note.id + '"] [data-act="core.removePanel"]'));
+    assert.ok(!editorOf(note.id), 'removed from Today');
     click($('.editbar [data-act="core.addFeature"]'));
-    const row = $$('#dlg-features li').find((li) => li.querySelector('b').textContent === 'Today notes');
-    assert.ok(row && /running note for Today/.test(row.textContent), 'Add feature offers Today notes, described');
+    const row = $$('#dlg-features li').find((li) => li.querySelector('b').textContent === 'Errands');
+    assert.ok(row, 'Add feature offers it again');
     click(row.querySelector('[data-act="core.addFeatureItem"]'));
     click($('#dlg-submit'));
     click($('#layoutBtn'));
-    await waitFor(() => $('#app #nt-text') && $('#nt-text').dataset.project === 'today', 'back on Today');
+    await waitFor(() => editorOf(note.id), 'back on Today');
     await waitFor(() => !w.FT.pendingSaves(), 'the layout saved');
   });
 
@@ -835,13 +887,14 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(item().classList.contains('done'), 'struck through at once');
     assert.ok(item().textContent.includes('Done · Today'));
     await waitFor(() => todosNow().find((t) => t.title === 'Grocery shopping').done === TODAY, 'tick saved');
-    setVal($('#td-day'), '', 'change');
-    setVal($('#td-new'), 'Post parcel');
-    enter($('#td-new'));
+    const addBox = () => $('.todos-panel .todoadd input');
+    setVal($('.todos-panel .todoadd select'), '', 'change');
+    setVal(addBox(), 'Post parcel');
+    enter(addBox());
     assert.ok($$('.todos li').some((li) => li.textContent.includes('Post parcel') && li.textContent.includes('Anytime')), 'shows at once');
-    assert.strictEqual(d.activeElement.id, 'td-new', 'the box keeps focus for the next one');
+    assert.strictEqual(d.activeElement, addBox(), 'the box keeps focus for the next one');
     await waitFor(() => todosNow().some((t) => t.title === 'Post parcel' && t.day === ''), 'added');
-    setVal($('#td-new'), 'Wrong one'); click($('[data-act="todos.addBtn"]'));
+    setVal(addBox(), 'Wrong one'); click($('.todos-panel [data-act="todos.addBtn"]'));
     await waitFor(() => todosNow().some((t) => t.title === 'Wrong one'), 'added with the button');
     click($$('.todos li').find((li) => li.textContent.includes('Wrong one')).querySelector('[data-act="todos.remove"]'));
     assert.ok(!$$('.todos li').some((li) => li.textContent.includes('Wrong one')), 'gone at once');
@@ -850,6 +903,82 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#toast .toastbtn'));
     await waitFor(() => todosNow().some((t) => t.title === 'Wrong one'), 'Undo brings it back');
     await waitFor(() => $$('.todos li').some((li) => li.textContent.includes('Wrong one')), 'on screen too');
+  });
+
+  await step('a to-do opens the same card dialog as a list item: title, group, colour and a description, plus its day, project and done', async () => {
+    const addBox = $('.todos-panel .todoadd input');
+    setVal(addBox, 'Buy stamps'); enter(addBox);
+    await waitFor(() => todosNow().some((t) => t.title === 'Buy stamps'), 'a to-do to open');
+    const item = () => $$('.todos-panel .todos li').find((li) => li.textContent.includes('Buy stamps'));
+    click(item().querySelector('[data-act="todos.open"]'));
+    await waitFor(() => $('#dlg-cardtitle'), 'the card dialog');
+    assert.strictEqual($('#dlg-heading').textContent, 'To-do');
+    assert.ok($('#dlg-cardcolumn') && $('input[name="dlg-color"]') && $('#dlg-note') && $('#dialogRoot .rtbar'), 'title, group, colour and the note editor, as for a card');
+    assert.ok($('#dlg-tdday') && $('#dlg-tdproject') && $('#dlg-tddone'), 'and the to-do\'s own fields');
+    assert.deepStrictEqual(Array.from($('#dlg-tdday').options).slice(0, 3).map((o) => o.textContent), ['Anytime', 'Today', 'Tomorrow']);
+    const fan = projectNamed('Bathroom extractor fan');
+    setVal($('#dlg-cardtitle'), 'Buy the stamps');
+    $('#dlg-note').innerHTML = '<p>The <b>blue</b> one, by Friday</p>';
+    $('input[name="dlg-color"][value="4"]').checked = true;
+    setVal($('#dlg-tdday'), TODAY, 'change');
+    setVal($('#dlg-tdproject'), fan.id, 'change');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog'), 'closes at once');
+    const now = $$('.todos-panel .todos li').find((li) => li.textContent.includes('Buy the stamps'));
+    assert.ok(now && now.textContent.includes('Today') && now.textContent.includes('The blue one, by Friday') && now.classList.contains('coloured'), 'shown at once, with the start of its description');
+    await waitFor(() => todosNow().some((t) => t.title === 'Buy the stamps' && t.day === TODAY && t.project_id === fan.id && t.color === '4' && /<b>blue<\/b>/.test(t.note_html) && t.note === 'The blue one, by Friday'), 'saved, the description cleaned with a plain copy');
+    click(now.querySelector('[data-act="todos.open"]'));
+    await waitFor(() => $('#dlg-tddone'), 'opened again');
+    assert.ok($('#dlg-note').innerHTML.includes('<b>blue</b>') && $('#dlg-tdproject').value === fan.id, 'it opens with what was saved');
+    $('#dlg-tddone').checked = true;
+    click($('#dlg-submit'));
+    await waitFor(() => $$('.todos-panel .todos li.done').some((li) => li.textContent.includes('Buy the stamps')), 'ticked from the dialog');
+    await waitFor(() => todosNow().find((t) => t.title === 'Buy the stamps').done === TODAY, 'saved as done');
+  });
+
+  await step('to-do lists: + New to-do list on the Notes tab makes another, with groups like a list\'s; Plan my week covers every list', async () => {
+    click(tab('Notes'));
+    click(await waitFor(() => $('[data-act="lists.add"][data-kind="todo"]'), 'Notes tab'));
+    await waitFor(() => $('#dlg-name'), 'name dialog');
+    setVal($('#dlg-name'), 'Packing');
+    click($('#dlg-submit'));
+    const packing = await waitFor(() => !$('.dialog') && w.FT.store.lists.find((l) => l.kind === 'todo' && l.name === 'Packing'), 'made at once');
+    const panel = () => $('.lcell[data-panel="list-' + packing.id + '"]');
+    assert.ok(panel() && panel().querySelector('.todos-panel .todoadd input'), 'its own panel, with an add box');
+    assert.ok(!panel().querySelector('.colhead'), 'one group: no group header');
+    const groupBox = () => panel().querySelector('.todoadd input');
+    setVal(groupBox(), 'Passport'); enter(groupBox());
+    click(panel().querySelector('[data-act="kanban.add-col"]'));
+    await waitFor(() => panel().querySelectorAll('.colhead').length === 2, 'two groups: each has its header');
+    const groups = () => w.FT.store.kanban.columns.filter((c) => c.owner === packing.id).sort((a, b) => a.order - b.order);
+    const second = groups()[1];
+    const name = panel().querySelector('.colname[data-id="' + second.id + '"]');
+    setVal(name, 'Clothes', 'change');
+    const clothesBox = () => panel().querySelector('.todoadd input[data-group="' + second.id + '"]');
+    setVal(clothesBox(), 'Rain jacket'); enter(clothesBox());
+    assert.ok(panel().querySelector('.todos[data-todo-group="' + second.id + '"]').textContent.includes('Rain jacket'), 'added to that group at once');
+    await waitFor(() => todosNow().some((t) => t.title === 'Rain jacket' && t.list_id === packing.id && t.group_id === second.id), 'saved on the list, in the group');
+    await waitFor(() => rowsOfTab('To-dos').some((t) => t.title === 'Rain jacket' && t.list === 'Packing' && t.group === 'Clothes'), 'the sheet shows the list and group by name');
+    // drag the passport into Clothes
+    const sortable = w.__sortables.find((s) => s.el.dataset.todoGroup === second.id);
+    const passport = todosNow().find((t) => t.title === 'Passport');
+    const li = panel().querySelector('li[data-id="' + passport.id + '"]');
+    sortable.el.appendChild(li);
+    sortable.opts.onEnd({ item: li, from: panel().querySelector('.todos[data-todo-group="' + groups()[0].id + '"]'), to: sortable.el, oldIndex: 0, newIndex: 1 });
+    await waitFor(() => todosNow().find((t) => t.title === 'Passport').group_id === second.id, 'moved by drag and drop');
+    // deleting the group moves its to-dos to the first one
+    click(panel().querySelector('[data-act="kanban.del-col"][data-id="' + second.id + '"]'));
+    await waitFor(() => $('.dialog'), 'confirm');
+    assert.ok(/2 items move to "General"/.test($('.dialog').textContent), 'says how many to-dos move');
+    click($('#dlg-submit'));
+    await waitFor(() => !panel().querySelector('.colhead') && panel().textContent.includes('Rain jacket'), 'one group again, nothing lost');
+    await waitFor(() => todosNow().filter((t) => t.list_id === packing.id).every((t) => t.group_id === groups()[0].id), 'moved on the server');
+    // Plan my week sees to-dos of every list
+    click(tab('Today'));
+    click(await waitFor(() => $('.habits-panel [data-act="habits.planWeek"]'), 'Plan my week'));
+    await waitFor(() => $('.dialog'), 'Plan my week');
+    assert.ok($('.dialog').textContent.includes('Passport') && $('.dialog').textContent.includes('Rain jacket') && $('.dialog').textContent.includes('Grocery shopping'), 'to-dos of every list');
+    w.FT.closeDialog();
   });
 
   await step('New habit: name and goal, start low (a third, half the size), a pace with the steps drawn, then edit, pause and resume', async () => {
@@ -1302,14 +1431,14 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('lists: create one, add groups and items like a vertical board, and show it on Today', async () => {
-    click(tab('Lists'));
-    await waitFor(() => $('[data-act="lists.add"]'), 'lists tab');
-    click($('[data-act="lists.add"]'));
+    click(tab('Notes'));
+    await waitFor(() => $('[data-act="lists.add"][data-kind=""]'), 'lists tab');
+    click($('[data-act="lists.add"][data-kind=""]'));
     await waitFor(() => $('#dlg-name'), 'new list dialog');
     setVal($('#dlg-name'), 'Keep in mind');
     click($('#dlg-submit'));
-    await waitFor(() => $('.listpanel .board.vertical'), 'list board');
-    const list = () => $('.listpanel');
+    await waitFor(() => $('.plainlist .board.vertical'), 'list board');
+    const list = () => $('.plainlist');
     assert.strictEqual(list().querySelector('.colname').value, 'Items');
     assert.strictEqual(list().querySelector('[data-act="kanban.add-col"]').textContent, '+ Add group');
     const input = list().querySelector('.coladd input');
@@ -1333,14 +1462,14 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#dlg-showtoday'), 'settings dialog');
     $('#dlg-showtoday').checked = true;
     click($('#dlg-submit'));
-    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0].show_today === 'yes', 'saved on the server');
+    await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).filter((l) => !l.kind)[0].show_today === 'yes', 'saved on the server');
     click(tab('Today'));
-    await waitFor(() => $$('#app .listpanel .label').some((l) => l.textContent === 'Keep in mind'), 'list on Today');
-    assert.ok($('#app .listpanel').textContent.includes('Tell a story with your commits'));
+    await waitFor(() => $$('#app .plainlist .label').some((l) => l.textContent === 'Keep in mind'), 'list on Today');
+    assert.ok($('#app .plainlist').textContent.includes('Tell a story with your commits'));
   });
 
   await step('a card opens a dialog to rename it, colour it and write a note', async () => {
-    const card = $('#app .listpanel .kcard');
+    const card = $('#app .plainlist .kcard');
     click(card.querySelector('[data-act="kanban.open-card"]'));
     await waitFor(() => $('#dlg-note'), 'card dialog');
     assert.strictEqual($('#dlg-cardtitle').value, 'Tell a story with your commits');
@@ -1350,8 +1479,8 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-cardtitle'), 'Tell a story with commits');
     click($('#dlg-submit'));
     // The note shows at once as typed, then as the server cleaned it: wait for the cleaned one (a race before 2026-10-30).
-    await waitFor(() => !$('.dialog') && $('#app .listpanel .kcard .knote') && !$('#app .listpanel .kcard .knote').textContent.includes('alert'), 'cleaned note preview');
-    const saved = $('#app .listpanel .kcard');
+    await waitFor(() => !$('.dialog') && $('#app .plainlist .kcard .knote') && !$('#app .plainlist .kcard .knote').textContent.includes('alert'), 'cleaned note preview');
+    const saved = $('#app .plainlist .kcard');
     assert.strictEqual(saved.querySelector('.kt').textContent, 'Tell a story with commits');
     assert.strictEqual(saved.querySelector('.knote').textContent, 'Why: reviewers read history');
     assert.ok(saved.getAttribute('style').includes('--cat-5'));
@@ -1394,8 +1523,8 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('a list can be given a colour, shown on the Lists tab and on Today', async () => {
-    click(tab('Lists'));
-    click(await waitFor(() => $('.listpanel [data-act="lists.settings"]'), 'settings button'));
+    click(tab('Notes'));
+    click(await waitFor(() => $('.plainlist [data-act="lists.settings"]'), 'settings button'));
     await waitFor(() => $('#dlg-listpreview'), 'settings dialog with preview');
     assert.ok(!$('#dlg-listpreview').classList.contains('tinted'), 'preview starts without colour');
     const green = $$('input[name="dlg-listcolor"]').find((r) => r.value === '6');
@@ -1404,29 +1533,29 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-listname'), 'How I work');
     assert.strictEqual($('#dlg-previewname').textContent, 'How I work', 'preview shows the name');
     click($('#dlg-submit'));
-    await waitFor(() => $('.listpanel.tinted'), 'tinted on Lists');
-    assert.strictEqual($('.listpanel .listname').value, 'How I work');
-    assert.ok($('.listpanel.tinted').getAttribute('style').includes('--cat-6'));
+    await waitFor(() => $('.plainlist.tinted'), 'tinted on Lists');
+    assert.strictEqual($('.plainlist .listname').value, 'How I work');
+    assert.ok($('.plainlist.tinted').getAttribute('style').includes('--cat-6'));
     click(tab('Today'));
-    await waitFor(() => $('#app .listpanel.tinted'), 'tinted on Today');
-    assert.ok($('#app .listpanel [data-act="lists.settings"]'), 'settings on Today too');
-    await waitFor(() => { const l = JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists))[0]; return l.color === '6' && l.name === 'How I work'; }, 'saved');
+    await waitFor(() => $('#app .plainlist.tinted'), 'tinted on Today');
+    assert.ok($('#app .plainlist [data-act="lists.settings"]'), 'settings on Today too');
+    await waitFor(() => { const l = JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).filter((l) => !l.kind)[0]; return l.color === '6' && l.name === 'How I work'; }, 'saved');
   });
 
   await step('a list can show one item at a time on Today, as a quote with its full description', async () => {
-    click(tab('Lists'));
-    await waitFor(() => $('.listpanel .coladd input'), 'list');
+    click(tab('Notes'));
+    await waitFor(() => $('.plainlist .coladd input'), 'list');
     for (const t of ['Done is better than perfect', 'Sleep on big decisions']) {
-      const input = $('.listpanel .coladd input');
+      const input = $('.plainlist .coladd input');
       setVal(input, t); input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     }
-    const card = $$('.listpanel .kcard').find((c) => c.textContent.includes('Sleep on big decisions'));
+    const card = $$('.plainlist .kcard').find((c) => c.textContent.includes('Sleep on big decisions'));
     click(card.querySelector('[data-act="kanban.open-card"]'));
     await waitFor(() => $('#dlg-note'), 'card dialog');
     $('#dlg-note').innerHTML = 'Wait one night. <b>Then</b> decide, see https://example.com/sleep';
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog'), 'saved note');
-    click($('.listpanel [data-act="lists.settings"]'));
+    click($('.plainlist [data-act="lists.settings"]'));
     await waitFor(() => $('#dlg-secsrow'), 'settings');
     assert.ok($('#dlg-secsrow').hidden, 'seconds only for one at a time');
     const one = $('input[name="dlg-display"][value="one"]');
@@ -1437,8 +1566,8 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#dlg-err').textContent.includes('5 to 3600'), 'too short refused');
     setVal($('#dlg-seconds'), '20');
     click($('#dlg-submit'));
-    await waitFor(() => !$('.dialog') && $('.listpanel .modebadge'), 'badge on the Lists tab');
-    assert.ok($('.listpanel .board'), 'the Lists tab still shows the full list for editing');
+    await waitFor(() => !$('.dialog') && $('.plainlist .modebadge'), 'badge on the Lists tab');
+    assert.ok($('.plainlist .board'), 'the Lists tab still shows the full list for editing');
     click(tab('Today'));
     const quote = await waitFor(() => $('#app .rotq'), 'quote card on Today');
     assert.strictEqual(quote.querySelector('.rotbar'), null, 'no progress bar');
@@ -1569,8 +1698,8 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(corner.dataset.corner, 'bottom-left', 'starts bottom left, away from the sticky note buttons');
     assert.strictEqual(corner.querySelector('.ct-name').textContent, w.FT.project(focusId).name);
     await waitFor(() => /^(39|40):\d\d$/.test(corner.querySelector('.ct-clock').textContent) && corner.querySelector('.ct-sub').textContent === 'left of 40 min', 'planned time left');
-    click(tab('Lists'));
-    await waitFor(() => tab('Lists').getAttribute('aria-current') === 'page', 'Lists');
+    click(tab('Notes'));
+    await waitFor(() => tab('Notes').getAttribute('aria-current') === 'page', 'Lists');
     assert.ok(!$('#cornerTimer').hidden, 'still there on another tab');
     click(corner.querySelector('.ct-open'));
     await waitFor(() => w.FT.state.view === 'project' && w.FT.state.projectId === focusId, 'a click opens the focus project');
@@ -1578,7 +1707,7 @@ async function waitFor(fn, label, ms = 3000) {
 
     // Drag: jsdom does no layout, so the dropped position is given by hand.
     const pointer = (type, x, y) => corner.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
-    click(tab('Lists'));
+    click(tab('Notes'));
     pointer('pointerdown', 20, 740);
     pointer('pointermove', 600, 300);
     assert.ok(corner.classList.contains('dragging') && corner.style.left, 'follows the pointer');
@@ -1759,11 +1888,11 @@ async function waitFor(fn, label, ms = 3000) {
     // A fresh start of the page (FT.ready false, as on a page load).
     const restart = async (label) => { w.FT.ready = false; w.FT.boot(); await waitFor(() => w.FT.ready && $('.tab[aria-current="page"]'), label); };
     const currentTab = () => $('.tab[aria-current="page"]') && $('.tab[aria-current="page"]').textContent;
-    click(tab('Lists'));
+    click(tab('Notes'));
     await restart('reopened');
     assert.strictEqual(currentTab(), 'Today', 'opens on Today');
     w.localStorage.setItem('ft.openOn', 'today'); // saved by the old Settings: the same as the default now
-    click(tab('Lists'));
+    click(tab('Notes'));
     await restart('reopened');
     assert.strictEqual(currentTab(), 'Today', 'an old "Today" choice still opens on Today');
     w.localStorage.removeItem('ft.openOn');
@@ -1771,7 +1900,7 @@ async function waitFor(fn, label, ms = 3000) {
     click(await waitFor(() => $('[data-act="today.start"]'), 'start'));
     await waitFor(() => w.FT.pendingSaves() === 0 && JSON.parse(JSON.stringify(server.run('bootstrap()').data.today)).session, 'session on the server');
     const sessionProject = w.FT.store.today.session.projectId;
-    click(tab('Lists'));
+    click(tab('Notes'));
     w.FT.ready = false; w.FT.boot();
     await waitFor(() => w.FT.ready && w.FT.state.view === 'project' && w.FT.state.projectId === sessionProject && $('#timer'), 'opens on the focus project while a session runs');
     server.run('rpc')('today', 'discard', {});
@@ -1783,14 +1912,14 @@ async function waitFor(fn, label, ms = 3000) {
     last.checked = true; last.dispatchEvent(new w.Event('change', { bubbles: true }));
     assert.strictEqual(w.localStorage.getItem('ft.openOn'), 'last');
     click($('#dlg-submit'));
-    click(tab('Lists'));
+    click(tab('Notes'));
     await restart('reopened');
-    assert.strictEqual(currentTab(), 'Lists', 'opens on the page it was on');
+    assert.strictEqual(currentTab(), 'Notes', 'opens on the page it was on');
     click($('#settingsBtn'));
     await waitFor(() => $('#backBtn'), 'settings');
     click($('#backBtn'));
     assert.strictEqual($('.dialog'), null, 'Back closes Settings');
-    await waitFor(() => $('.tab[aria-current="page"]').textContent !== 'Lists', 'went back');
+    await waitFor(() => $('.tab[aria-current="page"]').textContent !== 'Notes', 'went back');
   });
 
   await step('Settings has an AI assistant section: the paragraph to paste, Copy, and Open guide', async () => {
@@ -1847,20 +1976,20 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('a list linked to a project shows on that project\'s page, and the Lists tab says so', async () => {
     const bathroom = w.FT.store.projects.find((p) => p.name === 'Bathroom extractor fan');
-    click(tab('Lists'));
-    click(await waitFor(() => $('.listpanel [data-act="lists.settings"]'), 'settings button'));
+    click(tab('Notes'));
+    click(await waitFor(() => $('.plainlist [data-act="lists.settings"]'), 'settings button'));
     const select = await waitFor(() => $('#dlg-listproject'), 'linked project field');
     assert.strictEqual(select.value, '', 'not linked yet');
     assert.strictEqual(select.options[0].textContent, 'No project');
     setVal(select, bathroom.id, 'change');
     click($('#dlg-submit'));
-    const badge = await waitFor(() => !$('.dialog') && $('.listpanel [data-act="lists.openProject"]'), 'linked badge at once');
+    const badge = await waitFor(() => !$('.dialog') && $('.plainlist [data-act="lists.openProject"]'), 'linked badge at once');
     assert.strictEqual(badge.textContent, 'Bathroom extractor fan');
-    const listName = $('.listpanel .listname').value;
+    const listName = $('.plainlist .listname').value;
     await waitFor(() => JSON.parse(JSON.stringify(server.run('bootstrap()').data.lists)).some((l) => l.project_id === bathroom.id), 'link saved');
     click(badge);
-    await waitFor(() => w.FT.state.view === 'project' && $$('#app .listpanel .label').some((l) => l.textContent === listName), 'list panel on the project page');
-    assert.ok($('#app .listpanel .board[data-owner]'), 'with its items');
+    await waitFor(() => w.FT.state.view === 'project' && $$('#app .plainlist .label').some((l) => l.textContent === listName), 'list panel on the project page');
+    assert.ok($('#app .plainlist .board[data-owner]'), 'with its items');
     assert.ok($$('#app .lcell .label').some((l) => l.textContent === 'Whiteboards'), 'next to the project\'s own panels');
   });
 
@@ -2023,8 +2152,8 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(repo.getAttribute('href'), 'https://github.com/example/garden-irrigation');
     assert.ok($$('.rgroup').some((g) => g.textContent === 'Code'), 'under the group Code');
     assert.ok($('.waitbox') && $('.waitbox').textContent.includes('Waiting on Garden fence repair'), 'blocked by the existing project');
-    await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('Drip lines on the two back beds'), 'the notes typed in the notes cell are the project\'s notes');
-    assert.ok($('#nt-text').querySelector('h1') && $('#nt-text').querySelector('li'), 'with their heading and list');
+    await waitFor(() => $('.notes-edit') && $('.notes-edit').getAttribute('contenteditable') === 'true' && $('.notes-edit').textContent.includes('Drip lines on the two back beds'), 'the notes typed in the notes cell are the project\'s notes');
+    assert.ok($('.notes-edit').querySelector('h1') && $('.notes-edit').querySelector('li'), 'with their heading and list');
   });
 
   // ---------- Edit layout: Remove, Add feature, the phone's order, the phone's Today pager ----------
@@ -2190,6 +2319,8 @@ async function waitFor(fn, label, ms = 3000) {
     w.FT.go('today');
   });
 
+  // The to-dos are the to-do list "To-dos" (made by the seed's first to-do), a panel like any list's.
+  const TODOS = () => 'list-' + w.FT.store.lists.find((l) => l.kind === 'todo' && l.name === 'To-dos').id;
   const chips = () => $$('#app .pchip');
   const chipIds = () => chips().map((c) => c.dataset.id);
   const chosenChip = () => chips().find((c) => c.getAttribute('aria-selected') === 'true').dataset.id;
@@ -2203,7 +2334,7 @@ async function waitFor(fn, label, ms = 3000) {
   let defaultIds = null;
 
   await step('phone Today: with no pills saved, each panel on Today is its own pill in the phone order, with counts; the focus is pinned and short', async () => {
-    await w.FT.rpc('layout', 'saveOrder', { page: 'today', order: ['todos', 'habits'] });
+    await w.FT.rpc('layout', 'saveOrder', { page: 'today', order: [TODOS(), 'habits'] });
     await w.FT.reload();
     w.__narrow = true;
     w.FT.render();
@@ -2215,12 +2346,12 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('.ppinned [data-act="today.swap"]') && $('.ppinned-more').getAttribute('aria-expanded') === 'true', 'More shows the whole focus');
     click($('.ppinned-more'));
     assert.ok($('.ppinned .fcompact'), 'Less goes back');
-    assert.deepStrictEqual(chipIds().slice(0, 2), ['todos', 'habits'], 'pills follow the phone order');
+    assert.deepStrictEqual(chipIds().slice(0, 2), [TODOS(), 'habits'], 'pills follow the phone order');
     assert.ok(!chipIds().includes('focus'), 'the pinned focus has no pill');
     const someday = w.FT.store.lists.find((l) => l.name === 'Someday ideas');
     assert.ok(chipIds().includes('list-' + someday.id), 'a list on Today is a pill of its own');
-    const openTodos = w.FT.store.todos.items.filter((t) => !t.done && (!t.day || t.day <= w.FT.store.todos.day)).length;
-    assert.strictEqual($('.pchip[data-id="todos"] .pcount').textContent, String(openTodos), 'To-dos shows how many are open');
+    const openTodos = w.FT.store.todos.items.filter((t) => 'list-' + t.list_id === TODOS() && !t.done && (!t.day || t.day <= w.FT.store.todos.day)).length;
+    assert.strictEqual($('.pchip[data-id="' + TODOS() + '"] .pcount').textContent, String(openTodos), 'To-dos shows how many are open');
     assert.ok(/^\d+\/\d+$/.test($('.pchip[data-id="habits"] .pcount').textContent), 'Habits shows done of how many');
     assert.strictEqual($('.pchip[data-id="rotation"]').textContent, 'Rotation', 'named after the panel');
     assert.ok($('#app .pchips > .pgear'), '⚙ at the end of the row');
@@ -2375,7 +2506,7 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#app [data-act="layout.pillNew"]'));
     assert.strictEqual($('#dlg-heading').textContent, 'New pill');
     assert.ok($('.dialog.sheet') && !$('[data-act="layout.sheetDelete"]'), 'a sheet, with no Delete for a new pill');
-    assert.deepStrictEqual($$('#ps-add .ps-kind').map((k) => k.textContent), ['Panels', 'Lists', 'Whiteboards'], 'what can be added, grouped');
+    assert.deepStrictEqual($$('#ps-add .ps-kind').map((k) => k.textContent), ['Panels', 'Lists', 'To-do lists', 'Notes', 'Whiteboards'], 'what can be added, grouped');
     assert.ok($('#ps-add [data-act="layout.sheetAdd"][data-id="' + listPanel + '"]'), 'every list is offered, also one not on Today');
     assert.ok(!$('#ps-add [data-id="focus"]'), 'but not the pinned focus');
     setVal($('#dlg-pname'), 'Morning');
@@ -2480,11 +2611,11 @@ async function waitFor(fn, label, ms = 3000) {
     const card = $$('#app .ts-pill .ts-name').find((n) => n.textContent === '🛒 Shopping');
     assert.ok(card, 'in the list at once');
     await waitFor(() => (savedPills() || []).some((p) => p.name === 'Shopping'), 'the pill reached the server');
-    assert.deepStrictEqual(savedPills().find((p) => p.name === 'Shopping').panels, ['list-' + groceries.id, 'todos'], 'with the list that sounds like shopping, and the to-dos');
+    assert.deepStrictEqual(savedPills().find((p) => p.name === 'Shopping').panels, ['list-' + groceries.id, TODOS()], 'with the list that sounds like shopping, and the to-dos');
     doneWithSettings();
     await switchMode('work');
     openTodaySettings();
-    assert.deepStrictEqual(templateNames(), ['Routine', 'Week'], 'a mode with no lists has no Shopping or Thinking');
+    assert.deepStrictEqual(templateNames(), ['Week'], 'a mode with no lists, to-do lists or notes has no Routine, Shopping or Thinking');
     doneWithSettings();
     await switchMode('personal');
   });
@@ -2493,7 +2624,7 @@ async function waitFor(fn, label, ms = 3000) {
     await w.FT.rpc('lists', 'remove', { id: groceries.id });
     const shopping = savedPills().find((p) => p.name === 'Shopping');
     click($('.pchip[data-id="' + shopping.id + '"]'));
-    assert.deepStrictEqual(shownPanels(), ['todos'], 'Shopping shows its to-dos, without the deleted list');
+    assert.deepStrictEqual(shownPanels(), [TODOS()], 'Shopping shows its to-dos, without the deleted list');
     click($('.pchip[data-id="' + morningId + '"]'));
     assert.ok(/has no panels yet/.test($('#app .ppanel').textContent), 'a pill whose only panel is gone says so');
     click($('#app .ppanel [data-act="core.pagerSettings"][data-edit="' + morningId + '"]'));
@@ -2502,6 +2633,38 @@ async function waitFor(fn, label, ms = 3000) {
     assert.deepStrictEqual(Array.from($('#app .ts-pill[data-id="' + shopping.id + '"]').querySelectorAll('.ts-tag'), (t) => t.textContent), ['To-dos'], 'its card lists what is left');
     doneWithSettings();
     assert.strictEqual(errors.length, 0, 'and nothing breaks');
+  });
+
+  await step('Today settings: the pill sheet makes a new list, to-do list or note on the spot and puts it in the pill at once', async () => {
+    openTodaySettings();
+    click($('#app [data-act="layout.pillNew"]'));
+    const inPill = () => $$('#ps-in [data-panel]').map((r) => r.dataset.panel);
+    assert.deepStrictEqual($$('#ps-new [data-act="layout.sheetNew"]').map((b) => b.textContent.replace(/\s+/g, ' ').trim()), ['+ New list', '+ New to-do list', '+ New note']);
+    setVal($('#dlg-pname'), 'Trip');
+    const made = [];
+    for (const [kind, name] of [['', 'Sights'], ['todo', 'Pack'], ['note', 'Trip ideas']]) {
+      click($('#ps-new [data-act="layout.sheetNew"][data-kind="' + kind + '"]'));
+      assert.strictEqual(d.activeElement, $('#ps-newname'), 'the name box takes focus');
+      setVal($('#ps-newname'), name);
+      if (kind === 'note') enter($('#ps-newname')); else click($('[data-act="layout.sheetCreate"]'));
+      const list = w.FT.store.lists.find((l) => l.name === name);
+      assert.ok(list && (list.kind || '') === kind, name + ' is made at once');
+      made.push('list-' + list.id);
+      assert.deepStrictEqual(inPill(), made, name + ' is in the pill at once');
+      assert.ok($('.dialog.sheet') && !$('#ps-newname'), 'the sheet stays open, the name box goes');
+    }
+    assert.strictEqual($('#dlg-pname').value, 'Trip', 'the pill\'s name stays');
+    click($('#dlg-submit'));
+    await waitFor(() => (savedPills() || []).some((p) => p.name === 'Trip'), 'the pill saved');
+    const trip = savedPills().find((p) => p.name === 'Trip');
+    assert.deepStrictEqual(trip.panels, made);
+    await waitFor(() => made.every((id) => serverData().lists.some((l) => 'list-' + l.id === id)), 'the three reached the server');
+    const pack = serverData().lists.find((l) => l.name === 'Pack');
+    assert.ok(serverData().kanban.columns.some((c) => c.list_id === pack.id), 'the to-do list has its first group');
+    doneWithSettings();
+    click($('.pchip[data-id="' + trip.id + '"]'));
+    assert.deepStrictEqual(shownPanels(), made, 'the pill shows them');
+    assert.ok($('#app .pitem .notes-edit') && $('#app .pitem .todoadd input') && $('#app .pitem .board .coladd input'), 'a note editor, a to-do list and a list, in the pill');
   });
 
   await step('Today settings: counts, swiping and the remembered pill can be switched off', async () => {
@@ -2517,7 +2680,7 @@ async function waitFor(fn, label, ms = 3000) {
     toggle('pillCounts', true);
     toggle('pillSwipe', false);
     doneWithSettings();
-    assert.ok($('#app .pchip[data-id="todos"] .pcount'), 'counts are back');
+    assert.ok($('#app .pchip[data-id="' + TODOS() + '"] .pcount'), 'counts are back');
     assert.ok(panelArea().hasAttribute('data-noswipe') && !$('#app .pswipehint'), 'swiping is off');
     const before = chosenChip();
     swipe($('#app .ppanel'), -120);
@@ -2584,42 +2747,42 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('pop out: a Today panel becomes a free window on top, live, with a placeholder on its page', async () => {
     click(tab('Today'));
-    const btn = $('#app .lcell[data-panel="todos"] .popbtn');
+    const btn = $('#app .lcell[data-panel="' + TODOS() + '"] .popbtn');
     assert.ok(btn, 'the To-dos panel has a Pop out button in its title');
     assert.strictEqual(btn.getAttribute('aria-label'), 'Pop out To-dos');
-    assert.strictEqual($('#app .lcell[data-panel="todos"] .label').textContent, 'To-dos', 'the title text is unchanged');
+    assert.strictEqual($('#app .lcell[data-panel="' + TODOS() + '"] .label').textContent, 'To-dos', 'the title text is unchanged');
     click(btn);
-    const win = popWin('todos');
+    const win = popWin(TODOS());
     assert.ok(win && win.classList.contains('pop-free'), 'a free window');
     assert.strictEqual(d.activeElement, win, 'focused');
     assert.strictEqual(win.getAttribute('aria-label'), 'To-dos window');
-    assert.ok(win.querySelector('#td-new'), 'the panel is inside it');
-    assert.ok($('#app .lcell[data-panel="todos"] .popslot'), 'its page shows a placeholder');
-    assert.ok(!$('#app #td-new'), 'and only one copy of the panel exists');
+    assert.ok(win.querySelector('.todoadd input'), 'the panel is inside it');
+    assert.ok($('#app .lcell[data-panel="' + TODOS() + '"] .popslot'), 'its page shows a placeholder');
+    assert.ok(!$('#app .todoadd input'), 'and only one copy of the panel exists');
     assert.deepStrictEqual(Array.from(win.querySelectorAll('.popbtns button')).map((b) => b.getAttribute('aria-label')),
       ['Free window', 'Side pane', 'Mini card', 'Minimise To-dos', 'Close To-dos and put it back on its page']);
-    setVal(win.querySelector('#td-new'), 'Water the plants');
+    setVal(win.querySelector('.todoadd input'), 'Water the plants');
     click(win.querySelector('[data-act="todos.addBtn"]'));
-    await waitFor(() => popWin('todos').textContent.includes('Water the plants'), 'the new to-do shows in the window');
+    await waitFor(() => popWin(TODOS()).textContent.includes('Water the plants'), 'the new to-do shows in the window');
     await waitFor(() => serverData().todos.items.some((t) => t.title === 'Water the plants'), 'and reached the server');
-    assert.deepStrictEqual(popSaved().map((x) => [x.page, x.panel, x.style, x.minimised]), [['today', 'todos', 'free', false]], 'kept on this device');
+    assert.deepStrictEqual(popSaved().map((x) => [x.page, x.panel, x.style, x.minimised]), [['today', TODOS(), 'free', false]], 'kept on this device');
   });
 
   await step('pop out: the window stays on other tabs and keeps working there', async () => {
-    click(tab('Lists'));
+    click(tab('Notes'));
     assert.ok($('#app .lists, #app .panel'), 'on the Lists tab');
-    const win = popWin('todos');
-    assert.ok(win && win.querySelector('#td-new'), 'the To-dos window is still there, drawn from Today off screen');
+    const win = popWin(TODOS());
+    assert.ok(win && win.querySelector('.todoadd input'), 'the To-dos window is still there, drawn from Today off screen');
     const row = Array.from(win.querySelectorAll('li')).find((li) => li.textContent.includes('Water the plants'));
     click(row.querySelector('[data-act="todos.remove"]'));
-    await waitFor(() => !popWin('todos').textContent.includes('Water the plants'), 'gone from the window at once');
+    await waitFor(() => !popWin(TODOS()).textContent.includes('Water the plants'), 'gone from the window at once');
     await waitFor(() => !serverData().todos.items.some((t) => t.title === 'Water the plants'), 'and from the server');
   });
 
   await step('pop out: switch to the side pane (tabs, divider) and to a mini card', async () => {
-    click(popWin('todos').querySelector('[data-act="popout.style"][data-style="pane"]'));
-    assert.ok(!popWin('todos'), 'no longer floating');
-    assert.ok($('#popRoot .poppane #td-new'), 'docked in the side pane');
+    click(popWin(TODOS()).querySelector('[data-act="popout.style"][data-style="pane"]'));
+    assert.ok(!popWin(TODOS()), 'no longer floating');
+    assert.ok($('#popRoot .poppane .todoadd input'), 'docked in the side pane');
     assert.ok(d.body.classList.contains('pop-pane-on'), 'the page makes room beside it');
     assert.strictEqual(d.body.style.getPropertyValue('--pop-pane-w'), '400px');
     assert.ok(d.body.classList.contains('pop-pane-tight'), 'with the narrow desktop bar, as the page beside the pane is under 1000 px');
@@ -2628,17 +2791,17 @@ async function waitFor(fn, label, ms = 3000) {
     click(popWin('rotation').querySelector('[data-act="popout.style"][data-style="pane"]'));
     assert.deepStrictEqual($$('.poppane .poptab').map((t) => t.textContent), ['To-dos', 'Weekly rotation'], 'two docked panels are tabs');
     assert.strictEqual($('.poppane .poptab[aria-selected="true"]').textContent, 'Weekly rotation', 'the newest is shown');
-    assert.ok(!$('.poppane #td-new'), 'only the shown tab is drawn');
+    assert.ok(!$('.poppane .todoadd input'), 'only the shown tab is drawn');
     click($$('.poppane .poptab')[0]);
-    assert.ok($('.poppane #td-new'), 'the other tab');
+    assert.ok($('.poppane .todoadd input'), 'the other tab');
     const divider = $('.poppane-divider');
     assert.strictEqual(divider.getAttribute('role'), 'separator');
     divider.focus(); key(divider, 'ArrowLeft');
     assert.strictEqual(d.body.style.getPropertyValue('--pop-pane-w'), '424px', 'the left arrow widens the pane');
     click($('.poppane [data-act="popout.style"][data-style="mini"]'));
-    assert.ok(popWin('todos').classList.contains('pop-mini') && popWin('todos').classList.contains('pop-at-bl'), 'a mini card in the bottom left corner');
+    assert.ok(popWin(TODOS()).classList.contains('pop-mini') && popWin(TODOS()).classList.contains('pop-at-bl'), 'a mini card in the bottom left corner');
     assert.deepStrictEqual($$('.poppane .poptab').map((t) => t.textContent), ['Weekly rotation']);
-    assert.deepStrictEqual(popSaved().map((x) => [x.panel, x.style]), [['todos', 'mini'], ['rotation', 'pane']]);
+    assert.deepStrictEqual(popSaved().map((x) => [x.panel, x.style]), [[TODOS(), 'mini'], ['rotation', 'pane']]);
     assert.strictEqual(JSON.parse(w.localStorage.getItem('ft.popout.personal')).paneWidth, 424, 'the pane width is kept');
     click($('.poppane [data-act="popout.close"]'));
     assert.ok(!$('.poppane') && !d.body.classList.contains('pop-pane-on'), 'closing the last docked panel removes the pane');
@@ -2646,20 +2809,20 @@ async function waitFor(fn, label, ms = 3000) {
   });
 
   await step('pop out: minimise to the dock, restore, and Esc minimises the focused window', async () => {
-    click(popWin('todos').querySelector('[data-act="popout.style"][data-style="free"]'));
-    click(popWin('todos').querySelector('[data-act="popout.minimise"]'));
-    assert.ok(!popWin('todos'), 'the window goes');
+    click(popWin(TODOS()).querySelector('[data-act="popout.style"][data-style="free"]'));
+    click(popWin(TODOS()).querySelector('[data-act="popout.minimise"]'));
+    assert.ok(!popWin(TODOS()), 'the window goes');
     const chip = $('#popRoot .popdock .popchip');
     assert.strictEqual(chip.textContent, 'To-dos');
     assert.strictEqual(d.activeElement, chip, 'focus moves to its chip');
-    assert.ok(/is in a minimised window/.test($('#app .lcell[data-panel="todos"] .popslot').textContent), 'the placeholder says so');
+    assert.ok(/is in a minimised window/.test($('#app .lcell[data-panel="' + TODOS() + '"] .popslot').textContent), 'the placeholder says so');
     click(chip);
-    assert.ok(popWin('todos') && !$('#popRoot .popdock'), 'restored, and the dock is empty');
-    assert.strictEqual(d.activeElement, popWin('todos'));
-    key(popWin('todos'), 'Escape');
-    assert.ok(!popWin('todos') && $('#popRoot .popchip'), 'Esc minimised it');
-    click($('#app .lcell[data-panel="todos"] [data-act="popout.show"]'));
-    assert.ok(popWin('todos'), 'Show window on the placeholder brings it back');
+    assert.ok(popWin(TODOS()) && !$('#popRoot .popdock'), 'restored, and the dock is empty');
+    assert.strictEqual(d.activeElement, popWin(TODOS()));
+    key(popWin(TODOS()), 'Escape');
+    assert.ok(!popWin(TODOS()) && $('#popRoot .popchip'), 'Esc minimised it');
+    click($('#app .lcell[data-panel="' + TODOS() + '"] [data-act="popout.show"]'));
+    assert.ok(popWin(TODOS()), 'Show window on the placeholder brings it back');
     assert.strictEqual(popSaved()[0].minimised, false);
   });
 
@@ -2687,63 +2850,64 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('#app .lcell[data-panel="kanban"] .board') && !w.__sortables.some((s) => !d.body.contains(s.el)), 'back on its page');
     await waitFor(() => $('#app .lcell[data-panel="notes"] .popbtn'), 'notes');
     click($('#app .lcell[data-panel="notes"] .popbtn'));
-    await waitFor(() => popWin('notes').querySelector('#nt-text[contenteditable="true"]'), 'the notes editor works in the window');
-    click(tab('Lists'));
-    assert.ok(popWin('notes').querySelector('#nt-text'), 'and on another tab, while that project was the one opened last');
+    await waitFor(() => popWin('notes').querySelector('.notes-edit[contenteditable="true"]'), 'the notes editor works in the window');
+    click(tab('Notes'));
+    assert.ok(popWin('notes').querySelector('.notes-edit'), 'and on another tab, while that project was the one opened last');
     w.FT.go('project', { id: other.id });
-    await waitFor(() => $('#app .lcell[data-panel="notes"] .popslot'), 'another project opened');
-    assert.strictEqual(popWin('notes').querySelector('#nt-text').dataset.project, project.id, 'the window keeps its own project\'s notes (the editor saves to data-project)');
-    assert.strictEqual($$('#nt-text').length, 1, 'no second notes editor: the other project\'s notes say they wait for the window');
-    assert.ok($('#app .lcell[data-panel="notes"] .popslot').textContent.includes(project.name), 'naming the project in the window');
-    const windowEditor = popWin('notes').querySelector('#nt-text');
+    await waitFor(() => editorOf(other.id), 'another project opened: its own notes are other notes, so they draw as usual');
+    assert.strictEqual(popWin('notes').querySelector('.notes-edit').dataset.project, project.id, 'the window keeps its own project\'s notes (the editor saves to data-project)');
+    assert.ok(!$('#app .lcell[data-panel="notes"] .popslot'), 'no placeholder for other notes');
+    assert.strictEqual($$('.notes-edit').filter((e) => e.dataset.project === project.id).length, 1, 'one editor for the window\'s notes');
+    const windowEditor = popWin('notes').querySelector('.notes-edit');
     windowEditor.innerHTML += '<p>Typed in the window</p>';
     windowEditor.dispatchEvent(new w.Event('input', { bubbles: true }));
     windowEditor.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => notesOf(project.id).endsWith('Typed in the window'), 'typed in the window, saved to the window\'s project');
     assert.ok(!notesOf(other.id).includes('Typed in the window'), 'not to the project open on the page');
-    click(tab('Today'));
-    assert.ok(!$('#app #nt-text') && $$('#nt-text').length === 1, 'Today\'s notes panel does not draw a second editor either');
-    assert.ok($('#app .lcell[data-panel="notes"] .popslot').textContent.includes(project.name), 'it names the project whose notes are in the window');
     w.FT.go('project', { id: project.id });
-    assert.ok(popWin('notes').querySelector('#nt-text') && $('#app .lcell[data-panel="notes"] .popslot'), 'on its own page, the usual placeholder');
+    assert.ok(popWin('notes').querySelector('.notes-edit') && $('#app .lcell[data-panel="notes"] .popslot'), 'on its own page, the usual placeholder');
   });
 
-  await step('pop out: Today\'s note in a window keeps saving to Today\'s Doc on a project page, and is the one notes editor on screen', async () => {
-    const project = w.FT.project(w.FT.state.projectId);
+  await step('pop out: the same notes are on screen once: while a project\'s or a note\'s notes are in a window, the Notes tab and Today show a placeholder for them', async () => {
+    const project = w.FT.project(w.FT.state.projectId), noteId = errandsNote().id;
+    click(tab('Notes'));
+    await waitFor(() => $('#app .lcell[data-panel="pnote-' + project.id + '"] .popslot'), 'the Notes tab');
+    assert.ok($('#app .lcell[data-panel="pnote-' + project.id + '"] .popslot').textContent.includes(project.name), 'naming the window');
+    assert.strictEqual($$('.notes-edit').filter((e) => e.dataset.project === project.id).length, 1, 'one editor for these notes, the window\'s');
+    assert.ok(editorOf(noteId), 'other notes draw as usual');
     click(popWin('notes').querySelector('[data-act="popout.close"]'));
+    await waitFor(() => editorOf(project.id), 'the window closed: the Notes tab draws them again');
+    click($('#app .lcell[data-panel="list-' + noteId + '"] .popbtn'));
+    await waitFor(() => popWin('list-' + noteId) && popWin('list-' + noteId).querySelector('.notes-edit[data-project="' + noteId + '"][contenteditable="true"]'), 'the note in a window');
+    assert.strictEqual(popWin('list-' + noteId).querySelector('.poptitle').textContent, 'Errands', 'the window says which note');
     click(tab('Today'));
-    await waitFor(() => $('#app .lcell[data-panel="notes"] .popbtn'), 'Today\'s note with a Pop out button');
-    click($('#app .lcell[data-panel="notes"] .popbtn'));
-    assert.strictEqual(popWin('notes').dataset.key, 'today::notes');
-    assert.strictEqual(popWin('notes').querySelector('.poptitle').textContent, 'Today notes', 'the window says whose notes they are');
-    await waitFor(() => popWin('notes').querySelector('#nt-text[data-project="today"][contenteditable="true"]'), 'Today\'s note in the window');
-    w.FT.go('project', { id: project.id });
-    await waitFor(() => $('#app .lcell[data-panel="notes"] .popslot'), 'the project page');
-    assert.strictEqual($$('#nt-text').length, 1, 'one notes editor: the project\'s notes wait for the window');
-    assert.ok($('#app .lcell[data-panel="notes"] .popslot').textContent.includes('Today notes'), 'naming Today\'s note');
-    const windowEditor = popWin('notes').querySelector('#nt-text');
-    windowEditor.innerHTML += '<p>Typed in Today\'s window</p>';
+    await waitFor(() => $('#app .lcell[data-panel="list-' + noteId + '"] .popslot'), 'Today: the usual placeholder');
+    assert.strictEqual($$('.notes-edit').filter((e) => e.dataset.project === noteId).length, 1, 'one editor for the note');
+    const windowEditor = popWin('list-' + noteId).querySelector('.notes-edit');
+    windowEditor.innerHTML += '<p>Typed in the note\'s window</p>';
     windowEditor.dispatchEvent(new w.Event('input', { bubbles: true }));
     windowEditor.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
-    await waitFor(() => notesOf('today').endsWith('Typed in Today\'s window'), 'saved to Today\'s Doc');
-    assert.ok(!notesOf(project.id).includes('Typed in Today\'s window'), 'not to the project on the page');
+    await waitFor(() => noteText(noteId).endsWith('Typed in the note\'s window'), 'saved to the note\'s Doc');
+    w.FT.go('project', { id: project.id });
+    await waitFor(() => editorOf(project.id), 'the project page');
+    assert.ok(popWin('list-' + noteId).querySelector('.notes-edit') && $$('.notes-edit').length === 2, 'the note\'s window and the project\'s notes: two different notes on screen');
     click(tab('Today'));
-    assert.ok($('#app .lcell[data-panel="notes"] .popslot') && $$('#nt-text').length === 1, 'on Today, the usual placeholder');
   });
 
   await step('pop out: a phone has no windows, cards, sheets, dock, placeholders or Pop out buttons; every panel draws in place, and the desktop windows come back', async () => {
+    const noteId = errandsNote().id;
     click(tab('Today'));
-    click(popWin('todos').querySelector('[data-act="popout.minimise"]'));
+    click(popWin(TODOS()).querySelector('[data-act="popout.minimise"]'));
     assert.ok($('#popRoot .popdock'), 'one minimised, in the dock');
     const savedBefore = JSON.stringify(popSaved());
     w.__narrow = true;
     w.FT.render();
     assert.strictEqual($$('#popRoot > *').length, 0, 'no windows, pane, cards or dock');
     assert.ok(!$('#app .popslot') && !$('#app .popbtn'), 'no placeholders and no Pop out buttons');
-    click($('.pchip[data-id="todos"]'));
-    assert.ok($('#app #td-new'), 'To-dos draws in place');
-    click($('.pchip[data-id="notes"]'));
-    assert.ok($('#app #nt-text[data-project="today"]') && $$('#nt-text').length === 1, 'Today\'s note draws in place, one editor');
+    click($('.pchip[data-id="' + TODOS() + '"]'));
+    assert.ok($('#app .todos-panel .todoadd input'), 'To-dos draws in place');
+    click($('.pchip[data-id="list-' + noteId + '"]'));
+    assert.ok(editorOf(noteId) && $$('.notes-edit').length === 1, 'the note draws in place, one editor');
     w.FT.go('project', { id: w.FT.store.projects.find((p) => p.status === 'active' && !w.FT.lockedUntil(p)).id });
     assert.ok($('#app .lcell[data-panel="criteria"] #crit-new') && !$('#app .popslot'), 'a project page draws its panels in place too');
     assert.strictEqual(JSON.stringify(popSaved()), savedBefore, 'the desktop windows stay saved');
@@ -2752,17 +2916,17 @@ async function waitFor(fn, label, ms = 3000) {
     click(tab('Today'));
     await waitFor(() => w.FT.state.view === 'today', 'Today');
     assert.strictEqual($$('#popRoot .popwin').length, 2, 'wide again, the windows come back');
-    assert.ok($('#popRoot .popdock .popchip') && popWin('notes').classList.contains('pop-free'), 'with their own styles and the dock');
-    assert.ok($('#app .lcell[data-panel="todos"] .popslot') && $('#app .lcell[data-panel="notes"] .popslot'), 'and their placeholders');
+    assert.ok($('#popRoot .popdock .popchip') && popWin('list-' + noteId).classList.contains('pop-free'), 'with their own styles and the dock');
+    assert.ok($('#app .lcell[data-panel="' + TODOS() + '"] .popslot') && $('#app .lcell[data-panel="list-' + noteId + '"] .popslot'), 'and their placeholders');
     click($('#popRoot .popdock .popchip'));
   });
 
   await step('pop out: ✕ puts each panel back on its page, and nothing stays behind', async () => {
-    ['todos', 'criteria', 'notes'].forEach((panel) => click(popWin(panel).querySelector('[data-act="popout.close"]')));
+    [TODOS(), 'criteria', 'list-' + errandsNote().id].forEach((panel) => click(popWin(panel).querySelector('[data-act="popout.close"]')));
     assert.strictEqual($$('#popRoot > *').length, 0, 'no windows, pane or dock');
     assert.deepStrictEqual(popSaved(), []);
     click(tab('Today'));
-    assert.ok($('#app #td-new') && !$('#app .popslot'), 'To-dos is back on Today');
+    assert.ok($('#app .todos-panel .todoadd input') && !$('#app .popslot'), 'To-dos is back on Today');
   });
 
   assert.deepStrictEqual(errors, [], 'no uncaught page errors');

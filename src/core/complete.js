@@ -164,10 +164,15 @@ function completeRow_(rule, o, look, next, forget) {
   return problem;
 }
 
+/** Does a target row hold the values a ref asks for (ref.where)? A column the tab does not have yet counts as empty. */
+function matchesWhere_(ref, target) {
+  return Object.keys(ref.where || {}).every(function (k) { return String(target[k] || '') === ref.where[k]; });
+}
+
 /** Point a row at its target by name, fill the name from the id, or pick the first target. Returns a problem or ''. */
 function resolveRef_(ref, o, look, forget) {
   var label = ref.label || 'name', noun = ref.noun || ref.name;
-  var targets = look(ref.table);
+  var targets = look(ref.table).filter(function (t) { return matchesWhere_(ref, t); });
   var scoped = !ref.within;
   if (ref.within) {
     var keys = ref.within.filter(function (w) { return !cellEmpty_(o[w]); });

@@ -69,10 +69,11 @@ function guideTabs_() {
       }
     },
     'Lists': {
-      what: 'Lists that are not projects, such as "Read and watch". Their items are rows in Tasks with list filled in.',
+      what: 'What the app\'s Notes tab shows: lists that are not projects (such as "Read and watch"; their items are rows in Tasks with list filled in), to-do lists (their to-dos are rows in To-dos) and notes (each one\'s text is a Google Doc named after it).',
       columns: {
-        name: ['needed', 'The list\'s name. No two lists share a name.'],
-        project: ['optional', 'A project\'s name: the list then also shows on that project\'s page.'],
+        name: ['needed', 'The name. No two share a name.'],
+        kind: ['optional', 'Empty for a list, todo for a to-do list, note for a note. A new note is empty until the owner writes in it in the app.'],
+        project: ['optional', 'A project\'s name: it then also shows on that project\'s page.'],
         show_today: ['optional', 'yes to show the list on Today, or empty.'],
         display: ['optional', 'Empty shows the whole list; one shows one item at a time.'],
         seconds: ['optional', 'With display one: how many seconds each item shows.'],
@@ -112,14 +113,21 @@ function guideTabs_() {
       }
     },
     'To-dos': {
-      what: 'One-off small tasks, such as grocery shopping or a job interview, for a day or anytime.',
+      what: 'One-off small tasks, such as grocery shopping or a job interview, for a day or anytime. Each is on a to-do list (a row in Lists with kind todo), in one of its groups.',
       columns: {
         title: ['needed', 'What to do.'],
+        list: ['optional', 'The to-do list\'s name, exactly as in Lists. Empty means the first to-do list.'],
+        group: ['optional', 'The group on that list, by name. Empty means its first group.'],
         day: ['optional', 'The date it is for (2026-11-03), today or later. Empty means anytime.'],
         done: ['app', 'The date it was ticked off. Filled by the app.'],
         project: ['optional', 'A project\'s name, if it belongs to one.'],
         note: ['optional', 'Details, plain text.'],
+        color: ['optional', 'A colour number from 1 to 8, or empty.'],
         problem: ['app', 'Why the app cannot use this row. Written by the app.']
+      },
+      app: {
+        group_id: 'To move a to-do to another group of its list, write the group\'s name in group and empty group_id.',
+        note_html: 'The formatted copy of note, made by the app. To change a to-do\'s note, write note and empty note_html.'
       }
     },
     'Whiteboards': {
@@ -305,8 +313,10 @@ function guideMarkdown_() {
     ['Two projects belong together', 'Links', 'type relates.'],
     ['Something to repeat (exercise, practice)', 'Habits', 'name, sessions and per, for example 3 and week. Start low.'],
     ['An idea for a habit you haven\'t started', 'Habits', 'A row with name, description and status aspiring. No sessions or per needed.'],
-    ['A one-off small task (shopping, an appointment)', 'To-dos', 'title, and day if it is for a day.'],
+    ['A one-off small task (shopping, an appointment)', 'To-dos', 'title, and day if it is for a day; list if it belongs on a to-do list other than the first.'],
+    ['A new to-do list (a packing list, errands)', 'Lists', 'A row with name and kind todo; its to-dos are rows in To-dos with that list.'],
     ['Items that are not a project (books, films, ideas)', 'Tasks with list', 'title, list and column (the list\'s group). A new list is a row in Lists.'],
+    ['A note that belongs to no project', 'Ask the owner', 'Notes not tied to a project are made in the app (a row in Lists with kind note); their text is a Google Doc the app makes.'],
     ['A record of a work session', 'Log', 'project, where_stopped and minutes.'],
     ['A drawing', 'Nowhere', 'Whiteboards are made in the app. Describe it in the notes instead.'],
     ['Anything else, or you are not sure', 'Ask the owner', '']
@@ -322,7 +332,7 @@ function guideMarkdown_() {
     '- Notes may use simple markdown: # for a heading, - for a list item, **bold**, *italic*, and [text](https://...) for a link. One paragraph per line: use real line breaks inside the cell (not the two characters backslash and n).',
     '- Writing text into the notes cell never loses the old notes: the app adds your text to the end of them.',
     '- Never create a new Doc or file for notes, and never rename or move the notes Doc: the app could no longer find it.',
-    '- The Doc "Today notes" in the same folder is the owner\'s running note on the Today page, not a project\'s notes. Leave it alone unless the owner asks you to add to it.',
+    '- Notes that belong to no project (rows in Lists with kind note, for example "Today notes") are Docs in the same folder, named after the note, not a project\'s notes. Leave them alone unless the owner asks you to add to one; then add your text at its end, like a project\'s notes Doc.',
     '- A card has its own short note: the note column in Tasks. To change a card\'s note, write note and empty its note_html cell.', '');
 
   p('## Rules for every row', '',
@@ -414,6 +424,7 @@ function guideShortLines_() {
   lines.push('- A project: a row in Projects with name, category (a label from Categories) and next_action.');
   lines.push('- A card: a row in Tasks with title, project and column. A new project\'s board starts with ' + BOARD_COLUMNS_.join(', ') + '.');
   lines.push('- A resource: a row in Resources with title, type (' + RESOURCE_TYPES_.join(', ') + '), value, group and project. A code repository: type link, group Code.');
+  lines.push('- A to-do: a row in To-dos with title, and day if it is for a day. It goes on the first to-do list unless list names another (a row in Lists with kind todo).');
   lines.push('- Notes: write into the project\'s notes Doc (its link is in the notes column). No link yet: write the notes as text in the notes cell; the app moves them into the notes.');
   lines.push('- To change a card\'s note, write the new note and empty its note_html cell: the app makes the formatted copy again.');
   lines.push('- If the app cannot use a row it leaves it alone and writes the reason in its problem column. Fix the row and the problem clears.');

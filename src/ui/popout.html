@@ -126,11 +126,13 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
   /** Project page panels whose buttons act on FT.state.projectId rather than on an id in their own html. */
   var PANELS_TIED_TO_THE_OPEN_PROJECT = { header: true };
   /**
-   * Panels whose editor uses fixed element ids (the notes: #nt-text and its toolbar), so only one copy can be on screen.
-   * Today's note and a project's notes are both the panel `notes`, so while either is in a window, every other notes
-   * panel (Today's, a project page's) shows a note instead of a second editor.
+   * A panel whose html carries data-one-copy="<key>" (a notes editor: "note:<project or note id>") may be on screen once:
+   * while a window shows it, any other panel with the same key (the same notes on Today, the Notes tab or the project's
+   * page) shows a note instead of a second editor that would write over the first.
    */
-  var ONE_COPY_ON_SCREEN = { notes: true };
+  var ONE_COPY_KEY = /data-one-copy="([^"]+)"/;
+  /** A window popped out before panels said so: a project page's Notes panel. */
+  var OLDER_ONE_COPY_PANEL = 'notes';
   var FREE_MIN_WIDTH = 240, FREE_MIN_HEIGHT = 140, FREE_MAX_START_WIDTH = 720, FREE_MIN_START_WIDTH = 320;
   var VISIBLE_EDGE = 80, TITLE_BAR_HEIGHT = 40, CASCADE_STEP = 24;
   var MINI_DEFAULT = { corner: 'bl', w: 380, h: 340 }, MINI_MIN_WIDTH = 240, MINI_MIN_HEIGHT = 160, MINI_GAP = 12, MINI_CLOSED_HEIGHT = 104;
@@ -217,15 +219,26 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       '<button class="btn sm" data-act="popout.close" data-key="' + key + '">Put back here</button></span></section>';
   }
 
-  /** The window holding another copy of a one-copy panel (see ONE_COPY_ON_SCREEN), or null. */
-  function otherCopyWindow(panelId) {
-    if (!ONE_COPY_ON_SCREEN[panelId]) return null;
-    return state().windows.filter(function (win) { return win.panel === panelId; })[0] || null;
+  function oneCopyKeyOf(html) {
+    var found = ONE_COPY_KEY.exec(html || '');
+    return found ? found[1] : '';
+  }
+
+  function oneCopyKeyOfWindow(win) {
+    if (win.copy !== undefined) return win.copy;
+    return win.page === 'project' && win.panel === OLDER_ONE_COPY_PANEL ? 'note:' + win.projectId : '';
+  }
+
+  /** The window holding another copy of a one-copy panel (see ONE_COPY_KEY), or null. */
+  function otherCopyWindow(panel) {
+    var copy = oneCopyKeyOf(panel.html);
+    if (!copy) return null;
+    return state().windows.filter(function (win) { return oneCopyKeyOfWindow(win) === copy; })[0] || null;
   }
 
   function otherCopyHtml(win) {
     var key = esc(win.key);
-    return '<section class="panel popslot"><span><b>' + esc(windowTitle(win)) + '</b> is open in a window, and one notes editor can be on screen at a time.</span>' +
+    return '<section class="panel popslot"><span><b>' + esc(windowTitle(win)) + '</b> is open in a window, and the same notes can be on screen once at a time.</span>' +
       '<span class="actions" style="margin:0"><button class="btn sm" data-act="popout.show" data-key="' + key + '">Show window</button>' +
       '<button class="btn sm" data-act="popout.close" data-key="' + key + '">Close window</button></span></section>';
   }
@@ -239,7 +252,7 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       if (!panel.html) return panel;
       var win = findWindow(windowKey(page, projectId, panel.id));
       if (win) return copyOf(panel, { html: placeholderHtml(win) });
-      var other = otherCopyWindow(panel.id);
+      var other = otherCopyWindow(panel);
       return other ? copyOf(panel, { html: otherCopyHtml(other) }) : withPopButton(page, panel);
     });
   });
@@ -493,9 +506,11 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     var page = el.dataset.page, projectId = contextProjectId(page), key = windowKey(page, projectId, el.dataset.panel);
     var win = findWindow(key);
     if (!win) {
+      var cell = el.closest('.grid-stack-item, .lcell'), oneCopy = cell && cell.querySelector('[data-one-copy]');
       win = {
         key: key, page: page, view: FT.state.view, projectId: projectId, panel: el.dataset.panel, title: el.dataset.title || el.dataset.panel,
-        style: 'free', free: startPlace(el.closest('.grid-stack-item, .lcell')), mini: copyOf(MINI_DEFAULT, {}), minimised: false, z: 1
+        copy: oneCopy ? oneCopy.getAttribute('data-one-copy') : '',
+        style: 'free', free: startPlace(cell), mini: copyOf(MINI_DEFAULT, {}), minimised: false, z: 1
       };
       state().windows.push(win);
     }

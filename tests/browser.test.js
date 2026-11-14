@@ -67,6 +67,8 @@ async function run(browser, size) {
   const projectRow = (id) => env.server.run('bootstrap()').data.projects.find((p) => p.id === id);
   const status = () => pg.evaluate(() => FT.project(FT.state.projectId).status);
   const projectId = () => pg.evaluate(() => FT.state.projectId);
+  // The to-dos are a to-do list (the seed's first to-do made "To-dos"), a panel like any list's.
+  const todosPanel = () => 'list-' + env.server.run('bootstrap()').data.lists.find((l) => l.kind === 'todo').id;
   // On a phone Today shows one panel at a time: tap its chip first (the pager's own checks are further down).
   const showPanel = (id) => quickly(async () => {
     const chip = '#app .pchip[data-id="' + id + '"]';
@@ -181,14 +183,14 @@ async function run(browser, size) {
   assert.strictEqual(doneToday(jobId), 0, 'the server never changed');
   log('Habits: a dot tap and − answer at once and reach the server; a refused tap is put back');
 
-  await showPanel('todos');
+  await showPanel(todosPanel());
   const grocery = () => todosNow().find((t) => t.title === 'Grocery shopping');
   await quick('To-dos: tick', pg.locator('.todos li:has-text("Grocery shopping") input[type="checkbox"]'));
   assert.ok(await pg.isVisible('.todos li.done:has-text("Grocery shopping")'), 'struck through at once');
   await settle();
   assert.strictEqual(grocery().done, today, 'the tick reached the server');
-  await quickly(async () => { await pg.fill('#td-new', 'Post parcel'); });
-  await quick('To-dos: add', pg.locator('[data-act="todos.addBtn"]'));
+  await quickly(async () => { await pg.fill('.todos-panel .todoadd input >> nth=0', 'Post parcel'); });
+  await quick('To-dos: add', pg.locator('.todos-panel [data-act="todos.addBtn"]').first());
   assert.ok(await pg.isVisible('.todos li:has-text("Post parcel")'), 'shows at once');
   await settle();
   assert.ok(todosNow().some((t) => t.title === 'Post parcel'), 'the new to-do reached the server');
@@ -440,15 +442,15 @@ async function run(browser, size) {
   const listId = call('lists', 'create', { name: 'Shopping' }).id;
   const boardId = call('whiteboard', 'create', { name: 'Loose sketch' }).id;
   await quickly(() => pg.evaluate(() => FT.reload()));
-  await gotoTab('Lists');
-  await quick('Lists: Settings dialog', pg.locator('.listpanel [data-act="lists.settings"]').first());
+  await gotoTab('Notes');
+  await quick('Lists: Settings dialog', pg.locator('.plainlist [data-act="lists.settings"]').first());
   await pg.selectOption('#dlg-listproject', id);
   await quick('Lists: save a linked project', pg.locator('#dlg-submit'));
-  assert.ok(await pg.isVisible('.listpanel [data-act="lists.openProject"]'), 'the link shows at once');
+  assert.ok(await pg.isVisible('.plainlist [data-act="lists.openProject"]'), 'the link shows at once');
   await settle();
   assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).project_id, id, 'the link reached the server');
-  await quick('Lists: open the linked project', pg.locator('.listpanel [data-act="lists.openProject"]').first());
-  assert.ok(await pg.isVisible('#app .listpanel .label:text("Shopping")'), 'the list is on the project page');
+  await quick('Lists: open the linked project', pg.locator('.plainlist [data-act="lists.openProject"]').first());
+  assert.ok(await pg.isVisible('#app .plainlist .label:text("Shopping")'), 'the list is on the project page');
   log('Lists: Settings links a list to a project at once, and the list shows on that project\'s page');
 
   await gotoTab('Whiteboards');
@@ -570,6 +572,24 @@ async function run(browser, size) {
     assert.deepStrictEqual(stacked.map((p) => p.id), ['habits', 'list-' + listId], 'the pill shows both panels');
     assert.ok(stacked[1].top >= stacked[0].top + stacked[0].height && stacked.every((p) => p.height > 40), 'one under the other: ' + JSON.stringify(stacked));
     log('Today settings: a new pill is added in a sheet at once, reaches the server, and shows its panels stacked');
+
+    await quick('Today pills: ⚙ again', pg.locator('#app .pgear'));
+    await quick('Today settings: Edit a pill', pg.locator(`#app [data-act="layout.pillEdit"][data-id="${errands.id}"]`));
+    await quick('Pill sheet: + New note', pg.locator('#ps-new [data-act="layout.sheetNew"][data-kind="note"]'));
+    await quickly(() => pg.fill('#ps-newname', 'Sheet note'));
+    await quick('Pill sheet: Create', pg.locator('[data-act="layout.sheetCreate"]'));
+    assert.ok(await pg.isVisible('#ps-in .ts-row:has-text("Sheet note")'), 'the new note is in the pill at once');
+    await quick('Pill sheet: + New to-do list', pg.locator('#ps-new [data-act="layout.sheetNew"][data-kind="todo"]'));
+    await quickly(() => pg.fill('#ps-newname', 'Sheet to-dos'));
+    await quick('Pill sheet: Create a to-do list', pg.locator('[data-act="layout.sheetCreate"]'));
+    await quick('Pill sheet: Save', pg.locator('#dlg-submit'));
+    await settle();
+    const madeInSheet = env.server.run('bootstrap()').data.lists.filter((l) => l.name === 'Sheet note' || l.name === 'Sheet to-dos');
+    assert.deepStrictEqual(madeInSheet.map((l) => l.kind).sort(), ['note', 'todo'], 'the note and the to-do list reached the server');
+    const edited = (layoutNow()['today.pills'] || []).find((p) => p.id === errands.id);
+    assert.ok(madeInSheet.every((l) => edited.panels.includes('list-' + l.id)), 'and are in the pill: ' + JSON.stringify(edited));
+    await quick('Today settings: Done again', pg.locator('#app .ts-bar .btn[data-act="layout.pillsDone"]'));
+    log('Pill sheet: + New note and + New to-do list make one at once, put it in the pill, and both reach the server');
   }
 
   // ---------- Edit layout: the header button (desktop) or menu item (phone), ▲ ▼ on a phone, Remove and Add feature ----------
@@ -713,10 +733,10 @@ async function run(browser, size) {
         }));
         return bad;
       });
-      const notesHeight = () => pg.evaluate(() => document.getElementById('nt-panel').getBoundingClientRect().height);
+      const notesHeight = () => pg.evaluate(() => document.querySelector('.notes-panel').getBoundingClientRect().height);
       assert.deepStrictEqual(await overlaps(), [], 'panels overlap before typing');
       const h0 = await notesHeight();
-      await pg.click('#nt-text');
+      await pg.click('.notes-edit');
       await pg.keyboard.press('Control+End');
       for (let i = 1; i <= 25; i++) { await pg.keyboard.press('Enter'); await pg.keyboard.type('Line ' + i); }
       await sleep(300);
@@ -732,55 +752,55 @@ async function run(browser, size) {
         return n.getBoundingClientRect().height - n.querySelector('.grid-stack-item-content > :first-child').getBoundingClientRect().height;
       });
       assert.ok(gaps < 40, 'and the notes cell shrank back with them (' + Math.round(gaps) + ' px spare)');
-      await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+      await pg.waitForFunction(() => document.querySelector('.nt-status').textContent === 'Saved', null, { timeout: 10000 });
       log('Notes: typing many lines and deleting them moves the panels around the notes; none overlap');
     }
-    await pg.waitForSelector('#nt-text[contenteditable="true"]');
-    await pg.click('#nt-text');
+    await pg.waitForSelector('.notes-edit[contenteditable="true"]');
+    await pg.click('.notes-edit');
     await pg.keyboard.press('Control+End');
     await pg.keyboard.press('Enter');
     await pg.keyboard.type('Wiring plan');
     await pg.keyboard.press('Control+Alt+2');
-    assert.ok(await pg.isVisible('#nt-text h2:text("Wiring plan")'), 'Ctrl+Alt+2 makes the line a heading 2');
-    await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+    assert.ok(await pg.isVisible('.notes-edit h2:text("Wiring plan")'), 'Ctrl+Alt+2 makes the line a heading 2');
+    await pg.waitForFunction(() => document.querySelector('.nt-status').textContent === 'Saved', null, { timeout: 10000 });
     assert.ok(serverCall('notes', 'get', { projectId: pid }).text.split('\n').some((l) => l === '## Wiring plan'), 'saved as a markdown heading');
     await pg.keyboard.press('Control+Alt+0');
-    assert.ok(!(await pg.isVisible('#nt-text h2')) && await pg.isVisible('#nt-text p:text("Wiring plan")'), 'Ctrl+Alt+0 makes it normal text again');
-    await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+    assert.ok(!(await pg.isVisible('.notes-edit h2')) && await pg.isVisible('.notes-edit p:text("Wiring plan")'), 'Ctrl+Alt+0 makes it normal text again');
+    await pg.waitForFunction(() => document.querySelector('.nt-status').textContent === 'Saved', null, { timeout: 10000 });
     assert.ok(!/^## Wiring plan$/m.test(serverCall('notes', 'get', { projectId: pid }).text), 'and that is saved too');
     await pg.click('[data-act="notes.done"]').catch(() => {});
     log('Notes: Ctrl+Alt+2 makes a heading 2 and Ctrl+Alt+0 normal text, and both are saved');
 
-    await pg.click('#nt-text');
+    await pg.click('.notes-edit');
     await pg.keyboard.press('Control+End');
     await pg.keyboard.press('Enter');
     await pg.keyboard.type('Toolbar heading');
-    await pg.click('#nt-bar button[data-val="h1"]');
-    assert.ok(await pg.isVisible('#nt-text h1:text("Toolbar heading")'), 'H1 makes the line a heading 1');
-    await pg.click('#nt-bar button[data-val="h1"]');
-    assert.ok(!(await pg.isVisible('#nt-text h1')) && await pg.isVisible('#nt-text p:text("Toolbar heading")'), 'H1 again makes it normal text');
+    await pg.click('.nt-bar button[data-val="h1"]');
+    assert.ok(await pg.isVisible('.notes-edit h1:text("Toolbar heading")'), 'H1 makes the line a heading 1');
+    await pg.click('.nt-bar button[data-val="h1"]');
+    assert.ok(!(await pg.isVisible('.notes-edit h1')) && await pg.isVisible('.notes-edit p:text("Toolbar heading")'), 'H1 again makes it normal text');
     await pg.keyboard.press('Enter');
     await pg.keyboard.type('- red in a list');
-    await pg.click('#nt-bar button[data-val="h2"]');
-    assert.ok(await pg.isVisible('#nt-text li:text("red in a list")') && !(await pg.isVisible('#nt-text li h2')), 'the H2 button makes no heading in a list');
+    await pg.click('.nt-bar button[data-val="h2"]');
+    assert.ok(await pg.isVisible('.notes-edit li:text("red in a list")') && !(await pg.isVisible('.notes-edit li h2')), 'the H2 button makes no heading in a list');
     await pg.keyboard.press('Shift+Home');
-    await pg.click('#nt-bar button[data-cmd="foreColor"][data-val="#d64545"]');
-    assert.ok(await pg.isVisible('#nt-text li font[color="#d64545"]'), 'the red button colours the selection');
-    await pg.waitForFunction(() => document.getElementById('nt-status').textContent === 'Saved', null, { timeout: 10000 });
+    await pg.click('.nt-bar button[data-cmd="foreColor"][data-val="#d64545"]');
+    assert.ok(await pg.isVisible('.notes-edit li font[color="#d64545"]'), 'the red button colours the selection');
+    await pg.waitForFunction(() => document.querySelector('.nt-status').textContent === 'Saved', null, { timeout: 10000 });
     const savedNotes = serverCall('notes', 'get', { projectId: pid });
     assert.ok(/^- red in a list$/m.test(savedNotes.text) && savedNotes.html.includes('<font color="#d64545">red in a list</font>'), 'the markdown has the text, the Doc its colour');
-    const heightBefore = await pg.evaluate(() => document.getElementById('nt-text').offsetHeight);
-    await pg.focus('#nt-grip');
+    const heightBefore = await pg.evaluate(() => document.querySelector('.notes-edit').offsetHeight);
+    await pg.focus('.nt-grip');
     await pg.keyboard.press('ArrowDown');
     await pg.keyboard.press('ArrowDown');
-    const resized = await pg.evaluate(() => ({ height: document.getElementById('nt-text').offsetHeight, kept: localStorage.getItem('ft.notes.height') }));
+    const resized = await pg.evaluate(() => ({ height: document.querySelector('.notes-edit').offsetHeight, kept: localStorage.getItem('ft.notes.height') }));
     assert.strictEqual(resized.height, heightBefore + 80, 'the arrow keys on the bar under the notes make them taller');
     assert.strictEqual(resized.kept, resized.height + 'px', 'and the height is kept in this browser');
     log('Notes toolbar: H1 twice turns a heading back into text, no heading in a list, a colour is kept in the formatted copy; the bar under the notes resizes them');
 
     // Paper themes: every text row (paragraphs, headings, list items) starts and ends on a ruled line, at this screen's font size.
     const paperCheck = () => pg.evaluate(() => {
-      const ed = document.getElementById('nt-text'), cs = getComputedStyle(ed);
+      const ed = document.querySelector('.notes-edit'), cs = getComputedStyle(ed);
       const rule = parseFloat(cs.fontSize) * 1.75;
       const contentTop = ed.getBoundingClientRect().top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop) - ed.scrollTop;
       const off = (n) => { const r = n % rule; return Math.min(r, rule - r); };
@@ -790,7 +810,7 @@ async function run(browser, size) {
       return { misaligned, count: blocks.length, attachment: cs.backgroundAttachment, image: cs.backgroundImage, color: cs.color };
     });
     for (const paper of ['legal', 'graph', 'card']) {
-      await pg.selectOption('#nt-paper', paper);
+      await pg.selectOption('.nt-paper', paper);
       const checked = await paperCheck();
       assert.ok(checked.count > 3, 'there are text rows to check');
       assert.deepStrictEqual(checked.misaligned, [], paper + ': every row sits on the lines');
@@ -798,11 +818,11 @@ async function run(browser, size) {
       assert.strictEqual(checked.color, 'rgb(27, 42, 74)', paper + ': dark ink on the paper');
     }
     await pg.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
-    await pg.selectOption('#nt-paper', 'legal');
+    await pg.selectOption('.nt-paper', 'legal');
     assert.strictEqual((await paperCheck()).color, 'rgb(27, 42, 74)', 'dark app theme: the pad stays light paper with dark ink');
     await pg.evaluate(() => { document.documentElement.dataset.theme = 'eink'; });
     for (const paper of ['legal', 'graph', 'card']) {
-      await pg.selectOption('#nt-paper', paper);
+      await pg.selectOption('.nt-paper', paper);
       const eink = await paperCheck();
       assert.strictEqual(eink.color, 'rgb(0, 0, 0)', paper + ' on e-ink: black text');
       const colours = (eink.image.match(/rgba?\([^)]*\)/g) || []).filter((c) => !/^rgba?\((0, 0, 0|255, 255, 255)(, [01])?\)$/.test(c));
@@ -810,7 +830,7 @@ async function run(browser, size) {
       assert.deepStrictEqual(eink.misaligned, [], paper + ' on e-ink: rows still on the lines');
     }
     await pg.evaluate(() => { delete document.documentElement.dataset.theme; });
-    await pg.selectOption('#nt-paper', '');
+    await pg.selectOption('.nt-paper', '');
     log('Notes paper: legal pad, graph paper and index card lines match every text row (light, dark and e-ink), and scroll with the text');
 
     await quickly(async () => { await pg.locator('[data-act="kanban.open-card"]').first().click(); await pg.waitForSelector('#dlg-note'); });
@@ -873,7 +893,7 @@ async function run(browser, size) {
   const notesId = await projectId();
   const unfailNotes = env.failWhere((name, args) => name === 'rpc' && args[0] === 'notes' && args[1] === 'save');
   env.latency = LATENCY;
-  await pg.click('#nt-text');
+  await pg.click('.notes-edit');
   await pg.keyboard.press('Control+End');
   await pg.keyboard.press('Enter');
   await pg.keyboard.type('Kept after a quick reload');
@@ -884,43 +904,81 @@ async function run(browser, size) {
   await pg.evaluate(() => localStorage.setItem('ft.openOn', 'last')); // Settings: open on the page I was on (the default is Today)
   await pg.reload();
   unfailNotes();
-  await pg.waitForSelector('#nt-text[contenteditable="true"]', { timeout: 15000 });
+  await pg.waitForSelector('.notes-edit[contenteditable="true"]', { timeout: 15000 });
   const notesText = () => env.server.run('rpc')('notes', 'get', { projectId: notesId }, null).result.text;
   for (let t0 = Date.now(); !/Kept after a quick reload[\s\S]*a list item that becomes a heading/.test(notesText()); await sleep(100)) {
     assert.ok(Date.now() - t0 < 15000, '[' + size.name + '] the notes typed before the reload never reached the server: ' + JSON.stringify(notesText()));
   }
-  assert.ok((await pg.innerText('#nt-text')).includes('a list item that becomes a heading'), 'and they are in the editor');
+  assert.ok((await pg.innerText('.notes-edit')).includes('a list item that becomes a heading'), 'and they are in the editor');
   log('Notes typed just before a reload come back and are saved, including a heading inside a list item');
 
   // ---------- 7: the notes' Google Doc ----------
   // Opening a project with notes makes their Doc in the background; then "Open in Docs" shows and links it.
-  await pg.waitForSelector('#nt-link:not([hidden])', { timeout: 15000 });
-  const docLink = await pg.evaluate(() => { const a = document.getElementById('nt-link'); return { text: a.textContent, href: a.href, visible: a.offsetParent !== null }; });
+  await pg.waitForSelector('.nt-link:not([hidden])', { timeout: 15000 });
+  const docLink = await pg.evaluate(() => { const a = document.querySelector('.nt-link'); return { text: a.textContent, href: a.href, visible: a.offsetParent !== null }; });
   const docRow = env.server.run('bootstrap()').data.notes.find((n) => n.project_id === notesId);
   assert.strictEqual(docLink.text, 'Open in Docs');
   assert.ok(docLink.visible, '[' + size.name + '] "Open in Docs" is on screen');
   assert.ok(/^https:\/\/docs\.google\.com\/document\/d\//.test(docLink.href) && docLink.href === docRow.doc, '[' + size.name + '] and links the Doc: ' + docLink.href);
   log('"Open in Docs" shows once the notes Doc exists');
 
-  // ---------- 8: Today's own note ----------
+  // ---------- 8: a note on Today, the Notes tab's buttons, a to-do's card ----------
+  const noteId = call('lists', 'create', { name: 'Chrome note', kind: 'note', showToday: true }).id;
+  const notePill = { id: 'ab12cd40', name: 'Chrome note', icon: '', panels: ['list-' + noteId] };
+  if (size.mobile) call('layout', 'savePills', { page: 'today', pills: (layoutNow()['today.pills'] || []).concat([notePill]) }); // pills were saved above: a new panel is in none
+  await quickly(() => pg.evaluate(() => FT.reload()));
   await gotoTab('Today');
-  if (size.mobile) await pg.click('.pchip[data-id="notes"]');
-  await pg.waitForSelector('#nt-text[data-project="today"][contenteditable="true"]', { timeout: 15000 });
-  assert.strictEqual((await pg.textContent('#nt-panel > .label')).trim(), 'Notes', '[' + size.name + '] Today\'s note is labelled Notes');
-  await pg.click('#nt-text');
+  if (size.mobile) await pg.click('.pchip[data-id="' + notePill.id + '"]');
+  const noteEditor = '.notes-edit[data-project="' + noteId + '"]';
+  await pg.waitForSelector(noteEditor + '[contenteditable="true"]', { timeout: 15000 });
+  assert.strictEqual((await pg.textContent('.notelist-panel .label')).trim(), 'Chrome note', '[' + size.name + '] the note is labelled with its name');
+  await pg.click(noteEditor);
   await pg.keyboard.type('Typed into Today in Chrome');
-  if (size.mobile) await pg.click('.notes-done');
-  const todayNotesText = () => env.server.run('rpc')('notes', 'get', { projectId: 'today' }, null).result.text;
-  for (let t0 = Date.now(); !todayNotesText().includes('Typed into Today in Chrome'); await sleep(100)) {
-    assert.ok(Date.now() - t0 < 15000, '[' + size.name + '] Today\'s note never reached its Doc: ' + JSON.stringify(todayNotesText()));
+  if (size.mobile) await pg.click('.notes-panel.full .notes-done');
+  const noteText = () => env.server.run('rpc')('notes', 'get', { listId: noteId }, null).result.text;
+  for (let t0 = Date.now(); !noteText().includes('Typed into Today in Chrome'); await sleep(100)) {
+    assert.ok(Date.now() - t0 < 15000, '[' + size.name + '] the note never reached its Doc: ' + JSON.stringify(noteText()));
   }
-  assert.ok(env.server.docs.docs().some((f) => f.name === 'Today notes'), '[' + size.name + '] the Doc "Today notes" holds it');
-  log('Today\'s note: typing saves to its own Doc, "Today notes"');
+  assert.ok(env.server.docs.docs().some((f) => f.name === 'Chrome note'), '[' + size.name + '] the Doc "Chrome note" holds it');
+  log('A note on Today: typing saves to its own Doc, named after it');
+
+  env.latency = LATENCY;
+  await gotoTab('Notes');
+  await quick('Notes tab: + New note', pg.locator('[data-act="lists.add"][data-kind="note"]'));
+  await quickly(() => pg.fill('#dlg-name', 'Made in Chrome'));
+  await quick('Notes tab: Create note', pg.locator('#dlg-submit'));
+  assert.ok(await pg.isVisible('.notelist-panel .notes-edit'), 'the note and its editor show at once');
+  await quick('Notes tab: + New to-do list', pg.locator('[data-act="lists.add"][data-kind="todo"]'));
+  await quickly(() => pg.fill('#dlg-name', 'Chrome errands'));
+  await quick('Notes tab: Create to-do list', pg.locator('#dlg-submit'));
+  await settle();
+  const madeOnTab = env.server.run('bootstrap()').data.lists.filter((l) => l.name === 'Made in Chrome' || l.name === 'Chrome errands');
+  assert.deepStrictEqual(madeOnTab.map((l) => l.kind).sort(), ['note', 'todo'], 'both reached the server');
+  await quick('Notes tab: hide project notes', pg.locator('[data-change="lists.projectNotes"]'));
+  assert.strictEqual(await pg.locator('#app [data-panel^="pnote-"]').count(), 0, 'project notes hidden at once');
+  await settle();
+  assert.strictEqual((layoutNow()['lists.view'] || {}).projectNotes, 'off', 'the choice reached the server');
+  await quick('Notes tab: show project notes', pg.locator('[data-change="lists.projectNotes"]'));
+  await settle();
+  log('Notes tab: + New note, + New to-do list and Show project notes answer at once and reach the server');
+
+  await gotoTab('Today');
+  await showPanel(todosPanel());
+  await quickly(async () => { await pg.fill('.todos-panel .todoadd input >> nth=0', 'Card from Chrome'); await pg.click('.todos-panel [data-act="todos.addBtn"] >> nth=0'); });
+  await settle();
+  await quick('To-dos: open a to-do\'s card', pg.locator('.todos li:has-text("Card from Chrome") [data-act="todos.open"]'));
+  assert.ok(await pg.isVisible('#dlg-tdday') && await pg.isVisible('#dlg-note'), 'the card dialog, with the to-do\'s fields');
+  await quickly(() => pg.fill('#dlg-cardtitle', 'Card from Chrome, edited'));
+  await quick('To-do card: Save', pg.locator('#dlg-submit'));
+  assert.ok(await pg.isVisible('.todos li:has-text("Card from Chrome, edited")'), 'the change shows at once');
+  await settle();
+  assert.ok(todosNow().some((t) => t.title === 'Card from Chrome, edited'), 'and reached the server');
+  log('To-dos: a to-do\'s card dialog opens and saves at once, and the change reaches the server');
 
   // ---------- 9: pop-out windows ----------
   env.latency = LATENCY;
   await gotoTab('Today');
-  const popWin = pg.locator('#popRoot .popwin[data-key="today::todos"]');
+  const todosId = todosPanel(), popWin = pg.locator('#popRoot .popwin[data-key="today::' + todosId + '"]');
   const saved = () => pg.evaluate(() => JSON.parse(localStorage.getItem('ft.popout.personal')).windows[0]);
   const drag = async (from, dx, dy) => {
     await pg.mouse.move(from.x, from.y); await pg.mouse.down();
@@ -932,18 +990,18 @@ async function run(browser, size) {
   if (size.mobile) {
     assert.strictEqual(await pg.locator('#app .popbtn').count(), 0, '[' + size.name + '] no Pop out button on a phone');
     await pg.setViewportSize(DESKTOP_VIEWPORT);
-    await pg.waitForSelector('#app .popbtn[data-panel="todos"]');
+    await pg.waitForSelector('#app .popbtn[data-panel="' + todosId + '"]');
   }
-  await quick('Pop out: To-dos', pg.locator('#app .popbtn[data-panel="todos"]'));
+  await quick('Pop out: To-dos', pg.locator('#app .popbtn[data-panel="' + todosId + '"]'));
   await popWin.waitFor();
   if (size.mobile) {
     await pg.setViewportSize(size.viewport);
     await pg.waitForFunction(() => !document.getElementById('popRoot').children.length, null, { timeout: 5000 });
     assert.strictEqual(await pg.locator('#app .popslot').count(), 0, 'narrowed to a phone: no placeholder');
     assert.strictEqual(await pg.locator('#app .popbtn').count(), 0, 'and no Pop out buttons');
-    await quick('Phone: the To-dos chip', pg.locator('.pchip[data-id="todos"]'), false);
-    assert.ok(await pg.isVisible('#app #td-new'), 'To-dos draws in place');
-    assert.strictEqual((await saved()).panel, 'todos', 'the desktop window stays saved');
+    await quick('Phone: the To-dos chip', pg.locator('.pchip[data-id="' + todosId + '"]'), false);
+    assert.ok(await pg.isVisible('#app .todos-panel .todoadd input'), 'To-dos draws in place');
+    assert.strictEqual((await saved()).panel, todosId, 'the desktop window stays saved');
     await pg.setViewportSize(DESKTOP_VIEWPORT);
     await popWin.waitFor();
     await pg.waitForSelector('#app .popslot', { timeout: 5000 });
@@ -966,10 +1024,10 @@ async function run(browser, size) {
     near(wider.x, sized.x - 60, 'the left edge moves'); near(wider.width, sized.width + 60, 'and the width grows');
     const kept = await saved();
     near(kept.free.x, wider.x, 'place kept'); near(kept.free.w, wider.width, 'size kept');
-    await gotoTab('Lists');
+    await gotoTab('Notes');
     const onLists = await popWin.boundingBox();
     near(onLists.x, wider.x, 'same place on another tab'); near(onLists.height, wider.height, 'same size on another tab');
-    assert.ok(await popWin.locator('#td-new').isVisible(), 'and still the live To-dos panel');
+    assert.ok(await popWin.locator('.todoadd input').isVisible(), 'and still the live To-dos panel');
     log('Pop out: a free window is dragged by its title bar and resized from a corner and an edge; it keeps its place on another tab');
 
     await pg.click('#popRoot .popwin [data-act="popout.style"][data-style="pane"]');

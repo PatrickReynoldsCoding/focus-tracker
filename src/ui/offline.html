@@ -20,10 +20,10 @@
 (function () {
   // Bump SCHEMA when the shape of the saved copy (bootstrap data) changes: older copies are then dropped. 2: sheet layout v2
   // (kanban rows carry owner, cards note, resources value). 3: the links slice. 4: notes rows carry doc (the notes' Google Doc).
-  // 5: habits and to-dos, no daily minimum.
+  // 5: habits and to-dos, no daily minimum. 6: lists have a kind (to-do lists, notes), to-dos a list and group.
   // QUEUE_SCHEMA is for the queue: queued changes are api calls, which the server still takes after a layout change,
   // so they are kept unless the calls themselves change.
-  var SCHEMA = 5;
+  var SCHEMA = 6;
   var QUEUE_SCHEMA = 1;
   var QUEUE_TIMEOUT = 30000; // a queued kind of change that has not been answered after this long is treated as offline
   var OTHER_TIMEOUT = 60000;
@@ -141,11 +141,11 @@
     'kanban.addTask': 1, 'kanban.moveTask': 1, 'kanban.updateTask': 1, 'kanban.deleteTask': 1, 'kanban.addColumn': 1, 'kanban.renameColumn': 1, 'kanban.moveColumn': 1,
     'criteria.add': 1, 'criteria.update': 1, 'criteria.remove': 1,
     'stickies.add': 1, 'stickies.update': 1, 'stickies.remove': 1, 'resources.add': 1, 'resources.update': 1, 'resources.remove': 1, 'links.add': 1, 'links.remove': 1,
-    'lists.rename': 1, 'lists.setColor': 1, 'lists.showToday': 1, 'lists.setDisplay': 1, 'lists.setProject': 1, 'whiteboard.setShowToday': 1,
-    'notes.save': 1, 'projects.update': 1, 'log.update': 1,
+    'lists.create': 1, 'lists.rename': 1, 'lists.setColor': 1, 'lists.showToday': 1, 'lists.setDisplay': 1, 'lists.setProject': 1, 'whiteboard.setShowToday': 1,
+    'notes.save': 1, 'notes.setShowToday': 1, 'projects.update': 1, 'log.update': 1,
     // A habit tap sends +1 or -1, not a total, so taps made on two devices offline add up (docs/habits-ideas.md §3).
     'habits.tap': 1, 'habits.plan': 1, 'habits.answer': 1, 'habits.setStatus': 1, 'habits.move': 1, 'habits.remove': 1, 'habits.copyWeek': 1, 'habits.aspire': 1, 'habits.start': 1, 'habits.acceptLevel': 1, 'habits.postponeLevel': 1,
-    'todos.add': 1, 'todos.toggle': 1, 'todos.remove': 1, 'todos.setDay': 1, 'today.planDay': 1
+    'todos.add': 1, 'todos.toggle': 1, 'todos.remove': 1, 'todos.setDay': 1, 'todos.update': 1, 'todos.move': 1, 'today.planDay': 1
   };
   // Of those, the ones where a newer call to the same row replaces an older one still waiting right behind it.
   var MERGEABLE = /\.(update|updateTask|moveTask|rename|renameColumn|moveColumn|save|setColor|showToday|setDisplay|setProject|setShowToday)$/;
@@ -158,7 +158,7 @@
 
   /** The row a call changes, so two waiting calls on it are chained and conflicts are checked once per row. */
   function entityOf(m, f, a) {
-    var id = a && (a.id || a.projectId);
+    var id = a && (a.id || a.projectId || a.listId);
     if (m === 'kanban' && /Task$/.test(f)) return 'task:' + id;
     if (m === 'notes') return 'notes:' + id;
     return m + ':' + (id || f);
@@ -175,9 +175,10 @@
     if (key === 'projects.update') { row = FT.project(a.id); return row ? row.updated_at || '' : undefined; }
     if (key === 'kanban.updateTask' || key === 'kanban.moveTask') { row = find((s.kanban || {}).tasks, function (t) { return t.id === a.id; }); return row ? row.updated_at || '' : undefined; }
     if (key === 'criteria.update') { row = find(s.criteria, function (c) { return c.id === a.id; }); return row ? row.updated_at || '' : undefined; }
+    if (key === 'todos.update') { row = find((s.todos || {}).items, function (t) { return t.id === a.id; }); return row ? row.updated_at || '' : undefined; }
     if (key === 'notes.save') {
       if (a._base !== undefined) return a._base; // the notes editor says which version its text builds on
-      row = find(s.notes, function (n) { return n.project_id === a.projectId; }); return row ? row.updated || '' : undefined;
+      row = find(s.notes, function (n) { return a.listId ? n.list_id === a.listId : n.project_id === a.projectId; }); return row ? row.updated || '' : undefined;
     }
     return undefined;
   }
