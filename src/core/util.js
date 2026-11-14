@@ -31,3 +31,31 @@ function clean_(value, max) {
   var s = typeof value === 'string' ? value.trim() : '';
   return max ? s.slice(0, max) : s;
 }
+
+// ---------- ISO dates (yyyy-MM-dd) as plain text, worked out with no time zone, so a day is always the day it says ----------
+
+/** The date n days after an ISO date (n may be negative). */
+function isoAddDays_(day, n) {
+  var t = Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10))) + n * 86400000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/** ISO weekday of an ISO date: 1 = Monday ... 7 = Sunday. */
+function isoWeekday_(day) {
+  var d = new Date(day + 'T00:00:00Z').getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
+/** The Monday of the week an ISO date is in. */
+function isoMonday_(day) {
+  return isoAddDays_(day, 1 - isoWeekday_(day));
+}
+
+function isIsoDay_(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !isNaN(Date.parse(value + 'T00:00:00Z'));
+}
+
+/** Today as an ISO date in the script's time zone. Its own function, so tests can move the clock. */
+function todayIso_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}

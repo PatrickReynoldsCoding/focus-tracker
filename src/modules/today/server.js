@@ -7,8 +7,12 @@
  * and "remind me" adds a row to the Reminders tab that shows as a banner when due.
  *
  * The weekly rotation (a lead category, "any", or away for each weekday) is the mode's default until edited.
- * "This week" changes are saved with the week's Monday and stop applying when a new week starts.
- * Session, rotation and week state are per user and per mode and live in user properties, so they follow you across devices.
+ * "This week" changes are saved with the week's Monday and stop applying when a new week starts. Plan my week can also
+ * change next week (next.of and next.monday ... in Settings), and those become this week's changes when it starts.
+ * Never further ahead. The habits and to-dos on Today are their own modules (habits, todos).
+ * The rotation and this week's changes are per mode and live in the mode's Settings tab (core/settings.js), one row
+ * per day, for example rotation.monday = coding. The session and pomodoro state are per user and live in user
+ * properties (they change every few seconds). Both follow you across devices.
  *
  * A session is { projectId, start, pausedMs, pausedAt, pomodoro }. Worked time is wall time minus pauses.
  * pomodoro is null when off, else { phase: 'work' | 'break', phaseStartMs, lengthMin } where phaseStartMs is the
@@ -21,8 +25,7 @@ function todayModule() {
   var POMODORO_KEY = 'today.pomodoro';
   var POMODORO_DEFAULTS = { work: 25, break: 5 };
   var NEXT_PHASE = { work: 'break', break: 'work' };
-  var ROTATION_KEY = modeKey_('today.rotation');
-  var WEEK_KEY = modeKey_('today.week');
+  var ANY = 'any';   // Settings text for "any category"
   var ANY_LABEL = 'Any category';
   var AWAY = 'away';
   var AWAY_LABEL = 'Away';
@@ -48,19 +51,10 @@ function todayModule() {
     return Utilities.formatDate(new Date(Date.now() + days * DAY_MS), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
 
-  function readJson_(key) {
-    var raw = PropertiesService.getUserProperties().getProperty(key);
-    return raw ? JSON.parse(raw) : null;
-  }
-
-  function writeJson_(key, value) {
-    PropertiesService.getUserProperties().setProperty(key, JSON.stringify(value));
-  }
-
   function load_(dayKey) {
     var raw = PropertiesService.getUserProperties().getProperty(KEY);
     var s = raw ? JSON.parse(raw) : {};
-    if (s.day !== dayKey) s = { day: dayKey, skipped: [], jobDone: false, session: s.session || null };
+    if (s.day !== dayKey) s = { day: dayKey, skipped: [], session: s.session || null };
     return s;
   }
 
@@ -123,23 +117,50 @@ function todayModule() {
     return value;
   }
 
-  /** The usual rotation: the user's own once saved, else the mode's default. */
+  /** A day as Settings text (a category id, away or any) and back. */
+  function planText_(plan) { return plan === null || plan === undefined ? ANY : plan; }
+  function planOf_(text) { return text === ANY ? null : text; }
+
+  /** The usual rotation: each day as saved in Settings (rotation.monday ...), else the mode's default for that day. */
   function usual_(ids) {
-    var saved = readJson_(ROTATION_KEY);
-    var days = saved && saved.days ? saved.days : activeMode_().rotation;
+    var saved = settingsWithPrefix_('rotation.'), defaults = activeMode_().rotation;
     var usual = {};
-    WEEKDAYS.forEach(function (day) { usual[day] = dayPlan_(days[day], ids); });
+    WEEKDAYS.forEach(function (day) {
+      var text = saved['rotation.' + WEEKDAY_NAMES_[day]];
+      usual[day] = dayPlan_(text === undefined ? defaults[day] : planOf_(text), ids);
+    });
     return usual;
   }
 
-  /** This week's changes by weekday. Empty once the saved week is over, so they reset on Monday. */
+  /**
+   * A week's changes by weekday: the week.* rows when week.of is that week, else the next.* rows when next.of is
+   * (next week as planned last week). Empty once the saved week is over, so they reset on Monday.
+   */
   function weekChanges_(weekKey, ids) {
-    var saved = readJson_(WEEK_KEY);
     var changes = {};
-    if (!saved || saved.week !== weekKey) return changes;
-    Object.keys(saved.days || {}).forEach(function (day) { changes[day] = dayPlan_(saved.days[day], ids); });
+    ['week', 'next'].some(function (prefix) {
+      var saved = settingsWithPrefix_(prefix + '.');
+      if (saved[prefix + '.of'] !== weekKey) return false;
+      WEEKDAYS.forEach(function (day) {
+        var text = saved[prefix + '.' + WEEKDAY_NAMES_[day]];
+        if (text !== undefined) changes[day] = dayPlan_(planOf_(text), ids);
+      });
+      return true;
+    });
     return changes;
   }
+
+  /** Settings rows for a week's changes under prefix (week or next): every day, '' for a day that is as usual. */
+  function weekValues_(prefix, weekKey, changes) {
+    var values = {};
+    values[prefix + '.of'] = weekKey;
+    WEEKDAYS.forEach(function (day) {
+      values[prefix + '.' + WEEKDAY_NAMES_[day]] = Object.prototype.hasOwnProperty.call(changes, day) ? planText_(changes[day]) : '';
+    });
+    return values;
+  }
+
+  function nextWeekKey_(weekKey) { return isoAddDays_(weekKey, 7); }
 
   function plan_(usual, week) {
     var plan = {};
@@ -156,13 +177,6 @@ function todayModule() {
     return labels;
   }
 
-  /** The daily-minimum category: the user's choice once saved, else the mode's. null when none or deleted. */
-  function dailyMinimum_(ids) {
-    var saved = readJson_(ROTATION_KEY);
-    var id = saved && Object.prototype.hasOwnProperty.call(saved, 'dailyMinimum') ? saved.dailyMinimum : activeMode_().dailyMinimum;
-    return ids.indexOf(id) !== -1 ? id : null;
-  }
-
   function skipCounts_() {
     var counts = {};
     SKIPS.all().forEach(function (r) { counts[r.project_id] = (counts[r.project_id] || 0) + 1; });
@@ -176,9 +190,11 @@ function todayModule() {
       .map(function (r) { return { id: r.id, project_id: r.project_id, due: r.due, created: r.created }; });
   }
 
+  /** Active projects best first. Locked ones are left out, and so are ones waiting on an unfinished project (links module, if installed). */
   function ranked_(ctx, lead) {
+    var waiting = ctx.optional('links', 'waiting', {}) || {};
     return ctx.call('projects', 'list', {})
-      .filter(function (p) { return p.status === 'active'; })
+      .filter(function (p) { return p.status === 'active' && !projectLocked_(p) && !waiting[p.id]; })
       .map(function (p) {
         return { id: p.id, score: daysSince_(p.last_touched) + (lead && p.category === lead ? 100 : 0) };
       })
@@ -199,7 +215,8 @@ function todayModule() {
     var focusId = s.session ? s.session.projectId : (picked || pool[0] || null);
     return {
       day: d.key, weekday: d.weekday, lead: lead, away: plan[d.weekday] === AWAY, usual: usual, week: week,
-      labels: labels_(plan, categories), focusId: focusId, ranked: ranked, dailyMinimum: dailyMinimum_(ids), jobDone: s.jobDone,
+      labels: labels_(plan, categories), focusId: focusId, ranked: ranked, weekKey: d.weekKey, nextWeekKey: nextWeekKey_(d.weekKey),
+      next: weekChanges_(nextWeekKey_(d.weekKey), ids),
       session: s.session, pomodoroSettings: pomodoroSettings_(), skipCounts: skipCounts_(), reminders: dueReminders_(d.key)
     };
   }
@@ -260,7 +277,7 @@ function todayModule() {
 
       /**
        * Save the rotation. a.usual: { weekday: categoryId | 'away' | '' } for every day; a.week: the same for days
-       * that differ this week only; a.dailyMinimum: a category id or '' for none.
+       * that differ this week only.
        */
       saveRotation: function (a, ctx) {
         var ids = ctx.call('categories', 'ids'), d = dayInfo_();
@@ -270,12 +287,18 @@ function todayModule() {
           assert_(WEEKDAYS.indexOf(Number(day)) !== -1, 'Unknown weekday: ' + day);
           week[day] = planFromInput_(a.week[day], ids);
         });
-        assert_(!a.dailyMinimum || ids.indexOf(a.dailyMinimum) !== -1, 'Unknown category: ' + a.dailyMinimum);
-        writeJson_(ROTATION_KEY, { days: days, dailyMinimum: a.dailyMinimum || null });
-        writeJson_(WEEK_KEY, { week: d.weekKey, days: week });
+        var values = { 'week.of': d.weekKey };
+        WEEKDAYS.forEach(function (day) {
+          values['rotation.' + WEEKDAY_NAMES_[day]] = planText_(days[day]);
+          values['week.' + WEEKDAY_NAMES_[day]] = Object.prototype.hasOwnProperty.call(week, day) ? planText_(week[day]) : '';
+        });
+        setSettings_(values);
         ctx.refresh('today');
         return true;
       },
+
+      /** Every skip: { project_id, to_project_id, date }. Insights counts them per project. */
+      skips: function () { return SKIPS.all(); },
 
       removeProject: function (a) {
         SKIPS.removeWhere(function (r) { return r.project_id === a.projectId || r.to_project_id === a.projectId; });
@@ -283,16 +306,32 @@ function todayModule() {
         return true;
       },
 
-      toggleJob: function (a, ctx) {
-        var d = dayInfo_(), s = load_(d.key);
-        s.jobDone = !s.jobDone;
-        save_(s);
+      /**
+       * Plan my week: the lead for one day of this week or next week (never further). a.week: that week's Monday;
+       * a.day: ISO weekday; a.plan: a category id, 'away', '' for any category, or 'usual' to go back to the usual day.
+       */
+      planDay: function (a, ctx) {
+        var ids = ctx.call('categories', 'ids'), d = dayInfo_();
+        var prefix = a.week === d.weekKey ? 'week' : a.week === nextWeekKey_(d.weekKey) ? 'next' : null;
+        assert_(prefix, 'You can plan this week or next week only.');
+        var day = Number(a.day);
+        assert_(WEEKDAYS.indexOf(day) !== -1, 'Unknown weekday: ' + a.day);
+        var changes = weekChanges_(a.week, ids);
+        if (a.plan === 'usual') delete changes[day]; else changes[day] = planFromInput_(a.plan, ids);
+        setSettings_(weekValues_(prefix, a.week, changes));
         ctx.refresh('today');
-        return s.jobDone;
+        return true;
+      },
+
+      /** ISO weekdays that are Away in the usual rotation (habits leave them out of a daily habit's weekly target). */
+      awayDays: function (a, ctx) {
+        var usual = usual_(ctx.call('categories', 'ids'));
+        return WEEKDAYS.filter(function (day) { return usual[day] === AWAY; });
       },
 
       start: function (a, ctx) {
         assert_(a.projectId, 'No project to start.');
+        assert_(!projectLocked_(ctx.call('projects', 'list', {}).filter(function (p) { return p.id === a.projectId; })[0]), 'That project is locked.');
         var d = dayInfo_(), s = load_(d.key);
         s.session = { projectId: a.projectId, start: nowIso_(), pausedMs: 0, pausedAt: '', pomodoro: null };
         save_(s);

@@ -1,7 +1,7 @@
 <style>
 /* Shared look: tokens, layout and generic components. Module-specific styles live in each module's view.html. */
 :root {
-  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #5a6b68; --line: #d3dcd9;
+  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #4d5d5a; --line: #d3dcd9;
   --accent: #0e6b62; --accent-ink: #ffffff; --accent-soft: #d9efeb;
   --warn: #a35d00; --warn-soft: #fbeed8; --bad: #b3322f; --bad-soft: #f9e0df; --ok: #2b7a4b; --ok-soft: #dcf0e4;
   --cat-1: #0e6b62; --cat-2: #a35d00; --cat-3: #4a5fa8; --cat-4: #b3322f; --cat-5: #7a4fa8; --cat-6: #2b7a4b; --cat-7: #5a6b68; --cat-8: #c2561b;
@@ -12,8 +12,8 @@
 }
 /* Dark colours: when the theme is Dark, or "Same as computer" and the computer is in dark mode (Settings, ⚙). */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+  :root:not([data-theme="light"]):not([data-theme="eink"]) {
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #a6b9b5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
     --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
@@ -21,7 +21,7 @@
   }
 }
 :root[data-theme="dark"] {
-    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #94a9a5; --line: #2a3b38;
+    --bg: #0d1413; --surface: #151f1d; --surface-2: #1d2b29; --ink: #e6efed; --muted: #a6b9b5; --line: #2a3b38;
     --accent: #4fc4b5; --accent-ink: #062320; --accent-soft: #14312e;
     --warn: #e8a54b; --warn-soft: #33260f; --bad: #ee7b77; --bad-soft: #351817; --ok: #6cc590; --ok-soft: #142a1d;
     --cat-1: #4fc4b5; --cat-2: #e8a54b; --cat-3: #8fa5ee; --cat-4: #ee7b77; --cat-5: #c4a2ee; --cat-6: #6cc590; --cat-7: #a9bbb7; --cat-8: #f29a5e;
@@ -29,15 +29,53 @@
 }
 /* Work mode uses a blue accent so it is always clear which mode's data is on screen. */
 body[data-mode="work"] { --accent: #2f5aa8; --accent-soft: #dfe7f6; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; } }
 :root[data-theme="dark"] body[data-mode="work"] { --accent: #8fb0ee; --accent-ink: #0b1a33; --accent-soft: #18243a; }
 /* Modes made in the app pick an accent from the category palette (body style --mode-accent). */
 body[data-accent] { --accent: var(--mode-accent); --accent-soft: color-mix(in srgb, var(--mode-accent) 16%, var(--surface)); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body[data-accent] { --accent-ink: #0d1413; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) body[data-accent] { --accent-ink: #0d1413; } }
 :root[data-theme="dark"] body[data-accent] { --accent-ink: #0d1413; }
+/* E-ink (Hisense A9 and similar): white paper, black ink, thick black borders, no colour tints, shadows or motion, big tap targets. */
+:root[data-theme="eink"] {
+  --bg: #fff; --surface: #fff; --surface-2: #fff; --ink: #000; --muted: #222; --line: #000;
+  --accent: #000; --accent-ink: #fff; --accent-soft: #fff;
+  --warn: #000; --warn-soft: #fff; --bad: #000; --bad-soft: #fff; --ok: #000; --ok-soft: #fff;
+  --cat-1: #000; --cat-2: #333; --cat-3: #000; --cat-4: #333; --cat-5: #000; --cat-6: #333; --cat-7: #000; --cat-8: #333;
+  color-scheme: light;
+}
+:root[data-theme="eink"] body[data-mode="work"], :root[data-theme="eink"] body[data-accent] { --accent: #000; --accent-ink: #fff; --accent-soft: #fff; }
+:root[data-theme="eink"] *, :root[data-theme="eink"] *::before, :root[data-theme="eink"] *::after {
+  transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; scroll-behavior: auto !important;
+}
+:root[data-theme="eink"] body { font-size: 17px; line-height: 1.55; background: #fff; }
+:root[data-theme="eink"] .panel, :root[data-theme="eink"] .dialog, :root[data-theme="eink"] .col, :root[data-theme="eink"] .next,
+:root[data-theme="eink"] .lockbox, :root[data-theme="eink"] .waitbox, :root[data-theme="eink"] .rotq, :root[data-theme="eink"] .sticky, :root[data-theme="eink"] .stickymenu,
+:root[data-theme="eink"] .rtedit, :root[data-theme="eink"] .toast { border: 3px solid #000 !important; background: #fff !important; color: #000 !important; }
+:root[data-theme="eink"] .bar { border-bottom: 3px solid #000; }
+:root[data-theme="eink"] .btn, :root[data-theme="eink"] .iconbtn, :root[data-theme="eink"] input:not([type="radio"]):not([type="checkbox"]),
+:root[data-theme="eink"] select, :root[data-theme="eink"] textarea, :root[data-theme="eink"] .modeselect { border: 2px solid #000; background: #fff; color: #000; min-height: 44px; border-radius: 6px; }
+:root[data-theme="eink"] .iconbtn { min-width: 44px; height: 44px; }
+:root[data-theme="eink"] .btn.primary, :root[data-theme="eink"] .btn.danger { background: #000; color: #fff; border-color: #000; }
+:root[data-theme="eink"] .btn:hover, :root[data-theme="eink"] .tab:hover, :root[data-theme="eink"] .iconbtn:hover { background: #fff; color: #000; }
+:root[data-theme="eink"] .btn.primary:hover, :root[data-theme="eink"] .btn.danger:hover { background: #000; color: #fff; filter: none; }
+:root[data-theme="eink"] .tab { border: 2px solid transparent; font-weight: 600; color: #000; padding: 10px 14px; }
+:root[data-theme="eink"] .tab[aria-current="page"] { background: #000; color: #fff; }
+:root[data-theme="eink"] a, :root[data-theme="eink"] .modeselect { color: #000; text-decoration: underline; text-underline-offset: 3px; }
+:root[data-theme="eink"] .pill { border: 2px solid #000; background: #fff; }
+:root[data-theme="eink"] .pill::before { background: #000; }
+:root[data-theme="eink"] .age-fresh, :root[data-theme="eink"] .age-soon, :root[data-theme="eink"] .age-stale { color: #000; }
+:root[data-theme="eink"] .age-stale { text-decoration: underline; }
+:root[data-theme="eink"] .scrim { background: #fff; }
+:root[data-theme="eink"] .rotq .rotbody { transition: none !important; }
+:root[data-theme="eink"] :focus-visible { outline: 4px solid #000; outline-offset: 2px; }
+:root[data-theme="eink"] .sticky { --paper: #fff; --paper-a: 1; }
+:root[data-theme="eink"] .swatches span { border: 2px solid #000; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-x: none; }
+body { overscroll-behavior-x: none; }
+body.dlg-open { overflow: hidden; }
+main, .dialog, .toast, .panel { overflow-wrap: anywhere; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
   padding: 0 max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
 .wrap { max-width: 1080px; margin: 0 auto; }
@@ -47,7 +85,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
 a.textlink { overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 2px; }
 
-.bar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--line); }
+.bar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 16px; border-bottom: 1px solid var(--line); }
+.menupanel { display: contents; }
+/* Anything waiting for Google shows a bar along the bottom of the header (after a short moment, so quick saves do not flash it). */
+.bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; opacity: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; transition: opacity 0.1s 0.2s; }
+body.busy .bar::after { opacity: 1; animation: busybar 1s linear infinite; }
+@keyframes busybar { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@media (prefers-reduced-motion: reduce) { body.busy .bar::after { animation: none; background: var(--accent); } }
+:root[data-theme="eink"] body.busy .bar::after { animation: none; background: #000; }
+.brand { flex: none; }
+/* Settings (⚙) sits at the right end; Undo, Redo and Back are inside it (and on the keyboard and the phone's back button). */
+.brand { order: 1; } .tabs { order: 2; } .sync { order: 3; } .modes { order: 4; } .layoutbtn { order: 8; } .widebtn { order: 9; } #settingsBtn { order: 10; }
+.iconbtn:disabled { opacity: 0.35; cursor: default; }
+/* Narrow desktop and tablet: the views get their own row under the name and buttons, so none are cut off. */
+@media (min-width: 761px) and (max-width: 1000px) { .bar { flex-wrap: wrap; } .brand { flex: 1 1 auto; } .tabs { order: 20; flex: 1 1 100%; } }
 .brand { font-family: var(--font-display); font-weight: 700; font-size: 19px; }
 .tabs { display: flex; gap: 4px; overflow-x: auto; min-width: 0; flex: 1 1 auto; }
 .tab { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-weight: 500; }
@@ -62,6 +114,70 @@ a.iconbtn[hidden] { display: none; }
 .modes { flex: none; }
 .modeselect { width: auto; padding: 6px 30px 6px 12px; font-weight: 600; font-size: 13.5px; border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft); cursor: pointer; }
 @media (max-width: 760px) { .widebtn, .layoutbtn { display: none; } body.wide .wrap { max-width: 1080px; } }
+/* "Edit layout": a text button in the desktop bar, an item in the phone menu. */
+.layoutbtn { flex: none; white-space: nowrap; }
+.layoutbtn[hidden], .menulayout { display: none; }
+.btn.layoutbtn[aria-pressed="true"], .btn.layoutbtn[aria-pressed="true"]:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* Phone: the bar is one row: menu, name, a status dot, Settings. Views and mode are in the menu, a panel that opens over the page. */
+.menubtn { display: none; }
+@media (max-width: 760px) {
+  .bar { flex-wrap: nowrap; gap: 6px; padding: 8px 0; }
+  .menubtn, #settingsBtn { width: 44px; height: 44px; }
+  .menubtn { display: inline-flex; align-items: center; justify-content: center; }
+  .brand { font-size: 16px; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menubtn { order: 1; } .brand { order: 2; } .sync { order: 3; } #settingsBtn { order: 5; }
+  /* The saved / saving words are a small dot here (the words stay for screen readers). */
+  .sync { flex: none; min-width: 0; font-size: 0; display: inline-flex; align-items: center; }
+  .sync:not(:empty)::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+  .sync[data-state="saving"]::before { background: var(--warn); }
+  .menupanel { display: none; }
+  body.menuopen .menupanel { display: grid; gap: 8px; position: absolute; top: 100%; left: 0; right: 0; z-index: 30; padding: 10px 0 14px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 14px 24px rgba(0, 0, 0, 0.18); }
+  .tabs, .modes { display: none; }
+  body.menuopen .tabs { display: flex; flex-direction: column; overflow: visible; gap: 2px; }
+  body.menuopen .tab { text-align: left; padding: 12px 14px; font-size: 16px; min-height: 44px; }
+  body.menuopen .modes { display: block; }
+  body.menuopen .modeselect { width: 100%; min-height: 44px; font-size: 16px; }
+  body.menuopen .menulayout:not([hidden]) { display: block; order: 30; width: 100%; min-height: 44px; font-size: 16px; text-align: left; }
+}
+
+/* Phone: a strip under the bar shows the current view and its neighbours, which is also where a sideways swipe goes. */
+.pager { display: none; }
+@media (max-width: 760px) {
+  .pager { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 4px; padding-top: 4px; font-size: 13px; }
+  .pager[hidden] { display: none; }
+  .pager .pg-side { border: 0; background: none; color: var(--muted); padding: 8px 4px; min-height: 36px; font-size: 13px; cursor: pointer; }
+  .pager .pg-prev { text-align: left; } .pager .pg-next { text-align: right; }
+  .pager .pg-now { display: grid; justify-items: center; gap: 3px; font-weight: 600; color: var(--ink); }
+  .pager .dots { display: flex; gap: 5px; } .pager .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+  .pager .dots i.on { width: 16px; border-radius: 3px; background: var(--accent); }
+}
+:root[data-theme="eink"] .pager .dots i { background: #fff; border: 1px solid #000; } :root[data-theme="eink"] .pager .dots i.on { background: #000; }
+
+/* Phone: comfortable targets (44 px), 16 px fields (iOS zooms the page on anything smaller), room for the sticky-note buttons. */
+@media (max-width: 760px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
+  select, input[type="text"], input[type="url"], input[type="tel"], input[type="email"], input[type="search"], input[type="date"], input[type="time"], input[type="number"] { min-height: 44px; }
+  .btn, .btn.sm { min-height: 44px; }
+  .btn.sm { padding: 8px 14px; font-size: 14px; }
+  .sortbtn, .ptable thead .sortbtn, .pager .pg-side, .rtbar button { min-height: 44px; }
+  .rtbar button, .dialog .rtbar button, .dialog .rtbar .dot, .notes-panel .rtbar button { min-width: 44px; min-height: 44px; }
+  .kcard .mvb, .coladd .mvb { width: 44px; height: 44px; font-size: 18px; }
+  .board .kcard .ktitle { padding: 10px 0; }
+  .coladd .mvb { flex: none; }
+  .colhead .rm, .catrow .rm { min-width: 44px; min-height: 44px; font-size: 14px; }
+  .coladd input { min-height: 44px; }
+  .crit input[type="checkbox"] { width: 26px; height: 26px; margin: 0; }
+  .crit li { padding: 8px 4px; align-items: center; }
+  .rotq .arrows button { width: 44px; height: 44px; }
+  .dialog .swatches span, .dialog .swatches label > span { width: 40px; height: 40px; }
+  .dialog .swatches { gap: 8px; }
+  .dialog.wide .rtbar { flex-wrap: nowrap; overflow-x: auto; }
+  .dialog.wide .rtbar button { flex: none; }
+  .catrow { flex-wrap: wrap; }
+  .catrow input { flex: 1 1 100%; }
+  .ptable thead tr::before { content: "Sort by"; font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); align-self: center; padding-right: 4px; }
+  body.hasfab main { padding-bottom: 88px; }
+}
 
 main { padding-top: 16px; display: grid; gap: 16px; }
 .grid2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
@@ -73,16 +189,45 @@ main { padding-top: 16px; display: grid; gap: 16px; }
 /* GridStack: the item insets by its margin; panels fill the content box. Outside edit mode nothing scrolls inside. */
 .grid-stack { margin: -8px; }
 .grid-stack-item-content { overflow: visible !important; display: grid; gap: 16px; align-content: start; }
-body.editing-layout .grid-stack-item-content { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 10px; cursor: move; }
-body.editing-layout .grid-stack-item-content > * { pointer-events: none; }
+body.editing-grid .grid-stack-item-content { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 10px; cursor: move; }
+body.editing-grid .grid-stack-item-content > * { pointer-events: none; }
 .grid-stack-placeholder > .placeholder-content { border: 2px dashed var(--accent) !important; border-radius: 10px; background: var(--accent-soft) !important; }
 .editbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.edithint { display: none; }
+/* Edit layout without the grid (a phone): each panel has a strip with its name, ▲ ▼ and Hide; its content is a short, untappable preview. */
+.pedit { display: flex; align-items: center; gap: 8px; justify-content: space-between; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px; padding: 4px 4px 4px 12px; }
+.pedit-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pedit-btns { display: flex; gap: 6px; flex: none; }
+.pedit-btn { min-width: 44px; min-height: 44px; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.pedit-btn.pedit-hide { padding: 0 12px; font-size: 14px; }
+.pedit-btn:disabled { opacity: 0.35; cursor: default; }
+body.editing-layout .lcell { gap: 6px; }
+body.editing-layout .lcell > :not(.pedit) { pointer-events: none; max-height: 140px; overflow: hidden; opacity: 0.7;
+  -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+/* On a phone the bar stays in view under the header while the page scrolls; its explanation is a line below it. */
+@media (max-width: 760px) {
+  body.editing-layout .editbar { position: sticky; top: 61px; z-index: 15; padding: 8px 10px; }
+  .editbar .edithow { display: none; }
+  .edithint { display: block; margin: 0; font-size: 13.5px; color: var(--muted); }
+}
+/* Add feature: hidden panels and things that can be added, each with a line about it and Add. */
+.feathead { font-size: 13px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 14px 0 6px; font-weight: 500; }
+.featlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.featlist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 8px 12px; }
+.feat { min-width: 0; display: grid; gap: 2px; }
+.feat b { overflow-wrap: anywhere; }
+.feat small { color: var(--muted); font-size: 13px; }
+.featlist .btn { flex: none; }
+.allhidden .actions { margin-top: 8px; }
 .iconbtn[hidden] { display: none; }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
 .label { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; color: var(--muted); font-size: 13.5px; }
-.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; padding: 2px 10px; border-radius: 99px; background: var(--surface-2); color: var(--ink); }
+.skip { border: 0; font: inherit; position: absolute; left: 8px; top: -60px; z-index: 100; background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 8px; }
+.skip:focus { top: 8px; }
+main:focus { outline: none; }
+.pill { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; padding: 2px 10px; border-radius: 99px; background: var(--surface-2); color: var(--ink); }
 .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--muted)); }
 .age-fresh { color: var(--ok); } .age-soon { color: var(--warn); font-weight: 600; } .age-stale { color: var(--bad); font-weight: 600; }
 .next { margin: 16px 0 10px; padding: 14px; border-radius: 8px; background: var(--accent-soft); font-size: 17px; font-weight: 500; }
@@ -95,10 +240,10 @@ body.editing-layout .grid-stack-item-content > * { pointer-events: none; }
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { filter: brightness(1.08); }
-.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: var(--on-bad); }
 .btn.done { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
 .btn.sm { padding: 5px 10px; font-size: 13px; }
-.btn[disabled] { opacity: 0.45; cursor: default; }
+.btn[disabled] { opacity: 1; cursor: default; background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; font-family: var(--font-mono); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); }
@@ -110,30 +255,252 @@ tbody tr.row:hover td { background: var(--surface-2); }
 .scroll table { min-width: 620px; }
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-select, input[type="text"], textarea { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+select, input[type="text"], input[type="url"], input[type="tel"], input[type="email"], input[type="search"], input[type="date"], input[type="time"], input[type="number"], textarea { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
 select.auto { width: auto; max-width: 100%; }
 textarea { min-height: 150px; resize: vertical; }
 
-.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(8, 14, 13, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.scrim { overscroll-behavior: contain; position: fixed; inset: 0; z-index: 40; background: rgba(8, 14, 13, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; width: min(460px, 100%); max-height: 100%; overflow: auto; }
 .dialog.wide { width: min(640px, 100%); }
+/* Phone: a wide dialog (the card and its note) fills the screen, so the note has a large canvas. */
+@media (max-width: 760px) {
+  .scrim:has(.dialog.wide) { padding: 0; align-items: stretch; }
+  .dialog.wide { width: 100%; height: 100%; max-height: none; border-radius: 0; border: 0; padding: 16px max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-bottom, 0px)); }
+  .dialog.wide .rtedit { max-height: none; min-height: 45vh; }
+}
 .choice { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dialog .choice label { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 14px; position: relative; text-align: center; }
 .choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; font-weight: 600; }
 .choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Settings: Undo, Redo and Back come first, as one row of equal buttons. */
+.dialog .historyrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+.dialog .historyrow .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; }
+.dialog .choice.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dialog .settingrow { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 6px; }
 .dialog h2 { font-size: 22px; margin-bottom: 4px; }
 .dialog label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 5px; }
 .dialog p { margin: 8px 0 0; color: var(--muted); }
-.dialog .actions { margin-top: 20px; }
+.dialog .actions { margin-top: 20px; position: sticky; bottom: -20px; margin-bottom: -20px; padding: 12px 0 20px; background: var(--surface); }
 .hint { font-size: 13px; color: var(--muted); background: var(--warn-soft); border-radius: 8px; padding: 9px 11px; margin-top: 14px; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; max-width: min(92vw, 520px); font-size: 14px; }
-.toast.error { background: var(--bad); color: #fff; }
-.toastbtn { margin-left: 12px; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
-.hidebtn { position: absolute; top: 14px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.toast.error { background: var(--bad); color: var(--on-bad); }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast .toastbtn, .toast .toastx { flex: none; }
+.toastx { border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer; }
+@media (max-width: 760px) { .toast { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 68px)); } }
+.toastbtn { margin-left: 0; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
+/* In Edit layout the Hide button gets its own strip at the top of the panel, so it never covers the panel's own buttons. */
+.grid-stack-item:has(> .hidebtn) > .grid-stack-item-content > .panel { padding-top: 50px; }
+.hidebtn { position: absolute; top: 10px; right: 14px; z-index: 5; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .hiddenlist { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .back { margin-bottom: 4px; }
 @media (prefers-reduced-motion: no-preference) { .btn, .tab { transition: background 0.12s, color 0.12s; } }
+/* Rich-text editor (card notes and project notes). */
+.rtbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.rtbar button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; }
+.rtbar button:hover { background: var(--surface-2); }
+.rtbar .dot { width: 30px; padding: 0; }
+.rtbar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
+.rtedit { min-height: 180px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
+.rtedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rtedit:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rtedit h1, .rtedit h2, .rtedit h3, .rtedit h4 { margin: 10px 0 2px; line-height: 1.25; }
+.rtedit h1 { font-size: 1.6em; } .rtedit h2 { font-size: 1.3em; } .rtedit h3 { font-size: 1.12em; } .rtedit h4 { font-size: 1em; }
+.rtedit blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
+.rtedit a { overflow-wrap: anywhere; }
+
+/* ---- Theme review fixes, part 1: choices never rest on colour or a shadow alone ---- */
+/* A chosen option in a button group also gets a tick. */
+.choice label:has(input:checked)::before, .seg label:has(input:checked)::before { content: "\2713\00a0"; font-weight: 700; }
+/* E-ink: the eight card/list colours become black and white patterns, the same on the swatch, the card's left edge and a list's top edge.
+   A chosen option is filled black; keyboard focus is a dashed ring, so the two can be told apart. */
+:root[data-theme="eink"] {
+  --pat-1: linear-gradient(#000, #000);
+  --pat-2: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px);
+  --pat-3: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px);
+  --pat-4: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px);
+  --pat-5: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px;
+  --pat-6: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px;
+  --pat-7: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px);
+  --pat-8: linear-gradient(90deg, #000 50%, #fff 50%);
+}
+:root[data-theme="eink"] .swatches span[style*="var(--cat-1)"] { background: var(--pat-1); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-2)"] { background: var(--pat-2); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-3)"] { background: var(--pat-3); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-4)"] { background: var(--pat-4); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-5)"] { background: var(--pat-5); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-6)"] { background: var(--pat-6); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-7)"] { background: var(--pat-7); }
+:root[data-theme="eink"] .swatches span[style*="var(--cat-8)"] { background: var(--pat-8); }
+:root[data-theme="eink"] .swatches span { border: 3px solid #000; }
+:root[data-theme="eink"] .swatches input:checked + span { border-width: 5px; }
+:root[data-theme="eink"] .swatches input:checked + span::after, :root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"]::after { background: #000; color: #fff; }
+:root[data-theme="eink"] .kcard { position: relative; border: 2px solid #000; padding-left: 22px; }
+:root[data-theme="eink"] .kcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 11px; border-right: 2px solid #000; }
+:root[data-theme="eink"] .kcard[style*="var(--cat-1)"]::before { background: var(--pat-1); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-2)"]::before { background: var(--pat-2); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-3)"]::before { background: var(--pat-3); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-4)"]::before { background: var(--pat-4); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-5)"]::before { background: var(--pat-5); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-6)"]::before { background: var(--pat-6); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-7)"]::before { background: var(--pat-7); }
+:root[data-theme="eink"] .kcard[style*="var(--cat-8)"]::before { background: var(--pat-8); }
+:root[data-theme="eink"] .listpanel.tinted { position: relative; border-top: 3px solid #000 !important; padding-top: 30px; }
+:root[data-theme="eink"] .listpanel.tinted::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 11px; border-bottom: 2px solid #000; }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-1)"]::before { background: var(--pat-1); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-2)"]::before { background: var(--pat-2); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-3)"]::before { background: var(--pat-3); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-4)"]::before { background: var(--pat-4); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-5)"]::before { background: var(--pat-5); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-6)"]::before { background: var(--pat-6); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-7)"]::before { background: var(--pat-7); }
+:root[data-theme="eink"] .listpanel.tinted[style*="var(--cat-8)"]::before { background: var(--pat-8); }
+:root[data-theme="eink"] .choice label:has(input:checked), :root[data-theme="eink"] .seg label:has(input:checked) { background: #000; color: #fff; border-color: #000; box-shadow: none; }
+:root[data-theme="eink"] .seg label:has(input:checked) small { color: #fff; }
+:root[data-theme="eink"] .choice label:has(input:focus-visible), :root[data-theme="eink"] .seg label:has(input:focus-visible) { outline: 4px dashed #000; outline-offset: 3px; }
+/* Sticky notes: the paper colour is shown as a pattern in the top strip and on the colour buttons. */
+:root[data-theme="eink"] .sticky[data-color="yellow"] .grip { background: #fff; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="yellow"] { background: #fff !important; }
+:root[data-theme="eink"] .sticky[data-color="sand"] .grip { background: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="sand"] { background: repeating-linear-gradient(0deg, #000 0 2px, #fff 2px 4px) !important; }
+:root[data-theme="eink"] .sticky[data-color="peach"] .grip { background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="peach"] { background: repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 4px) !important; }
+:root[data-theme="eink"] .sticky[data-color="orange"] .grip { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="orange"] { background: repeating-linear-gradient(45deg, #000 0 2px, #fff 2px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="red"] .grip { background: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="red"] { background: radial-gradient(#000 1.3px, #fff 1.8px) 0 0 / 5px 5px !important; }
+:root[data-theme="eink"] .sticky[data-color="pink"] .grip { background: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="pink"] { background: conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0) 0 0 / 6px 6px !important; }
+:root[data-theme="eink"] .sticky[data-color="lavender"] .grip { background: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="lavender"] { background: repeating-linear-gradient(45deg, #000 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, #000 0 1.5px, #fff 1.5px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="purple"] .grip { background: linear-gradient(90deg, #000 50%, #fff 50%); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="purple"] { background: linear-gradient(90deg, #000 50%, #fff 50%) !important; }
+:root[data-theme="eink"] .sticky[data-color="blue"] .grip { background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="blue"] { background: repeating-linear-gradient(0deg, #000 0 4px, #fff 4px 8px) !important; }
+:root[data-theme="eink"] .sticky[data-color="sky"] .grip { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 8px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="sky"] { background: repeating-linear-gradient(90deg, #000 0 4px, #fff 4px 8px) !important; }
+:root[data-theme="eink"] .sticky[data-color="teal"] .grip { background: repeating-linear-gradient(45deg, #000 0 4px, #fff 4px 9px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="teal"] { background: repeating-linear-gradient(45deg, #000 0 4px, #fff 4px 9px) !important; }
+:root[data-theme="eink"] .sticky[data-color="mint"] .grip { background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="mint"] { background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px) !important; }
+:root[data-theme="eink"] .sticky[data-color="green"] .grip { background: radial-gradient(#000 2.4px, #fff 3px) 0 0 / 9px 9px; }
+:root[data-theme="eink"] .stickymenu .dot[data-color="green"] { background: radial-gradient(#000 2.4px, #fff 3px) 0 0 / 9px 9px !important; }
+:root[data-theme="eink"] .sticky[data-color="lime"] .grip { background: repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 6px), repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 6px); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="lime"] { background: repeating-linear-gradient(0deg, #000 0 2px, transparent 2px 6px), repeating-linear-gradient(90deg, #000 0 2px, #fff 2px 6px) !important; }
+:root[data-theme="eink"] .sticky[data-color="grey"] .grip { background: linear-gradient(#000, #000); }
+:root[data-theme="eink"] .stickymenu .dot[data-color="grey"] { background: linear-gradient(#000, #000) !important; }
+:root[data-theme="eink"] .stickymenu .dot { border: 3px solid #000; width: 40px; height: 40px; }
+:root[data-theme="eink"] .stickymenu .dot[aria-pressed="true"] { border-width: 5px; }
+
+/* ---- Theme review fixes, part 2: E-ink borders, states and tap targets ---- */
+/* Nothing thinner than 2px, and no placeholder that fades to grey. */
+:root[data-theme="eink"] .choice label, :root[data-theme="eink"] .seg label, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .mvb,
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .pedit-btn, :root[data-theme="eink"] .modebadge, :root[data-theme="eink"] .rotq .arrows button { border: 2px solid #000; }
+:root[data-theme="eink"] .pager .dots i { border-width: 2px; width: 10px; height: 10px; } :root[data-theme="eink"] .pager .dots i.on { width: 20px; }
+:root[data-theme="eink"] .addcol { border: 2px dashed #000; }
+:root[data-theme="eink"] ::placeholder { color: #333; opacity: 1; }
+:root[data-theme="eink"] .rtedit:empty::before { color: #333; }
+/* One heavy ring when a field has focus (the border plus a touching outline), not a ring with a gap. */
+:root[data-theme="eink"] input:focus-visible, :root[data-theme="eink"] select:focus-visible, :root[data-theme="eink"] textarea:focus-visible, :root[data-theme="eink"] .rtedit:focus { outline: 3px solid #000; outline-offset: 0; }
+/* Disabled: a dashed outline and plain dark text, not just paler ink. */
+:root[data-theme="eink"] .btn[disabled], :root[data-theme="eink"] .rm[disabled], :root[data-theme="eink"] .mvb[disabled] { opacity: 1; background: #fff; color: #444; border: 2px dashed #000; }
+:root[data-theme="eink"] .btn.primary[disabled], :root[data-theme="eink"] .btn.danger[disabled] { background: #fff; color: #444; border: 2px dashed #000; }
+/* Danger looks different from the main action: white, double border, and a warning sign. */
+:root[data-theme="eink"] .btn.danger, :root[data-theme="eink"] .btn.danger:hover { background: #fff; color: #000; border: 5px double #000; font-weight: 700; }
+:root[data-theme="eink"] .btn.danger::before { content: "\26A0\00a0"; }
+:root[data-theme="eink"] .toast.error::before { content: "Error: "; font-weight: 700; }
+/* Text colours have no place on e-ink: the colour buttons go, and coloured text in a note is bold and underlined instead. */
+:root[data-theme="eink"] .rtbar .dot { display: none; }
+:root[data-theme="eink"] font[color] { color: #000; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
+/* Dragging a card: a dashed outline in place of the shadow; the gap it leaves stays solid. */
+:root[data-theme="eink"] .kchosen { outline: 3px dashed #000; outline-offset: 2px; }
+:root[data-theme="eink"] .kghost { opacity: 1; border-style: dashed; }
+/* Sticky notes: one border, a pattern strip for the colour, plain white buttons. */
+:root[data-theme="eink"] .sticky .grip { border-bottom: 2px solid #000; min-height: 48px; gap: 6px; }
+:root[data-theme="eink"] .sticky .sbtn { background: #fff; color: #000; opacity: 1; border: 2px solid #000; min-width: 44px; min-height: 40px; font-size: 18px; }
+:root[data-theme="eink"] .sticky textarea { border: 0; outline: 0; min-height: 0; background: transparent; }
+:root[data-theme="eink"] .sticky textarea::placeholder { color: #333; }
+:root[data-theme="eink"] .stickymenu { width: min(300px, 90vw); }
+:root[data-theme="eink"] .stickymenu .dot { width: 44px; height: 44px; }
+:root[data-theme="eink"] .stickyfab button { border: 3px solid #000; background: #fff; color: #000; }
+:root[data-theme="eink"] .stickyfab .badge { background: #000; color: #fff; }
+/* The pager's neighbours are buttons, so they look like buttons. */
+:root[data-theme="eink"] .pager .pg-side { border: 2px solid #000; border-radius: 6px; color: #000; min-height: 44px; padding: 8px 12px; }
+/* Work and Personal differ without colour: Work has a double rule under the bar. */
+:root[data-theme="eink"] body[data-mode="work"] .bar { border-bottom: 6px double #000; }
+/* Tap targets of at least 44px on e-ink, where a missed tap costs a slow screen refresh. */
+:root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm, :root[data-theme="eink"] .mvb, :root[data-theme="eink"] .sortbtn, :root[data-theme="eink"] .rotq .arrows button,
+:root[data-theme="eink"] .toastbtn, :root[data-theme="eink"] .hidebtn, :root[data-theme="eink"] .rtbar button, :root[data-theme="eink"] .wblist .wbname { min-width: 44px; min-height: 44px; }
+:root[data-theme="eink"] .rm, :root[data-theme="eink"] .rrm { padding: 8px 12px; }
+:root[data-theme="eink"] .btn.sm { min-height: 44px; padding: 8px 14px; }
+:root[data-theme="eink"] .kcard .ktitle { padding: 10px 0; min-height: 44px; display: flex; align-items: center; }
+:root[data-theme="eink"] .rotq blockquote { padding: 10px 0; }
+:root[data-theme="eink"] .swatches span { width: 44px; height: 44px; }
+:root[data-theme="eink"] .toggle { min-height: 44px; }
+:root[data-theme="eink"] .toggle input, :root[data-theme="eink"] .crit input[type="checkbox"] { width: 36px; height: 36px; }
+:root[data-theme="eink"] .crit li { min-height: 48px; align-items: center; }
+:root[data-theme="eink"] .crit .ctext { min-height: 44px; display: flex; align-items: center; }
+:root[data-theme="eink"] a#nt-link, :root[data-theme="eink"] .wbmeta, :root[data-theme="eink"] .reslist a, :root[data-theme="eink"] .wbfoot a { display: inline-flex; align-items: center; min-height: 44px; }
+:root[data-theme="eink"] .sticky .sbtn { min-height: 44px; }
+:root[data-theme="eink"] .wbmeta { min-width: 44px; justify-content: center; }
+:root[data-theme="eink"] .notes-panel.full .notes-top .rtbar button { min-width: 44px; height: 44px; }
+
+/* ---- Theme review fixes, part 3: contrast in Light and Dark ---- */
+/* Tokens. --line-strong is for the edges of controls (3:1 against the page); --line stays for quiet dividers.
+   --placeholder is ink faded towards the field, always above 4.5:1. --on-bad is the text colour on --bad. */
+:root { --line-strong: #6a7b78; --placeholder: color-mix(in srgb, var(--ink) 78%, var(--surface)); --on-bad: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="eink"]) { --line-strong: #73918b; --on-bad: #2a0907; } }
+:root[data-theme="dark"] { --line-strong: #73918b; --on-bad: #2a0907; }
+:root[data-theme="eink"] { --line-strong: #000; --placeholder: #333; --on-bad: #fff; }
+/* Control edges you can see: buttons, fields, editors, choices and small buttons. The chosen state keeps its own colour. */
+:root .btn:not(.primary):not(.danger):not(.done):not([disabled]), :root .iconbtn, :root select:not(.modeselect), :root input[type="text"], :root input[type="url"], :root input[type="tel"], :root input[type="email"], :root input[type="search"], :root input[type="date"], :root input[type="time"],
+:root textarea, :root .rtbar button, :root .rtedit, :root .mvb, :root .coladd input, :root .addcol, :root .toastbtn, :root .modebadge, :root .dialog,
+:root .dialog .choice label:not(:has(input:checked)), :root .dialog .seg label:not(:has(input:checked)) { border-color: var(--line-strong); }
+:root .tab[aria-current="page"] { border-color: transparent; }
+/* Placeholders: the browser's default grey fails on dark and on coloured lists. */
+input::placeholder, textarea::placeholder { color: var(--placeholder); opacity: 1; }
+.rtedit:empty::before { color: var(--placeholder); }
+font[color="#d64545" i] { color: #c53030; }
+font[color="#2f7fd6" i] { color: #1f6bc0; }
+font[color="#2b9a5b" i] { color: #1f8049; }
+font[color="#c27a00" i] { color: #a86800; }
+/* Dark: the current tab uses the accent instead of a bright white pill, and a coloured list's tint stays calm. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 17%, var(--surface)); }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#d64545" i] { color: #ff8f8a; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#2f7fd6" i] { color: #7db5ff; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#2b9a5b" i] { color: #5fd392; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) font[color="#c27a00" i] { color: #f0b85a; }
+}
+:root[data-theme="dark"] .tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+:root[data-theme="dark"] .listpanel.tinted { background: color-mix(in srgb, var(--list-c) 10%, var(--surface)); }
+:root[data-theme="dark"] .listpanel.tinted .col { background: color-mix(in srgb, var(--list-c) 17%, var(--surface)); }
+/* The four text colours of the note editor, lightened for a dark page (the stored note keeps the original colour). */
+:root[data-theme="dark"] font[color="#d64545" i] { color: #ff8f8a; }
+:root[data-theme="dark"] font[color="#2f7fd6" i] { color: #7db5ff; }
+:root[data-theme="dark"] font[color="#2b9a5b" i] { color: #5fd392; }
+:root[data-theme="dark"] font[color="#c27a00" i] { color: #f0b85a; }
+/* Dark sticky notes: near-black ink, and the paper never thinner than 60% (below that no paper colour keeps 4.5:1 over a dark page;
+   Light keeps the full 40% to 100% range). The saved see-through value is not changed. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
+  :root:not([data-theme="light"]):not([data-theme="eink"]) .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
+}
+:root[data-theme="dark"] .sticky { background: color-mix(in srgb, var(--paper) calc(max(var(--paper-a), 0.6) * 100%), transparent); color: #0c0a05; }
+:root[data-theme="dark"] .sticky .sbtn { color: #0c0a05; opacity: 0.9; }
+:root[data-theme="dark"] .sticky textarea::placeholder { color: rgba(12, 10, 5, 0.72); }
+
+/* ---- Theme review fixes, part 4: reduced motion ---- */
+/* Sortable animates the cards and checklist rows it moves with an inline 150ms transition, and GridStack animates panels while arranging them.
+   With "reduce motion" on, things jump into place instead. */
+@media (prefers-reduced-motion: reduce) {
+  .cards > *, .crit > *, .board > *, .lists > *, .grid-stack-animate, .grid-stack-animate > .grid-stack-item { transition: none !important; animation: none !important; }
+  html { scroll-behavior: auto; }
+}
 </style>

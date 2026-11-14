@@ -5,13 +5,17 @@
 .board.vertical { flex-direction: column; align-items: stretch; overflow-x: visible; }
 .col { flex: 0 0 240px; background: var(--surface-2); border-radius: 8px; padding: 10px; min-height: 120px; }
 .board.vertical .col { flex: 0 0 auto; width: 100%; }
-.colhead { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.colhead { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: grab; touch-action: manipulation; }
+/* The grip shows a column can be dragged by its header; the name box and Delete keep working as before. */
+.colgrip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; min-height: 32px; color: var(--muted); font-size: 16px; user-select: none; }
+.colhead:hover .colgrip { color: var(--ink); }
+@media (pointer: coarse) { .colgrip { width: 32px; min-height: 44px; } }
 .colname { flex: 1 1 auto; min-width: 0; width: auto; padding: 5px 8px; font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; background: transparent !important; border-color: transparent !important; color: var(--ink); }
 .colname:hover, .colname:focus { background: var(--surface) !important; border-color: var(--line) !important; }
 .count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
 .rm { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; flex: none; }
 .rm:hover { background: var(--surface); color: var(--bad); }
-.rm[disabled] { opacity: 0.3; cursor: default; }
+.rm[disabled] { opacity: 1; color: var(--muted); text-decoration: line-through; cursor: default; }
 .kcard { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; font-size: 14px; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; overflow-wrap: anywhere; }
 .kcard .mv { display: flex; gap: 2px; flex: none; }
 .cards { min-height: 8px; }
@@ -20,7 +24,7 @@
 .kchosen { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); }
 .mvb { border: 1px solid var(--line); background: transparent; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; color: var(--muted); }
 .mvb:hover { background: var(--surface-2); color: var(--ink); }
-.mvb[disabled] { opacity: 0.3; cursor: default; }
+.mvb[disabled] { opacity: 1; color: var(--muted); border-style: dashed; cursor: default; }
 .addcol { border: 1.5px dashed var(--line); background: transparent; color: var(--muted); cursor: pointer; min-height: 56px; font-weight: 500; border-radius: 8px; }
 .addcol:hover { background: var(--surface-2); color: var(--ink); }
 .coladd { display: flex; gap: 4px; align-items: center; }
@@ -33,29 +37,23 @@
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
 .swatches label { margin: 0; display: inline-flex; }
 .swatches input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.swatches span { width: 26px; height: 26px; border-radius: 50%; background: var(--c, var(--surface-2)); border: 2px solid var(--line); cursor: pointer; display: inline-block; }
+.swatches span { position: relative; width: 26px; height: 26px; border-radius: 50%; background: var(--c, var(--surface-2)); border: 2px solid var(--line); cursor: pointer; display: inline-block; }
 .swatches span.none { background: repeating-linear-gradient(45deg, var(--surface-2) 0 4px, var(--surface) 4px 8px); }
 .swatches input:checked + span { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+/* The chosen colour also gets a tick, so the choice never rests on colour or a shadow alone (E-ink has neither). */
+.swatches input:checked + span::after { content: "\2713"; position: absolute; right: -7px; bottom: -7px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
 .swatches input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-.rtbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.rtbar button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; }
-.rtbar button:hover { background: var(--surface-2); }
-.rtbar .dot { width: 30px; padding: 0; }
-.rtbar .dot i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); vertical-align: middle; }
-.rtedit { min-height: 180px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); line-height: 1.5; }
-.rtedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-.rtedit:empty::before { content: attr(data-placeholder); color: var(--muted); }
-.rtedit ul, .rtedit ol { margin: 4px 0; padding-left: 22px; }
-.rtedit a { overflow-wrap: anywhere; }
 </style>
 <script>
 /**
  * Kanban boards. A board belongs to an owner: a project (shown on its page) or any other module's item, such as a list.
  * Other modules draw a board with FT.kanban.boardHtml(ownerId, opts). Every control finds its board through the
- * nearest [data-owner], so several boards can share a page.
+ * nearest [data-owner], so several boards can share a page. Columns and cards carry the owner's id as `owner`
+ * (the sheet keeps it in project_id or list_id).
  *
  * Cards move by drag and drop (SortableJS from the CDN; a short press on touch screens) or with "Column" in the card
- * dialog. Adding, moving, editing and deleting cards show on screen at once and save in the background.
+ * dialog. Columns (groups on a list) move the same way, dragged by their header. Adding, moving, editing and deleting
+ * cards and columns show on screen at once and save in the background.
  */
 (function () {
   var userDir = null;
@@ -72,8 +70,8 @@
   function board(ownerId) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
     return {
-      cols: k.columns.filter(function (c) { return c.project_id === ownerId; }).sort(byOrder),
-      tasks: k.tasks.filter(function (t) { return t.project_id === ownerId; }).sort(byOrder)
+      cols: k.columns.filter(function (c) { return c.owner === ownerId; }).sort(byOrder),
+      tasks: k.tasks.filter(function (t) { return t.owner === ownerId; }).sort(byOrder)
     };
   }
 
@@ -91,7 +89,7 @@
   function cardHtml(t) {
     var id = FT.esc(t.id);
     var color = t.color ? ' style="--card: var(--cat-' + FT.esc(t.color) + ')"' : '';
-    var note = t.note_text ? '<span class="knote">' + FT.linkify(t.note_text.slice(0, 160)) + '</span>' : '';
+    var note = t.note ? '<span class="knote">' + FT.linkify(t.note.slice(0, 160)) + '</span>' : '';
     // A div, not a button: titles and notes can hold links, and a link may not sit inside a button.
     return '<div class="kcard" data-id="' + id + '"' + color + '><div class="ktitle" role="button" tabindex="0" data-act="kanban.open-card" data-id="' + id + '">' +
       '<span class="kt">' + FT.linkify(t.title) + '</span>' + note + '</div><span class="mv">' +
@@ -101,7 +99,7 @@
   function columnHtml(c, b, word) {
     var mine = b.tasks.filter(function (t) { return t.column_id === c.id; });
     var name = FT.esc(c.name);
-    return '<div class="col"><div class="colhead"><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
+    return '<div class="col" data-colid="' + FT.esc(c.id) + '"><div class="colhead"><span class="colgrip" title="Drag to move this ' + word + '" aria-hidden="true">⠿</span><input type="text" class="colname" data-change="kanban.rename-col" data-id="' + FT.esc(c.id) + '" value="' + name + '" aria-label="' + word + ' name">' +
       '<span class="count">' + mine.length + '</span><button class="rm" data-act="kanban.del-col" data-id="' + FT.esc(c.id) + '" aria-label="Delete ' + word + ' ' + name + '"' + (b.cols.length < 2 ? ' disabled' : '') + '>Delete</button></div>' +
       '<div class="cards" data-col="' + FT.esc(c.id) + '">' + mine.map(cardHtml).join('') + '</div>' + addTaskHtml(c) + '</div>';
   }
@@ -141,7 +139,7 @@
 
   /** Move a card on screen now and save it in the background. index: its place in the target column. */
   function moveCard(task, columnId, index) {
-    var others = board(task.project_id).tasks.filter(function (t) { return t.column_id === columnId && t.id !== task.id; });
+    var others = board(task.owner).tasks.filter(function (t) { return t.column_id === columnId && t.id !== task.id; });
     var at = index === undefined ? others.length : index;
     task.column_id = columnId;
     task.order = orderBetween(others[at - 1], others[at]);
@@ -166,15 +164,50 @@
     });
   }
 
+  // ---------- moving columns ----------
+  function columnById(id) { return (FT.store.kanban.columns || []).filter(function (c) { return c.id === id; })[0] || null; }
+
+  /**
+   * Move a column on screen now and save it in the background. ids: the board's column ids in their new order.
+   * If the save is refused the column goes back where it was.
+   */
+  function moveColumn(col, ids) {
+    var at = ids.indexOf(col.id);
+    if (at < 0) return;
+    var before = columnById(ids[at - 1]), after = columnById(ids[at + 1]), was = col.order;
+    FT.optimistic(function () { col.order = orderBetween(before, after); return function () { col.order = was; }; },
+      function () { return FT.rpc('kanban', 'moveColumn', { id: col.id, projectId: col.owner, order: col.order }, { render: false }); }).catch(function () {});
+  }
+
+  /** The columns of one board, dragged by their header. A group of its own, so cards and columns never mix. */
+  function makeColumnSortable(boardEl) {
+    return window.Sortable.create(boardEl, {
+      group: 'cols-' + boardEl.dataset.owner, animation: 150, delay: 180, delayOnTouchOnly: true,
+      draggable: '.col[data-colid]', handle: '.colhead', filter: 'input, button', preventOnFilter: false,
+      direction: boardEl.classList.contains('vertical') ? 'vertical' : 'horizontal', ghostClass: 'kghost', chosenClass: 'kchosen',
+      onStart: function () { FT.state.dragging = true; },
+      onEnd: function (evt) {
+        lastDragEnd = Date.now();
+        FT.state.dragging = false;
+        var col = columnById(evt.item.dataset.colid);
+        var ids = Array.prototype.map.call(boardEl.querySelectorAll(':scope > .col[data-colid]'), function (el) { return el.dataset.colid; });
+        var was = board(boardEl.dataset.owner).cols.map(function (c) { return c.id; });
+        if (col && ids.join() !== was.join()) moveColumn(col, ids);
+        else FT.dragEnded();
+      }
+    });
+  }
+
   FT.onRender(function () {
     sortables.forEach(function (sortable) { sortable.destroy(); });
     sortables = [];
     if (!window.Sortable) return;
     Array.prototype.forEach.call(document.querySelectorAll('#app .board .cards'), function (list) { sortables.push(makeSortable(list)); });
+    Array.prototype.forEach.call(document.querySelectorAll('#app .board[data-owner]'), function (b) { sortables.push(makeColumnSortable(b)); });
   });
 
   FT.kanban = { boardHtml: boardHtml };
-  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', title: 'Kanban', order: 10, span: 'full', render: panel }] } });
+  FT.module({ id: 'kanban', slots: { 'project.page': [{ id: 'kanban', title: 'Kanban', description: 'The project\'s task board: columns of cards.', order: 10, span: 'full', render: panel }] } });
 
   FT.action('kanban.dir', function () {
     userDir = dir() === 'vertical' ? 'horizontal' : 'vertical';
@@ -189,8 +222,8 @@
     if (!title) { if (input) input.focus(); return; }
     var ownerId = ownerOf(el), others = board(ownerId).tasks.filter(function (t) { return t.column_id === columnId; });
     var task = {
-      id: FT.newId(), project_id: ownerId, column_id: columnId, title: title.slice(0, 200), order: orderBetween(others[others.length - 1], null),
-      created: new Date().toISOString(), color: '', note_html: '', note_text: ''
+      id: FT.newId(), owner: ownerId, column_id: columnId, title: title.slice(0, 200), order: orderBetween(others[others.length - 1], null),
+      created: new Date().toISOString(), color: '', note_html: '', note: ''
     };
     FT.store.kanban.tasks.push(task);
     FT.render();
@@ -203,7 +236,7 @@
 
   FT.action('kanban.add-col', function (el) {
     var ownerId = ownerOf(el), word = wordOf(el), cols = board(ownerId).cols;
-    var col = { id: FT.newId(), project_id: ownerId, name: 'New ' + word, order: orderBetween(cols[cols.length - 1], null) };
+    var col = { id: FT.newId(), owner: ownerId, name: 'New ' + word, order: orderBetween(cols[cols.length - 1], null) };
     FT.store.kanban.columns.push(col);
     FT.render();
     var input = document.querySelector('.colname[data-id="' + col.id + '"]');
@@ -229,8 +262,18 @@
       title: 'Delete ' + word,
       body: '<p>Delete "' + FT.esc(col.name) + '"? ' + (count ? count + (count === 1 ? ' card moves' : ' cards move') + ' to "' + FT.esc(target.name) + '".' : 'It has no cards.') + ' You can undo this.</p>',
       submit: 'Delete ' + word, danger: true,
+      // Like the server: the cards go to the end of the column on the left (or the next one), then the column goes.
       onSubmit: function () {
-        return FT.rpc('kanban', 'deleteColumn', { id: col.id }, { quiet: true }).then(function () { FT.deleted(word.charAt(0).toUpperCase() + word.slice(1)); });
+        var k = FT.store.kanban, columns = k.columns, moved = [];
+        FT.optimistic(function () {
+          var order = b.tasks.filter(function (t) { return t.column_id === target.id; }).reduce(function (m, t) { return Math.max(m, t.order); }, 0) + 1;
+          b.tasks.filter(function (t) { return t.column_id === col.id; }).forEach(function (t) {
+            moved.push([t, t.order]); t.column_id = target.id; t.order = order++;
+          });
+          k.columns = columns.filter(function (c) { return c.id !== col.id; });
+          return function () { k.columns = columns; moved.forEach(function (m) { m[0].column_id = col.id; m[0].order = m[1]; }); };
+        }, function () { return FT.rpc('kanban', 'deleteColumn', { id: col.id }); }).catch(function () {});
+        FT.deleted(word.charAt(0).toUpperCase() + word.slice(1));
       }
     });
   });
@@ -241,9 +284,8 @@
     if (!t) return;
     FT.store.kanban.tasks = FT.store.kanban.tasks.filter(function (x) { return x.id !== t.id; });
     FT.render();
-    FT.rpc('kanban', 'deleteTask', { id: t.id }, { render: false })
-      .then(function () { FT.deleted('Card'); })
-      .catch(FT.saveFailed);
+    FT.rpc('kanban', 'deleteTask', { id: t.id }, { render: false }).catch(FT.saveFailed);
+    FT.deleted('Card');
   });
 
   // ---------- card dialog: title, column, colour and a rich-text note ----------
@@ -251,6 +293,7 @@
   // execCommand needs real colours, not CSS variables. These read well on light and dark backgrounds.
   var TEXT_COLORS = [['#d64545', 'Red'], ['#2f7fd6', 'Blue'], ['#2b9a5b', 'Green'], ['#c27a00', 'Amber']];
   var TOOLS = [
+    ['undo', null, '↶', 'Undo'], ['redo', null, '↷', 'Redo'],
     ['bold', null, '<b>B</b>', 'Bold'], ['italic', null, '<i>I</i>', 'Italic'], ['underline', null, '<u>U</u>', 'Underline'],
     ['insertUnorderedList', null, '• List', 'Bullet list'], ['insertOrderedList', null, '1. List', 'Numbered list'],
     ['fontSize', '2', 'Small', 'Small text'], ['fontSize', '3', 'Normal', 'Normal text'], ['fontSize', '5', 'Large', 'Large text']
@@ -278,6 +321,8 @@
   function wireToolbar() {
     var bar = document.querySelector('.rtbar');
     if (!bar) return;
+    FT.richShortcuts(document.getElementById('dlg-note'));
+    FT.headingKeys(document.getElementById('dlg-note'));
     bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
     // Links in the note open with Cmd or Ctrl + click, so a plain click still places the cursor to edit the text.
     document.getElementById('dlg-note').addEventListener('click', function (e) {
@@ -298,18 +343,26 @@
     var t = taskById(el.dataset.id);
     if (!t) return;
     var host = el.closest('[data-owner]'), word = (host && host.dataset.word) || 'column';
-    var columns = board(t.project_id).cols.map(function (c) { return { value: c.id, label: c.name }; });
+    var columns = board(t.owner).cols.map(function (c) { return { value: c.id, label: c.name }; });
+    var opened = '';
+    function cardState() {
+      var title = document.getElementById('dlg-cardtitle'), note = document.getElementById('dlg-note'), col = document.getElementById('dlg-cardcolumn');
+      var picked = document.querySelector('input[name="dlg-color"]:checked');
+      return [title && title.value, note && note.innerHTML, col && col.value, picked && picked.value].join('\u0000');
+    }
     FT.dialog({
       title: 'Card',
       wide: true,
       fields: [
-        { id: 'cardtitle', label: 'Title', value: t.title },
+        { id: 'cardtitle', label: 'Title', value: t.title, maxlength: 200 },
         { id: 'cardcolumn', label: word.charAt(0).toUpperCase() + word.slice(1), type: 'select', options: columns, value: t.column_id }
       ],
       after: swatchesHtml(t.color) + '<label for="dlg-note">Note</label>' + toolbarHtml() +
         '<div class="rtedit" id="dlg-note" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Details, links, checklists…">' + (t.note_html || '') + '</div>' +
-        '<div class="hint" style="background:none;padding:4px 0 0">Web addresses become links when you save. Cmd or Ctrl + click a link to open it.</div>',
-      onOpen: wireToolbar,
+        '<div class="hint" style="background:none;padding:4px 0 0">Type <b>- </b> for a list, <b># </b>, <b>## </b> or <b>### </b> for a heading, **bold** or _italic_ and they format as you go. Web addresses become links when you save.</div>',
+      onOpen: function () { wireToolbar(); opened = cardState(); },
+      // A tap outside the dialog or Esc would throw away what was typed: the dialog asks first.
+      isDirty: function () { return cardState() !== opened; },
       onSubmit: function (v) {
         assert(v.cardtitle, 'A card needs a title.');
         var picked = document.querySelector('input[name="dlg-color"]:checked');
@@ -317,7 +370,7 @@
         // Shown at once; the server cleans the note and sends the stored version back.
         t.title = v.cardtitle.slice(0, 200); t.color = color;
         var editor = document.getElementById('dlg-note');
-        t.note_html = noteHtml; t.note_text = (editor.innerText || editor.textContent || '').trim();
+        t.note_html = noteHtml; t.note = (editor.innerText || editor.textContent || '').trim();
         FT.rpc('kanban', 'updateTask', { id: t.id, title: t.title, color: color, noteHtml: noteHtml }).catch(FT.saveFailed);
         if (v.cardcolumn !== t.column_id) moveCard(t, v.cardcolumn); else FT.render();
       }

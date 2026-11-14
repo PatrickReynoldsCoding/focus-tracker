@@ -37,7 +37,7 @@ function importData_(ctx, data) {
   });
   (data.lists || []).forEach(function (l) {
     var list = ctx.call('lists', 'create', { name: l.name, groups: l.groups, showToday: l.showToday });
-    counts.cards += ctx.call('kanban', 'importCards', { projectId: list.id, cards: (l.items || []).map(function (c) { return importCards_(c, 'group'); }) });
+    counts.cards += ctx.call('kanban', 'importCards', { listId: list.id, cards: (l.items || []).map(function (c) { return importCards_(c, 'group'); }) });
     counts.lists++;
   });
   return counts;

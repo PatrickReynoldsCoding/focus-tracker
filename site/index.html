@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Focus Tracker</title>
+<meta name="theme-color" content="#0e6b62">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #eef2f1; font-family: system-ui, sans-serif; color: #15201e; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #eef2f1; }
+  .card { max-width: 440px; margin: 12vh auto 0; padding: 24px; }
+  .card h1 { font-size: 22px; margin: 0 0 8px; }
+  .card p { color: #5a6b68; line-height: 1.5; }
+  input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 16px; border: 2px solid #0e6b62; border-radius: 8px; }
+  button { margin-top: 12px; padding: 12px 18px; font-size: 16px; border: 0; border-radius: 8px; background: #0e6b62; color: #fff; }
+  .err { color: #b3322f; min-height: 1.4em; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 12px; background: #15201e; color: #fff; font-size: 14px; display: none; }
+  body.offline .bar { display: block; }
+  a.small { color: #5a6b68; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="setup" class="card" hidden>
+  <h1>Focus Tracker</h1>
+  <p>Paste the address of your Focus Tracker web app, the one that ends in <b>/exec</b>. It is kept only in this browser, never on GitHub.</p>
+  <input id="url" type="url" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+  <div class="err" id="err" role="alert"></div>
+  <button id="save">Open Focus Tracker</button>
+</div>
+<div id="offline" class="card" hidden>
+  <h1>You are offline</h1>
+  <p>Focus Tracker loads from Google, so it needs a connection. Your data is safe in your Google Sheet. Try again when you have signal.</p>
+  <button id="retry">Try again</button>
+</div>
+<iframe id="app" title="Focus Tracker" allow="autoplay; clipboard-write; fullscreen" hidden></iframe>
+<div class="bar" id="bar">Offline. Changes will not save until you are back online.</div>
+<p class="card" style="margin-top:0"><a class="small" id="change" href="#" hidden>Change web app address</a></p>
+<script>
+(function () {
+  var KEY = 'ft.execUrl', $ = function (id) { return document.getElementById(id); };
+  function store(v) { try { if (v === null) localStorage.removeItem(KEY); else localStorage.setItem(KEY, v); } catch (e) {} }
+  function stored() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+  function valid(u) { return /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+\/|macros\/)s\/[\w-]+\/(exec|dev)(\?.*)?$/.test(u); }
+
+  // First open can pass the address once as #u=..., which is removed from the address bar straight away.
+  var hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.get('u') && valid(hash.get('u'))) store(hash.get('u'));
+  if (hash.has('u') || hash.has('reset')) {
+    if (hash.has('reset')) store(null);
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+
+  function show() {
+    var u = stored();
+    $('setup').hidden = !!u;
+    if (!u) { $('app').hidden = true; return; }
+    if (!navigator.onLine) { $('offline').hidden = false; $('app').hidden = true; return; }
+    // navigator.onLine can say "online" with no real connection, so also ask Google; any answer (even a sign-in page) counts.
+    var timer = new Promise(function (_, no) { setTimeout(no, 6000); });
+    Promise.race([fetch(u, { mode: 'no-cors', cache: 'no-store' }), timer]).then(function () {
+      $('offline').hidden = true;
+      if ($('app').getAttribute('src') !== u) $('app').src = u;
+      $('app').hidden = false;
+    }, function () { $('offline').hidden = false; $('app').hidden = true; });
+  }
+  $('save').onclick = function () {
+    var u = $('url').value.trim();
+    if (!valid(u)) { $('err').textContent = 'That does not look like a Focus Tracker address ending in /exec.'; return; }
+    store(u); show();
+  };
+  $('retry').onclick = function () { location.reload(); };
+  window.addEventListener('online', function () { document.body.classList.remove('offline'); show(); });
+  window.addEventListener('offline', function () { document.body.classList.add('offline'); });
+  if (!navigator.onLine) document.body.classList.add('offline');
+  show();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+})();
+</script>
+</body>
+</html>

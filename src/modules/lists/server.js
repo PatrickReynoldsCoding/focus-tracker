@@ -3,10 +3,12 @@
  * Each list's groups and items are a Kanban board owned by the list, so they are edited the same way.
  * A list can be shown as a panel on Today, either in full or one item at a time (display 'one'): a random item that
  * changes every `seconds` seconds.
+ * A list can be linked to a project (project_id, with the project's name in `project`): it then shows as a panel on that
+ * project's page as well as on the Lists tab. Deleting the project unlinks its lists; it does not delete them.
  */
 
 function listsModule() {
-  var T = new Table('Lists', ['id', 'name', 'order', 'show_today', 'created', 'color', 'display', 'seconds'], ['order', 'seconds']);
+  var T = new Table('Lists', ['name', 'project', 'show_today', 'display', 'seconds', 'color', 'problem', 'id', 'project_id', 'order', 'created'], ['order', 'seconds']);
   var DISPLAYS = ['', 'one'];
   var COLORS = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
   var FIRST_GROUP = 'Items';
@@ -35,7 +37,7 @@ function listsModule() {
           show_today: a.showToday ? 'yes' : '',
           created: nowIso_()
         });
-        ctx.call('kanban', 'initProject', { projectId: row.id, columns: a.groups && a.groups.length ? a.groups : [FIRST_GROUP] });
+        ctx.call('kanban', 'initProject', { listId: row.id, columns: a.groups && a.groups.length ? a.groups : [FIRST_GROUP] });
         ctx.refresh('lists', 'kanban');
         return row;
       },
@@ -70,6 +72,21 @@ function listsModule() {
         return row;
       },
 
+      /** Link the list to a project (a.projectId), or unlink it (empty). The readable project name is filled in by Table. */
+      setProject: function (a, ctx) {
+        var projectId = String(a.projectId || '');
+        if (projectId) assert_(ctx.call('projects', 'list', {}).some(function (p) { return p.id === projectId; }), 'Project not found.');
+        var row = T.update(a.id, { project_id: projectId });
+        ctx.refresh('lists');
+        return row;
+      },
+
+      /** A project is being deleted: its lists stay, unlinked. */
+      unlinkProject: function (a) {
+        list_().filter(function (l) { return l.project_id === a.projectId; }).forEach(function (l) { T.update(l.id, { project_id: '' }); });
+        return true;
+      },
+
       /** Swap a list with its neighbour: a.d is -1 (earlier) or 1 (later). */
       move: function (a, ctx) {
         var lists = list_();
@@ -84,7 +101,7 @@ function listsModule() {
 
       remove: function (a, ctx) {
         T.remove(a.id);
-        ctx.call('kanban', 'removeProject', { projectId: a.id });
+        ctx.call('kanban', 'removeProject', { listId: a.id });
         ctx.refresh('lists', 'kanban');
         return true;
       }

@@ -1,7 +1,7 @@
 /** Log module: one line per working session, written when you finish a session. */
 
 function logModule() {
-  var T = new Table('Log', ['id', 'project_id', 'date', 'where_stopped', 'next_action', 'minutes'], ['minutes']);
+  var T = new Table('Log', ['date', 'project', 'where_stopped', 'next_action', 'minutes', 'id', 'project_id'], ['minutes']);
   var KEEP = 300; // newest entries sent to the browser
 
   return {
@@ -11,6 +11,9 @@ function logModule() {
       return T.all().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, KEEP);
     },
     api: {
+      /** Every line, oldest first as in the sheet. Insights reads this. */
+      list: function () { return T.all(); },
+
       add: function (a) {
         return T.insert({
           project_id: a.projectId,
@@ -42,11 +45,22 @@ function logModule() {
         var row = T.update(a.id, patch);
         var newest = T.all().filter(function (r) { return r.project_id === row.project_id; })
           .sort(function (x, y) { return x.date < y.date ? 1 : -1; })[0];
-        if (newest.id === row.id && row.next_action) {
+        if (row.project_id && newest.id === row.id && row.next_action) {
           ctx.optional('projects', 'update', { id: row.project_id, next_action: row.next_action });
         }
         ctx.refresh('log', 'projects', 'today');
         return row;
+      },
+
+      /** A line for an edit that lost a conflict (see core/conflicts.js), so the older version is not lost. */
+      conflict: function (a) {
+        return T.insert({
+          project_id: a.projectId || '',
+          date: nowIso_(),
+          where_stopped: clean_(a.text, 300) || 'Conflict',
+          next_action: '',
+          minutes: 0
+        });
       },
 
       removeProject: function (a) {

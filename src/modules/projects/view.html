@@ -1,4 +1,27 @@
 <style>
+.rowlink { border: 0; background: none; padding: 0; margin: 0; font: inherit; font-weight: 700; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.rowlink:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* Phone: each project is a card (name and age, next action, category and status) instead of a table wider than the screen. The header becomes a row of sort buttons. */
+@media (max-width: 760px) {
+  .scroll table.ptable { min-width: 0; }
+  .ptable, .ptable thead, .ptable tbody { display: block; }
+  .ptable thead tr { display: flex; flex-wrap: wrap; gap: 2px 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .ptable th { padding: 2px 0; border: 0; }
+  .ptable .sortbtn { min-height: 36px; padding: 0 6px; }
+  .ptable tbody tr.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name age" "next next" "cat status"; gap: 4px 10px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+  .ptable tbody td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; }
+  .ptable tbody td:nth-child(1) { grid-area: name; font-size: 16px; overflow-wrap: anywhere; }
+  .ptable tbody td:nth-child(2) { grid-area: cat; }
+  .ptable tbody td:nth-child(3) { grid-area: status; justify-self: end; align-self: center; }
+  .ptable tbody td:nth-child(4) { grid-area: next; color: var(--muted); overflow-wrap: anywhere; }
+  .ptable tbody td:nth-child(5) { grid-area: age; text-align: right; white-space: nowrap; font-size: 13px; }
+}
+.lockbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; gap: 4px; }
+.lockbox span { color: var(--ink); font-size: 14px; }
+.waitbox { margin: 12px 0; padding: 12px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); display: grid; gap: 4px; }
+.waitbox span { font-size: 14px; }
+.waitmark { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: 12px; font-weight: 600; vertical-align: middle; }
+:root[data-theme="eink"] .waitmark { border: 2px solid #000; background: #fff; color: #000; }
 .tophead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .tophead .label { margin: 0; }
 .status-paused, .status-done, .status-archived { color: var(--muted); }
@@ -6,6 +29,21 @@
 .phead h2 { font-size: clamp(22px, 4.5vw, 30px); line-height: 1.15; }
 .pfilters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; align-items: center; }
 @media (max-width: 640px) { .pfilters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .pfilters input { grid-column: 1 / -1; } }
+/* Status filter: a button that opens a short list of checkboxes, so several statuses can be shown at once. */
+.msel { position: relative; min-width: 0; }
+.mselbtn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; }
+.mselbtn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mselbtn[aria-expanded="true"] { border-color: var(--accent); }
+.mselpop { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 100%; display: grid; gap: 2px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18); }
+.mselpop label { display: flex; align-items: center; gap: 10px; margin: 0; padding: 7px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; color: var(--ink); }
+.mselpop label:hover { background: var(--surface-2); }
+.mselpop input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+@media (max-width: 760px) { .mselbtn { min-height: 44px; font-size: 16px; } .mselpop label { min-height: 44px; font-size: 16px; } .mselpop input { width: 22px; height: 22px; } }
+:root[data-theme="eink"] .mselbtn { border: 2px solid #000; background: #fff; color: #000; min-height: 44px; border-radius: 6px; }
+:root[data-theme="eink"] .mselpop { border: 3px solid #000; background: #fff; }
+:root[data-theme="eink"] .mselpop label { min-height: 44px; color: #000; }
+:root[data-theme="eink"] .mselpop label:hover { background: #fff; }
+:root[data-theme="eink"] .mselpop label:has(input:checked) { font-weight: 700; }
 .sortbtn { border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
 .sortbtn:hover { color: var(--ink); }
 .sortbtn .arrow { display: inline-block; width: 1em; }
@@ -29,8 +67,34 @@
     next_action: function (p) { return p.next_action.toLowerCase(); },
     last_touched: function (p) { return p.last_touched; }
   };
-  // view.sort null keeps the default order: active first, then longest untouched.
-  var view = { sort: null, desc: false, category: '', status: '', text: '' };
+  // view.sort null keeps the default order: active first, then longest untouched. view.status: the statuses shown, none for all.
+  var view = { sort: null, desc: false, category: '', status: [], statusOpen: false, text: '' };
+
+  // The chosen statuses are remembered in this browser, per mode, and read again when the mode changes.
+  var statusMode = null;
+  function statusKey() { return 'ft.projects.status.' + FT.state.mode; }
+  function loadStatus() {
+    if (statusMode === FT.state.mode) return;
+    statusMode = FT.state.mode; view.statusOpen = false;
+    var saved = [];
+    try { saved = JSON.parse(localStorage.getItem(statusKey()) || '[]'); } catch (e) {}
+    view.status = STATUSES.filter(function (s) { return Array.isArray(saved) && saved.indexOf(s) !== -1; });
+  }
+  function saveStatus() {
+    try {
+      if (view.status.length) localStorage.setItem(statusKey(), JSON.stringify(view.status));
+      else localStorage.removeItem(statusKey());
+    } catch (e) {}
+  }
+
+  /** The unfinished projects p waits for (Links tab: they block p), when the links module is installed. Finished projects wait for nothing. */
+  function waitingOn(p) {
+    var finished = function (x) { return x.status === 'done' || x.status === 'archived'; };
+    if (!p || finished(p)) return [];
+    return (FT.store.links || []).filter(function (l) { return l.type === 'blocks' && l.to_id === p.id; })
+      .map(function (l) { return FT.project(l.from_id); })
+      .filter(function (b) { return b && !finished(b); });
+  }
 
   function defaultOrder(a, b) {
     return (ORDER[a.status] - ORDER[b.status]) || (a.last_touched < b.last_touched ? -1 : 1);
@@ -44,24 +108,34 @@
 
   function matchesFilters(p) {
     if (view.category && p.category !== view.category) return false;
-    if (view.status && p.status !== view.status) return false;
+    if (view.status.length && view.status.indexOf(p.status) === -1) return false;
     var text = view.text.trim().toLowerCase();
     return !text || (p.name + ' ' + p.next_action).toLowerCase().indexOf(text) !== -1;
   }
 
-  function isFiltered() { return !!(view.category || view.status || view.text.trim()); }
+  function isFiltered() { return !!(view.category || view.status.length || view.text.trim()); }
+
+  function statusLabel() {
+    if (!view.status.length || view.status.length === STATUSES.length) return 'All statuses';
+    return view.status.join(', ');
+  }
+
+  function statusHtml() {
+    return '<div class="msel"><button type="button" class="mselbtn" id="pj-status" aria-haspopup="true" aria-expanded="' + view.statusOpen + '" aria-controls="pj-status-pop" data-act="projects.statusOpen"' +
+      ' aria-label="Filter by status: ' + statusLabel() + '"><span>' + statusLabel() + '</span><span aria-hidden="true">▾</span></button>' +
+      (view.statusOpen ? '<div class="mselpop" id="pj-status-pop" role="group" aria-label="Statuses to show">' + STATUSES.map(function (s) {
+        return '<label><input type="checkbox" value="' + s + '" data-change="projects.statusFilter"' + (view.status.indexOf(s) !== -1 ? ' checked' : '') + '>' + s + '</label>';
+      }).join('') + '</div>' : '') + '</div>';
+  }
 
   function filtersHtml() {
     var categories = '<option value="">All categories</option>' + FT.categories().map(function (c) {
       return '<option value="' + FT.esc(c.id) + '"' + (c.id === view.category ? ' selected' : '') + '>' + FT.esc(c.label) + '</option>';
     }).join('');
-    var statuses = '<option value="">All statuses</option>' + STATUSES.map(function (s) {
-      return '<option value="' + s + '"' + (s === view.status ? ' selected' : '') + '>' + s + '</option>';
-    }).join('');
     return '<div class="pfilters">' +
       '<input type="text" id="pj-text" placeholder="Search name or next action" aria-label="Search projects" value="' + FT.esc(view.text) + '" data-input="projects.text">' +
       '<select id="pj-category" aria-label="Filter by category" data-change="projects.category">' + categories + '</select>' +
-      '<select id="pj-status" aria-label="Filter by status" data-change="projects.statusFilter">' + statuses + '</select>' +
+      statusHtml() +
       '<button class="btn sm" data-act="projects.clear"' + (isFiltered() ? '' : ' disabled') + '>Clear</button></div>';
   }
 
@@ -75,21 +149,22 @@
   }
 
   function tabHtml() {
+    loadStatus();
     var all = FT.store.projects || [];
     var list = all.filter(matchesFilters).sort(view.sort ? columnOrder : defaultOrder);
     var rows = list.map(function (p) {
       var n = FT.daysSince(p.last_touched);
-      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b>' + FT.esc(p.name) + '</b></td><td>' + FT.pill(p.category) +
+      return '<tr class="row" data-act="projects.open" data-id="' + FT.esc(p.id) + '"><td><b><button class="rowlink" data-act="projects.open" data-id="' + FT.esc(p.id) + '">' + (FT.lockedUntil(p) ? '🔒 ' : '') + FT.esc(p.name) + '</button></b>' + waitMarkHtml(p) + '</td><td>' + FT.pill(p.category) +
         '</td><td class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</td><td>' + FT.linkify(p.next_action) +
         '</td><td class="num ' + (p.status === 'active' ? FT.ageClass(n) : '') + '">' + FT.ageLabel(n) + '</td></tr>';
     }).join('');
     var table = list.length
-      ? '<div class="scroll"><table><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+      ? '<div class="scroll"><table class="ptable"><thead><tr>' + headHtml() + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
       : '<p class="empty">' + (all.length ? 'No projects match these filters.' : 'No projects yet. Add the first one.') + '</p>';
     var main = '<section class="panel"><div class="tophead"><div class="label">All projects</div><button class="btn sm primary" data-act="projects.add">+ Add project</button></div>' +
       (all.length ? filtersHtml() : '') + table + '</section>';
-    var extra = FT.slots('projects.tab').map(function (s) { return { id: s.id || 'slot' + s.order, title: s.title, html: s.render(FT), w: s.w || 12 }; });
-    return FT.layout('projects', [{ id: 'projects', title: 'All projects', html: main, w: 12 }].concat(extra));
+    var extra = FT.slots('projects.tab').map(function (s) { return { id: s.id || 'slot' + s.order, title: s.title, description: s.description, html: s.render(FT), w: s.w || 12 }; });
+    return FT.layout('projects', [{ id: 'projects', title: 'All projects', description: 'Every project in this mode, sortable and filterable.', html: main, w: 12 }].concat(extra));
   }
 
   /** Re-render after a keystroke in the search box, then put the caret back where it was. */
@@ -102,18 +177,33 @@
     again.setSelectionRange(caret, caret);
   }
 
+  function waitMarkHtml(p) {
+    var on = waitingOn(p);
+    return on.length ? '<span class="waitmark" title="Waiting on ' + FT.esc(on.map(function (b) { return b.name; }).join(', ')) + '">Waiting</span>' : '';
+  }
+
+  function waitBoxHtml(p) {
+    var on = waitingOn(p);
+    if (!on.length) return '';
+    return '<div class="waitbox"><b>Waiting on ' + on.map(function (b) {
+      return '<button class="rowlink" data-act="projects.open" data-id="' + FT.esc(b.id) + '">' + FT.esc(b.name) + '</button>';
+    }).join(', ') + '</b><span>It is left out of your focus pick until ' + (on.length === 1 ? 'that project is' : 'those projects are') + ' done.</span></div>';
+  }
+
   function headerHtml(p) {
     var n = FT.daysSince(p.last_touched);
-    var inactive = p.status !== 'active';
+    var inactive = p.status !== 'active', lockedUntil = FT.lockedUntil(p);
     return '<section class="panel"><div class="phead"><div><h2>' + FT.esc(p.name) + '</h2><div class="meta" style="margin-top:8px">' + FT.pill(p.category) +
       '<span class="status-' + FT.esc(p.status) + '">' + FT.esc(p.status) + '</span><span class="' + (inactive ? '' : FT.ageClass(n)) + '">Last touched ' + FT.ageLabel(n) + '</span>' +
-      skippedHtml(p) + '</div></div></div>' +
-      '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>' +
-      '<div class="actions" style="margin-top:0"><button class="btn sm" data-act="projects.edit">Edit</button>' +
-      (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
-      (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
-      (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
-      '<button class="btn sm" data-act="projects.delete">Delete</button></div></section>';
+      skippedHtml(p) + '</div></div></div>' + waitBoxHtml(p) +
+      (lockedUntil ? '<div class="lockbox"><b>🔒 Locked until ' + FT.esc(FT.lockLabel(lockedUntil)) + '</b><span>You locked this project so it cannot take over. It is hidden from your focus pick and its boards, notes and whiteboards are closed until then.</span></div>' : '<div class="next"><small>Next action</small>' + FT.linkify(p.next_action) + '</div>') +
+      '<div class="actions" style="margin-top:0">' +
+      (lockedUntil ? '<button class="btn sm" data-act="projects.lock">Change lock…</button>' : '<button class="btn sm" data-act="projects.edit">Edit</button><button class="btn sm" data-act="projects.lock">Lock…</button>') +
+      (lockedUntil ? '' :
+        (p.status === 'paused' ? '<button class="btn sm" data-act="projects.status" data-status="active">Resume</button>' : '') +
+        (p.status === 'active' ? '<button class="btn sm" data-act="projects.status" data-status="paused">Pause</button>' : '') +
+        (p.status === 'done' || p.status === 'archived' ? '<button class="btn sm" data-act="projects.status" data-status="active">Reopen</button>' : '<button class="btn sm" data-act="projects.status" data-status="done">Mark done</button>') +
+        '<button class="btn sm" data-act="projects.delete">Delete</button>') + '</div></section>';
   }
 
   /** Today's skip count for this project, if the Today module is installed and it was ever skipped. */
@@ -153,7 +243,7 @@
   FT.module({
     id: 'projects',
     tab: { title: 'Projects', order: 20, render: tabHtml },
-    slots: { 'project.page': [{ id: 'header', title: 'Project', order: 0, span: 'full', render: headerHtml }] }
+    slots: { 'project.page': [{ id: 'header', title: 'Project', description: 'Name, category, status, next action and the project\'s buttons.', order: 0, span: 'full', render: headerHtml }] }
   });
 
   FT.action('projects.open', function (el) { FT.go('project', { id: el.dataset.id }); });
@@ -168,18 +258,42 @@
   });
   FT.on('input', 'projects.text', function (el) { view.text = el.value; renderKeepingSearchFocus(el); });
   FT.on('change', 'projects.category', function (el) { view.category = el.value; FT.render(); });
-  FT.on('change', 'projects.statusFilter', function (el) { view.status = el.value; FT.render(); });
-  FT.action('projects.clear', function () { view.category = ''; view.status = ''; view.text = ''; FT.render(); });
+
+  /** The status list stays open while boxes are ticked; a click elsewhere or Escape closes it. */
+  FT.action('projects.statusOpen', function () {
+    view.statusOpen = !view.statusOpen;
+    FT.render();
+    var first = view.statusOpen && document.querySelector('#pj-status-pop input');
+    if (first) first.focus();
+  });
+  FT.on('change', 'projects.statusFilter', function (el) {
+    var picked = Array.prototype.filter.call(document.querySelectorAll('#pj-status-pop input'), function (b) { return b.checked; });
+    view.status = picked.map(function (b) { return b.value; });
+    saveStatus();
+    FT.render();
+    var again = document.querySelector('#pj-status-pop input[value="' + el.value + '"]');
+    if (again) again.focus();
+  });
+  function closeStatus(focusButton) {
+    if (!view.statusOpen) return;
+    view.statusOpen = false;
+    FT.render();
+    var btn = focusButton && document.getElementById('pj-status');
+    if (btn) btn.focus();
+  }
+  document.addEventListener('click', function (e) { if (view.statusOpen && !(e.target.closest && e.target.closest('.msel'))) closeStatus(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && view.statusOpen) closeStatus(true); });
+  FT.action('projects.clear', function () { view.category = ''; view.status = []; view.statusOpen = false; view.text = ''; saveStatus(); FT.render(); });
 
   FT.action('projects.add', function () {
     FT.dialog({
       title: 'Add project',
       submit: 'Add project',
       fields: [
-        { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes' },
+        { id: 'name', label: 'Name', placeholder: 'e.g. Loft insulation quotes', maxlength: 120 },
         { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: FT.categories()[0].id },
         { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
-        { id: 'next', label: 'Next action', placeholder: 'The first small step' }
+        { id: 'next', label: 'Next action', placeholder: 'The first small step', maxlength: 300 }
       ],
       onOpen: wireNewCategory,
       onSubmit: function (v) {
@@ -195,10 +309,10 @@
     FT.dialog({
       title: 'Edit project',
       fields: [
-        { id: 'name', label: 'Name', value: p.name },
+        { id: 'name', label: 'Name', value: p.name, maxlength: 120 },
         { id: 'category', label: 'Category', type: 'select', options: categoryOptions(), value: p.category },
         { id: 'newcategory', label: 'New category name', placeholder: 'e.g. Garden' },
-        { id: 'next', label: 'Next action', value: p.next_action }
+        { id: 'next', label: 'Next action', value: p.next_action, maxlength: 300 }
       ],
       onOpen: wireNewCategory,
       onSubmit: function (v) {
@@ -208,8 +322,58 @@
     });
   });
 
+  // ---------- lock ----------
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function todayInput() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+
+  FT.action('projects.lock', function () {
+    var p = FT.project(FT.state.projectId), current = FT.lockedUntil(p);
+    FT.dialog({
+      title: current ? 'Change lock' : 'Lock this project',
+      subtitle: current ? 'Locked until ' + FT.lockLabel(current) + '. You can make it longer here.' : 'It will not be picked as your focus and its page is closed until the date you choose.',
+      after: '<label for="lk-date">Locked until</label><input type="date" id="lk-date" min="' + todayInput() + '">' +
+        '<label for="lk-time">Time (optional, otherwise it opens at the start of that day)</label><input type="time" id="lk-time">' +
+        (current ? '<div class="actions" style="margin-top:16px"><button class="btn danger sm" type="button" data-act="projects.liftlock">Lift the lock early…</button></div>' : ''),
+      submit: current ? 'Make it longer' : 'Lock it',
+      onSubmit: function () {
+        var date = document.getElementById('lk-date').value, time = document.getElementById('lk-time').value;
+        if (!date) throw new Error('Pick a date.');
+        var until = time ? new Date(date + 'T' + time).toISOString() : date;
+        return FT.rpc('projects', 'setLock', { id: p.id, until: until }, { quiet: true });
+      }
+    });
+  });
+
+  /** Lifting a running lock takes two separate warnings, then the server is told it was confirmed. */
+  FT.action('projects.liftlock', function () {
+    var p = FT.project(FT.state.projectId);
+    FT.closeDialog();
+    setTimeout(function () {
+      FT.dialog({
+        title: 'Lift the lock early?', danger: true, submit: 'Yes, lift it',
+        body: '<div class="err" style="display:block;margin:10px 0">You locked "' + FT.esc(p.name) + '" to protect your time. Lifting it now undoes that decision.</div>',
+        onSubmit: function () {
+          setTimeout(function () {
+            FT.dialog({
+              title: 'Are you really sure?', danger: true, submit: 'Lift the lock now',
+              body: '<div class="err" style="display:block;margin:10px 0">Last chance. This project will come back into your focus pick straight away.</div>',
+              onSubmit: function () { return FT.rpc('projects', 'setLock', { id: p.id, until: '', early: true }, { quiet: true }); }
+            });
+          }, 0);
+        }
+      });
+    }, 0);
+  });
+
+  var STATUS_DONE_WORDS = { done: 'Marked done.', paused: 'Paused.', active: 'Active again.' };
   FT.action('projects.status', function (el) {
-    FT.rpc('projects', 'update', { id: FT.state.projectId, status: el.dataset.status }).catch(function () {});
+    var id = FT.state.projectId, p = FT.project(id), status = el.dataset.status;
+    if (!p || p.status === status) return;
+    var before = p.status;
+    // The page changes at once; the save follows. If it fails the status goes back and the error is shown.
+    FT.optimistic(function () { p.status = status; return function () { p.status = before; }; },
+      function () { return FT.rpc('projects', 'update', { id: id, status: status }); }).catch(function () {});
+    FT.toast(STATUS_DONE_WORDS[status] || 'Saved.', null, { label: 'Undo', run: FT.undo });
   });
 
   FT.action('projects.delete', function () {
@@ -219,8 +383,15 @@
       body: '<p>This removes "' + FT.esc(p.name) + '" with its Kanban board, resource links and log lines from the tracker. The notes file stays in Drive. To keep the project but hide it, use Mark done instead. You can undo this.</p>',
       submit: 'Delete project',
       danger: true,
+      // The dialog closes and the project goes at once; the server's answer brings its board, links and log up to date.
       onSubmit: function () {
-        return FT.rpc('projects', 'remove', { id: p.id }, { quiet: true }).then(function () { FT.go('projects'); FT.deleted('Project'); });
+        var before = FT.store.projects;
+        FT.optimistic(function () {
+          FT.store.projects = before.filter(function (x) { return x.id !== p.id; });
+          FT.go('projects');
+          return function () { FT.store.projects = before; FT.go('project', { id: p.id }); };
+        }, function () { return FT.rpc('projects', 'remove', { id: p.id }); }).catch(function () {});
+        FT.deleted('Project');
       }
     });
   });

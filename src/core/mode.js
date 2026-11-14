@@ -24,7 +24,7 @@ function allModes_() {
   var custom = (raw ? JSON.parse(raw) : []).map(function (saved) {
     return {
       id: saved.id, label: saved.label, accent: saved.accent, categories: NEW_MODE_CATEGORIES_,
-      rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null }, dailyMinimum: null
+      rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null }
     };
   });
   allModesCache_ = MODES.concat(custom);
@@ -47,7 +47,7 @@ function newModeId_(label, modes) {
 }
 
 /**
- * Make a new mode. It starts with one category ("General"), no lead categories and no daily minimum.
+ * Make a new mode. It starts with one category ("General"), no lead categories and no habits.
  * Its spreadsheet and Drive folder are created the first time it opens.
  */
 function addMode_(label) {
@@ -73,13 +73,16 @@ function addMode_(label) {
 
 /**
  * Forget everything cached during a request. Every browser call starts with this: on Google each call is a fresh
- * execution anyway, and in tests several calls share one runtime.
+ * execution anyway, and in tests several calls share one runtime. Then bring the mode's spreadsheet up to the current
+ * layout if it is older (core/migrate.js; one property read when it is not).
  */
 function startRequest_(modeId) {
   tableCache_ = {};
   openSpreadsheets_ = {};
   allModesCache_ = null;
-  return setMode_(modeId);
+  var mode = setMode_(modeId);
+  ensureSchema_();
+  return mode;
 }
 
 function setMode_(id) {

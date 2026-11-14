@@ -15,7 +15,7 @@
 .listgear { flex: none; }
 .listpreview { margin-top: 6px; padding: 14px; pointer-events: none; }
 .listpreview .kcard { margin-bottom: 6px; }
-.modebadge { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
+.modebadge { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
 /* Display choice in the settings dialog */
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .dialog .seg label { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 14px; position: relative; }
@@ -43,7 +43,7 @@
 .rotq .rotdesc ul, .rotq .rotdesc ol { text-align: left; display: table; margin: 4px auto; padding-left: 22px; }
 .rotq .rotdesc a { color: color-mix(in srgb, var(--rot-c) 80%, var(--ink)); }
 .rotq .arrows { display: inline-flex; gap: 4px; }
-.rotq .arrows button { border: 1px solid color-mix(in srgb, var(--rot-c) 40%, var(--line)); background: transparent; color: inherit; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+.rotq .arrows button { border: 1px solid color-mix(in srgb, var(--rot-c) 55%, var(--line-strong)); background: transparent; color: inherit; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 16px; }
 .rotq .arrows button:hover { background: color-mix(in srgb, var(--rot-c) 18%, transparent); }
 @media (prefers-reduced-motion: reduce) { .rotq .rotbody { transition: none; } }
 </style>
@@ -66,7 +66,7 @@
 
   function itemsOf(l) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
-    return k.tasks.filter(function (t) { return t.project_id === l.id; });
+    return k.tasks.filter(function (t) { return t.owner === l.id; });
   }
 
   function shuffle(ids) {
@@ -128,7 +128,7 @@
   }
 
   setInterval(function () {
-    if (FT.state.dragging || document.querySelector('.dialog')) return;
+    if (FT.state.dragging || document.querySelector('.dialog') || document.documentElement.dataset.theme === 'eink') return; // e-ink: no self-changing screen; use ‹ ›
     Array.prototype.forEach.call(document.querySelectorAll('#app [data-rotate]'), function (panel) {
       var l = lists().filter(function (x) { return x.id === panel.dataset.rotate; })[0];
       if (l && Date.now() - rotationOf(l).since >= secondsOf(l) * 1000) rotate(l, 1);
@@ -144,6 +144,7 @@
     return panelOpen(l) + '<div class="listhead">' +
       '<input type="text" class="listname" value="' + FT.esc(l.name) + '" aria-label="List name" data-change="lists.rename" data-id="' + id + '">' +
       (l.display === 'one' && l.show_today ? '<span class="modebadge" title="Shown one item at a time on Today">One at a time on Today</span>' : '') +
+      linkedBadge(l) +
       gearButton(l) +
       '<button class="rm" data-act="lists.remove" data-id="' + id + '" aria-label="Delete list ' + FT.esc(l.name) + '">Delete</button></div>' +
       FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
@@ -154,30 +155,77 @@
     var head = '<section class="panel"><div class="tophead"><div class="label">Lists</div><button class="btn sm primary" data-act="lists.add">+ New list</button></div>' +
       (all.length ? '<p class="empty" style="padding:0">Lists are for things that are not projects: reading, ideas, things to keep in mind. Use ⚙ Settings to colour a list or show it on the Today tab.</p>'
                   : '<p class="empty">No lists yet. Make one for reading, ideas or things to keep in mind.</p>') + '</section>';
-    return FT.layout('lists', [{ id: 'head', title: 'Lists intro', html: head, w: 12 }].concat(all.map(function (l) {
-      return { id: 'list-' + l.id, title: l.name, html: listPanel(l), w: 6 };
+    return FT.layout('lists', [{ id: 'head', title: 'Lists intro', description: 'What lists are for, and + New list.', html: head, w: 12 }].concat(all.map(function (l) {
+      return { id: 'list-' + l.id, title: l.name, description: 'A list, with its groups and items.', html: listPanel(l), w: 6 };
     })));
+  }
+
+  /** A list linked to a project says so on the Lists tab, as a way to that project's page. */
+  function linkedBadge(l) {
+    var p = l.project_id && FT.project(l.project_id);
+    return p ? '<button class="modebadge" data-act="lists.openProject" data-id="' + FT.esc(p.id) + '" title="Also shown on this project\'s page">' + FT.esc(p.name) + '</button>' : '';
+  }
+
+  /** The list as a panel on another page (Today, a project), without the name field and Delete. */
+  function compactPanel(l) {
+    return panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' + gearButton(l) + '</div>' +
+      FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>';
   }
 
   /** On Today, each list shows as its own panel, without the list controls. */
   function todayPanels() {
     return lists().filter(function (l) { return l.show_today; }).map(function (l) {
-      if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, w: 5, html: quotePanelHtml(l) };
-      return {
-        id: 'list-' + l.id, title: l.name, w: 6,
-        html: panelOpen(l) + '<div class="tophead"><div class="label">' + FT.esc(l.name) + '</div>' + gearButton(l) + '</div>' +
-          FT.kanban.boardHtml(l.id, { vertical: true, word: 'group' }) + '</section>'
-      };
+      if (l.display === 'one') return { id: 'list-' + l.id, title: l.name, description: 'One item of this list at a time.', w: 5, html: quotePanelHtml(l) };
+      return { id: 'list-' + l.id, title: l.name, description: 'A list from the Lists tab.', w: 6, html: compactPanel(l) };
+    });
+  }
+
+  /** On a project's page, the lists linked to it: one panel each, with a stable id so its place can be saved. */
+  function projectPanels(p) {
+    return lists().filter(function (l) { return l.project_id === p.id; }).map(function (l) {
+      return { id: 'list-' + l.id, title: l.name, description: 'A list linked to this project.', w: 6, html: compactPanel(l) };
+    });
+  }
+
+  /** Change one field of a list on screen at once and save it behind (Edit layout's Add feature); put back if refused. */
+  function setList(l, fields, fn, args) {
+    var before = {};
+    Object.keys(fields).forEach(function (k) { before[k] = l[k]; });
+    FT.optimistic(function () {
+      Object.keys(fields).forEach(function (k) { l[k] = fields[k]; });
+      return function () { Object.keys(before).forEach(function (k) { l[k] = before[k]; }); };
+    }, function () { return FT.rpc('lists', fn, args, { render: false }); }).catch(function () {});
+  }
+
+  /** Add feature on Today: every list not shown there. */
+  function addableToday() {
+    return lists().filter(function (l) { return !l.show_today; }).map(function (l) {
+      var p = l.project_id && FT.project(l.project_id);
+      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: 'List' + (p ? ' on ' + p.name : '') + ', shown on Today as its own panel.',
+        add: function () { setList(l, { show_today: 'yes' }, 'showToday', { id: l.id, on: true }); } };
+    });
+  }
+
+  /** Add feature on a project page: lists not linked to any project. */
+  function addableProject(FT, project) {
+    if (!project) return [];
+    return lists().filter(function (l) { return !l.project_id || !FT.project(l.project_id); }).map(function (l) {
+      return { id: 'list-' + l.id, panel: 'list-' + l.id, title: l.name, description: 'List not linked to a project yet. Adding links it to ' + project.name + '.',
+        add: function () { setList(l, { project_id: project.id, project: project.name }, 'setProject', { id: l.id, projectId: project.id }); } };
     });
   }
 
   FT.module({
     id: 'lists',
     tab: { title: 'Lists', order: 25, render: tabHtml },
-    slots: { 'today.panels': [{ order: 10, render: todayPanels }] }
+    slots: {
+      'today.panels': [{ order: 10, render: todayPanels }], 'project.page': [{ order: 30, render: projectPanels }],
+      'addable.today': [{ order: 10, render: addableToday }], 'addable.project': [{ order: 10, render: addableProject }]
+    }
   });
 
   FT.action('lists.open', function () { FT.go('lists'); });
+  FT.action('lists.openProject', function (el) { FT.go('project', { id: el.dataset.id }); });
   FT.action('lists.rotate', function (el) {
     var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
     if (l) rotate(l, Number(el.dataset.d));
@@ -217,7 +265,7 @@
   /** A small copy of the list as it will look, with its real first items. */
   function previewHtml(l) {
     var k = FT.store.kanban || { columns: [], tasks: [] };
-    var group = k.columns.filter(function (c) { return c.project_id === l.id; }).sort(function (a, b) { return a.order - b.order; })[0];
+    var group = k.columns.filter(function (c) { return c.owner === l.id; }).sort(function (a, b) { return a.order - b.order; })[0];
     var items = group ? k.tasks.filter(function (t) { return t.column_id === group.id; }).sort(function (a, b) { return a.order - b.order; }).slice(0, 2) : [];
     if (!items.length) items = [{ title: 'An item' }, { title: 'Another item' }];
     return '<label>Preview</label><section class="panel listpanel listpreview" id="dlg-listpreview" aria-hidden="true">' +
@@ -232,13 +280,21 @@
     if (color) preview.style.setProperty('--list-c', 'var(--cat-' + color + ')'); else preview.style.removeProperty('--list-c');
   }
 
+  /** "No project" and every project by name. Archived ones only when the list is already linked to one. */
+  function projectOptions(l) {
+    var projects = (FT.store.projects || []).filter(function (p) { return p.status !== 'archived' || p.id === l.project_id; })
+      .slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return [{ value: '', label: 'No project' }].concat(projects.map(function (p) { return { value: p.id, label: p.name }; }));
+  }
+
   FT.action('lists.settings', function (el) {
     var l = lists().filter(function (x) { return x.id === el.dataset.id; })[0];
     if (!l) return;
     FT.dialog({
       title: 'List settings',
       wide: true,
-      fields: [{ id: 'listname', label: 'Name', value: l.name }],
+      fields: [{ id: 'listname', label: 'Name', value: l.name },
+        { id: 'listproject', label: 'Linked project (the list also shows on its page)', type: 'select', value: l.project_id || '', options: projectOptions(l) }],
       after: displayHtml(l) + swatchesHtml(l.color) + previewHtml(l) +
         '<label class="toggle"><input type="checkbox" id="dlg-showtoday"' + (l.show_today ? ' checked' : '') + '> Show this list on Today</label>',
       onOpen: function () {
@@ -267,8 +323,10 @@
         if (v.listname !== l.name) changes.push(['rename', { id: l.id, name: v.listname }]);
         if (color !== (l.color || '')) changes.push(['setColor', { id: l.id, color: color }]);
         if (showToday !== !!l.show_today) changes.push(['showToday', { id: l.id, on: showToday }]);
+        if (v.listproject !== (l.project_id || '')) changes.push(['setProject', { id: l.id, projectId: v.listproject }]);
         // Shown at once, saved in the background.
         l.name = v.listname.slice(0, 80); l.color = color; l.show_today = showToday ? 'yes' : '';
+        l.project_id = v.listproject; l.project = v.listproject ? (FT.project(v.listproject) || {}).name || '' : '';
         l.display = display; l.seconds = seconds;
         FT.render();
         changes.forEach(function (c) { FT.rpc('lists', c[0], c[1], { render: false }).catch(FT.saveFailed); });
@@ -283,7 +341,14 @@
       title: 'Delete list',
       body: '<p>Delete "' + FT.esc(l.name) + '" and everything in it? You can undo this.</p>',
       submit: 'Delete list', danger: true,
-      onSubmit: function () { return FT.rpc('lists', 'remove', { id: l.id }, { quiet: true }).then(function () { FT.deleted('List'); }); }
+      onSubmit: function () {
+        var before = FT.store.lists;
+        FT.optimistic(function () {
+          FT.store.lists = before.filter(function (x) { return x.id !== l.id; });
+          return function () { FT.store.lists = before; };
+        }, function () { return FT.rpc('lists', 'remove', { id: l.id }); }).catch(function () {});
+        FT.deleted('List');
+      }
     });
   });
 })();
