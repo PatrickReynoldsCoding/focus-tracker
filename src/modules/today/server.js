@@ -14,7 +14,9 @@
  * per day, for example rotation.monday = coding. The session and pomodoro state are per user and live in user
  * properties (they change every few seconds). Both follow you across devices.
  *
- * A session is { projectId, start, pausedMs, pausedAt, pomodoro }. Worked time is wall time minus pauses.
+ * A session is { projectId, start, pausedMs, pausedAt, pomodoro, plannedMin }. Worked time is wall time minus pauses.
+ * plannedMin is the planned length in worked minutes, or null for no limit (sessions saved before it existed have none).
+ * The length picked last is remembered per user and offered first next time.
  * pomodoro is null when off, else { phase: 'work' | 'break', phaseStartMs, lengthMin } where phaseStartMs is the
  * worked time when the phase began, so pausing also pauses the pomodoro. lengthMin is fixed when the phase starts,
  * so changing the settings only affects later phases. A finished phase waits for nextPhase.
@@ -24,6 +26,9 @@ function todayModule() {
   var KEY = modeKey_('today.state');
   var POMODORO_KEY = 'today.pomodoro';
   var POMODORO_DEFAULTS = { work: 25, break: 5 };
+  var FOCUS_LENGTH_KEY = 'today.focusLength';
+  var DEFAULT_FOCUS_LENGTH_MIN = 25;
+  var MAX_FOCUS_LENGTH_MIN = 600;
   var NEXT_PHASE = { work: 'break', break: 'work' };
   var ANY = 'any';   // Settings text for "any category"
   var ANY_LABEL = 'Any category';
@@ -65,6 +70,24 @@ function todayModule() {
     var minutes = Number(value);
     assert_(Math.floor(minutes) === minutes && minutes >= 1 && minutes <= 180, label + ' must be a whole number of minutes from 1 to 180.');
     return minutes;
+  }
+
+  /** A planned length sent from the browser: whole minutes from 1 to 600, or null for no limit ('' and 0 mean no limit too). */
+  function plannedMinutes_(value) {
+    if (value === null || value === undefined || value === '' || Number(value) === 0) return null;
+    var minutes = Number(value);
+    assert_(Math.floor(minutes) === minutes && minutes >= 1 && minutes <= MAX_FOCUS_LENGTH_MIN, 'A session length must be a whole number of minutes from 1 to ' + MAX_FOCUS_LENGTH_MIN + '.');
+    return minutes;
+  }
+
+  /** The session length picked last: minutes, or null for no limit. 25 minutes before anything was picked. */
+  function lastFocusLength_() {
+    var raw = PropertiesService.getUserProperties().getProperty(FOCUS_LENGTH_KEY);
+    return raw ? JSON.parse(raw).plannedMin : DEFAULT_FOCUS_LENGTH_MIN;
+  }
+
+  function rememberFocusLength_(plannedMin) {
+    PropertiesService.getUserProperties().setProperty(FOCUS_LENGTH_KEY, JSON.stringify({ plannedMin: plannedMin }));
   }
 
   /** Milliseconds worked in a session up to nowMs, leaving out every pause. Sessions saved before pauses existed have no pausedMs. */
@@ -212,7 +235,7 @@ function todayModule() {
       day: d.key, weekday: d.weekday, lead: lead, away: plan[d.weekday] === AWAY, usual: usual, week: week,
       labels: labels_(plan, categories), focusId: focusId, ranked: ranked, weekKey: d.weekKey, nextWeekKey: nextWeekKey_(d.weekKey),
       next: weekChanges_(nextWeekKey_(d.weekKey), ids),
-      session: s.session, pomodoroSettings: pomodoroSettings_(), skipCounts: skipCounts_(), reminders: dueReminders_(d.key)
+      session: s.session, pomodoroSettings: pomodoroSettings_(), focusLength: lastFocusLength_(), skipCounts: skipCounts_(), reminders: dueReminders_(d.key)
     };
   }
 
@@ -324,11 +347,17 @@ function todayModule() {
         return WEEKDAYS.filter(function (day) { return usual[day] === AWAY; });
       },
 
+      /**
+       * Start a session on a.projectId. a.plannedMin: its planned length in minutes, or null for no limit; remembered for next
+       * time. A page from before planned lengths sends none: that session has no limit and the remembered length stays.
+       */
       start: function (a, ctx) {
         assert_(a.projectId, 'No project to start.');
         assert_(!projectLocked_(ctx.call('projects', 'list', {}).filter(function (p) { return p.id === a.projectId; })[0]), 'That project is locked.');
+        var plannedMin = plannedMinutes_(a.plannedMin);
         var d = dayInfo_(), s = load_(d.key);
-        s.session = { projectId: a.projectId, start: nowIso_(), pausedMs: 0, pausedAt: '', pomodoro: null };
+        s.session = { projectId: a.projectId, start: nowIso_(), pausedMs: 0, pausedAt: '', pomodoro: null, plannedMin: plannedMin };
+        if (a.plannedMin !== undefined) rememberFocusLength_(plannedMin);
         save_(s);
         ctx.refresh('today');
         return s.session;
@@ -353,6 +382,29 @@ function todayModule() {
           if (a.on) resumeSession_(session, nowMs);
           session.pomodoro = a.on ? startPhase_('work', session, nowMs) : null;
         });
+      },
+
+      /**
+       * Keep going once the planned time is up (or before): a.minutes more from now (from the planned end if that is
+       * later), or no limit when a.minutes is null.
+       */
+      keepGoing: function (a, ctx) {
+        var extraMin = plannedMinutes_(a.minutes);
+        return changeSession_(ctx, function (session, nowMs) {
+          if (extraMin === null) { session.plannedMin = null; return; }
+          var workedMin = Math.ceil(workedMs_(session, nowMs) / 60000);
+          session.plannedMin = Math.max(session.plannedMin || 0, workedMin) + extraMin;
+        });
+      },
+
+      /** Throw the running session away: no log line, no minutes, and the project's next action stays as it was. */
+      discard: function (a, ctx) {
+        var d = dayInfo_(), s = load_(d.key);
+        requireSession_(s);
+        s.session = null;
+        save_(s);
+        ctx.refresh('today');
+        return true;
       },
 
       /** Start the next pomodoro period (break after work, work after break). */

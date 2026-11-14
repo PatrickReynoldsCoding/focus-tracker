@@ -1006,7 +1006,7 @@ var FT = (function () {
    * Settings is built from sections, drawn in order (lower first) each time it opens. A module adds its own with
    *   FT.settings.add({ id: 'draw', order: 50, html: function () { return '<label>…</label>…'; }, onOpen: function (root) { … } });
    * id: unique (adding the same id again replaces it). order: the core uses 0 (Undo, Redo and Back, always first), 10 (Data),
-   * 20 (When the app opens), 30 (Theme), 40 (Wrapper site), 45 (AI assistant) and 1000 (build label); pick a number in between.
+   * 20 (When the app opens), 25 (Corner timer, today module), 30 (Theme), 40 (Wrapper site), 45 (AI assistant) and 1000 (build label); pick a number in between.
    * html(): the section's markup, a <label> heading and its controls; give element ids a 'dlg-' start so they never clash.
    * onOpen(root): optional, wires the controls up once the dialog is drawn; root is the .dialog element.
    * Settings has no Save: a choice applies (and is stored, usually in localStorage for this device) as soon as it is made.
@@ -1154,9 +1154,13 @@ var FT = (function () {
   function lsSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
   function lsRemove(key) { try { localStorage.removeItem(key); } catch (e) {} }
 
-  // "When the app opens" (Settings, this device only): 'today' starts on Today; nothing saved means the page you were on.
-  var OPEN_ON_KEY = 'ft.openOn', OPEN_ON = [['today', 'Today'], ['', 'The page I was on']];
-  function openOn() { return lsGet(OPEN_ON_KEY) === 'today' ? 'today' : ''; }
+  // "When the app opens" (Settings, this device only): by default Today, or the focus project's page while a session runs
+  // (FT.sessionPage, from the today module); 'last' means the page you were on. An old saved 'today' counts as the default.
+  var OPEN_ON_KEY = 'ft.openOn', OPEN_ON_LAST = 'last';
+  var OPEN_ON = [['', 'Today (the focus project during a session)'], [OPEN_ON_LAST, 'The page I was on']];
+  function openOn() { return lsGet(OPEN_ON_KEY) === OPEN_ON_LAST ? OPEN_ON_LAST : ''; }
+  function openingPage() { return (FT.sessionPage && FT.sessionPage()) || { view: 'today', projectId: '' }; }
+  var pageOpenedByDefault = null; // the page the default rule opened on, from a saved copy, until the fresh data arrives
 
   function saveLastPage() {
     if (!FT.ready || !FT.state.view || !FT.state.mode) return;
@@ -1190,19 +1194,23 @@ var FT = (function () {
   function applyBootstrap(b, opts) {
     opts = opts || {};
     var current = opts.keepPage ? { view: FT.state.view, projectId: FT.state.projectId } : null;
+    // Still on the page the saved copy opened by the default rule: the fresh data decides again (a session may have started elsewhere).
+    if (current && opts.restore && samePage(pageNow(), pageOpenedByDefault)) current = null;
+    pageOpenedByDefault = null;
     FT.config = b.config; FT.store = b.data; FT.state.mode = b.config.mode; FT.ready = true; backStack = null;
     loaded = {};
     b.modules.forEach(function (m) { loaded[m.id] = true; });
     document.title = b.config.appName || document.title;
     var first = tabs()[0];
     FT.state.view = first ? first.id : null;
-    var saved = null;
+    var saved = null, byDefaultRule = false;
     if (!current && opts.restore) {
-      if (openOn() === 'today') saved = { view: 'today', projectId: '' };
-      else { try { saved = JSON.parse(lsGet(LAST_KEY + b.config.mode) || 'null'); } catch (e) {} }
+      if (openOn() === OPEN_ON_LAST) { try { saved = JSON.parse(lsGet(LAST_KEY + b.config.mode) || 'null'); } catch (e) {} }
+      else { saved = openingPage(); byDefaultRule = true; }
     }
     var page = usablePage(current || saved);
     if (page) showPage(page);
+    if (byDefaultRule) pageOpenedByDefault = pageNow();
     if (!opts.requested) lsSet(DEFAULT_MODE_KEY, b.config.mode);
     renderModeBar();
     FT.render();

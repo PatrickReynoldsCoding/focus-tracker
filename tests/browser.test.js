@@ -81,8 +81,68 @@ async function run(browser, size) {
   await quick('Today: Finish dialog', pg.locator('[data-act="today.finish"]')); await closeDialog();
   log('Today: session buttons answer at once and the server catches up');
 
+  // ---------- the corner timer: a drag (mouse, or a finger on the phone) snaps to the nearest corner ----------
+  const vp = size.viewport;
+  const cornerBox = () => pg.locator('#cornerTimer').boundingBox();
+  await pg.waitForSelector('#cornerTimer:not([hidden])');
+  let timerBox = await cornerBox();
+  assert.ok(timerBox.x < vp.width / 2 && timerBox.y > vp.height / 2, '[' + size.name + '] the corner timer starts bottom left: ' + JSON.stringify(timerBox));
+  const dragFrom = { x: timerBox.x + 30, y: timerBox.y + timerBox.height / 2 }, dragTo = { x: vp.width - 40, y: 160 };
+  if (size.mobile) {
+    const cdp = await ctx.newCDPSession(pg);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [dragFrom] });
+    for (let i = 1; i <= 8; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: dragFrom.x + (dragTo.x - dragFrom.x) * i / 8, y: dragFrom.y + (dragTo.y - dragFrom.y) * i / 8 }] });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } else {
+    await pg.mouse.move(dragFrom.x, dragFrom.y); await pg.mouse.down(); await pg.mouse.move(dragTo.x, dragTo.y, { steps: 8 }); await pg.mouse.up();
+  }
+  await sleep(100);
+  timerBox = await cornerBox();
+  assert.ok(timerBox.x + timerBox.width > vp.width - 30 && timerBox.y < 130, '[' + size.name + '] the corner timer snapped to the top right: ' + JSON.stringify(timerBox));
+  assert.strictEqual(await pg.evaluate(() => FT.state.view), 'today', 'a drag is not a click');
+  assert.strictEqual(await pg.evaluate(() => localStorage.getItem('ft.timer.corner')), 'top-right');
+  const einkBorder = await pg.evaluate(() => {
+    document.documentElement.dataset.theme = 'eink';
+    const style = getComputedStyle(document.getElementById('cornerTimer'));
+    const border = style.borderTopWidth + ' ' + style.transitionDuration;
+    delete document.documentElement.dataset.theme;
+    return border;
+  });
+  assert.strictEqual(einkBorder, '3px 0s', 'E-ink: a thick border and no motion');
+  await quick('Corner timer: opens the focus project', pg.locator('#cornerTimer .ct-open'));
+  assert.strictEqual(await pg.evaluate(() => FT.state.view), 'project');
+  await pg.evaluate(() => { localStorage.removeItem('ft.timer.corner'); document.getElementById('cornerTimer').dataset.corner = 'bottom-left'; });
+  await gotoTab('Today');
+  log('Corner timer: a ' + (size.mobile ? 'finger' : 'mouse') + ' drag snaps to the nearest corner, E-ink gets a thick border, and a tap opens the focus project');
+
+  // ---------- Keep going once the planned time is up ----------
+  await quickly(async () => {
+    env.server.run(`(function () { var props = PropertiesService.getUserProperties(), s = JSON.parse(props.getProperty('today.state'));
+      s.session.start = new Date(Date.now() - 29.5 * 60000).toISOString(); s.session.pausedMs = 0; s.session.pausedAt = '';
+      props.setProperty('today.state', JSON.stringify(s)); })()`);
+    await pg.evaluate(() => FT.reload());
+  });
+  await pg.waitForSelector('#plan.over');
+  await quick('Today: Keep going +10 min', pg.locator('[data-act="today.keepGoing"][data-min="10"]'));
+  assert.ok(!(await pg.isVisible('#plan.over')), 'the countdown is back straight away');
+  await settle();
+  assert.ok([40, 41].includes(todayState().session.plannedMin), 'the new length reached the server: ' + todayState().session.plannedMin);
+  log('Today: Keep going answers at once and the server catches up');
+
   await quickly(async () => { await pg.locator('[data-act="today.finish"]').click(); await pg.fill('#dlg-where', 'testing'); await pg.click('#dlg-submit'); await sleep(500); });
   await settle();
+
+  // ---------- Delete a session ----------
+  await quickly(async () => { await pg.locator('[data-act="today.start"]').click(); await sleep(300); });
+  await settle();
+  await quickly(async () => { await pg.locator('[data-act="today.finish"]').click(); await pg.click('#dlg-discard'); await sleep(100); });
+  await quick('Today: Delete session (after the confirm)', pg.locator('#dlg-submit'));
+  assert.ok(!(await pg.isVisible('.timer')), 'the session goes at once');
+  await settle();
+  assert.strictEqual(todayState().session, null, 'deleted on the server');
+  log('Today: Delete session answers at once and the server catches up');
   await quick('Today: Swap focus dialog', pg.locator('[data-act="today.swap"]')); await closeDialog();
   // ---------- 1 and 2: the Habits and To-dos panels ----------
   const srv = (code) => { const v = env.server.run('(function () { tableCache_ = {}; return ' + code + '; })()'); return v === undefined ? null : JSON.parse(JSON.stringify(v)); };
@@ -600,6 +660,7 @@ async function run(browser, size) {
   await pg.keyboard.type('- a list item that becomes a heading');
   await pg.keyboard.press('Control+Alt+2'); // the toolbar's H2 refuses a heading in a list; the shortcut still makes one
   if (size.mobile) await pg.click('.notes-done');
+  await pg.evaluate(() => localStorage.setItem('ft.openOn', 'last')); // Settings: open on the page I was on (the default is Today)
   await pg.reload();
   unfailNotes();
   await pg.waitForSelector('#nt-text[contenteditable="true"]', { timeout: 15000 });

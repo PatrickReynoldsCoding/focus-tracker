@@ -90,6 +90,7 @@ async function waitFor(fn, label, ms = 3000) {
   await step('a first visit shows Today, and the page you move to is remembered for this device', async () => {
     await waitFor(() => p1.$('.focus-name'), 'today');
     assert.strictEqual(p1.w.FT.state.view, 'today');
+    p1.w.localStorage.setItem('ft.openOn', 'last'); // Settings: "When the app opens" = The page I was on (the default is Today)
     p1.click(tabOf(p1, 'Projects'));
     await waitFor(() => p1.$$('tr.row').length, 'projects');
     p1.click(p1.$$('tr.row')[2]);
@@ -136,6 +137,22 @@ async function waitFor(fn, label, ms = 3000) {
     p3.close();
     // A fresh project for the rest of the tests
     projectId = rpc('projects', 'create', { name: 'Offline tests', category: 'coding' }).result.id;
+  });
+
+  await step('by default a reload opens Today, then the focus project once the fresh data shows a session started on another device', async () => {
+    const warm = page();
+    await waitFor(() => warm.$('.focus-name'), 'warm up');
+    warm.click(tabOf(warm, 'Lists'));
+    const saved = warm.storage(); warm.close();
+    const focusId = data().today.focusId;
+    rpc('today', 'start', { projectId: focusId, plannedMin: 25 });
+    net.hold = new Promise((r) => { net.release = r; });
+    const p = page(saved);
+    await waitFor(() => p.w.FT.ready && p.$('.focus-name') && p.w.FT.state.view === 'today', 'the saved copy has no session, so Today');
+    net.hold = null; net.release();
+    await waitFor(() => p.w.FT.state.view === 'project' && p.w.FT.state.projectId === focusId && p.$('#timer'), 'the fresh data opens the focus project');
+    rpc('today', 'discard');
+    p.close();
   });
 
   await step('the saved copy shows at once with "Updating…", then the fresh data replaces it', async () => {

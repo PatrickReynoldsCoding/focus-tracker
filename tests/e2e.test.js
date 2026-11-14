@@ -492,7 +492,7 @@ async function waitFor(fn, label, ms = 3000) {
 
     assert.strictEqual($('#pomo'), null, 'pomodoro is off by default');
     // jsdom has no Web Audio, so a fake records which oscillator types are played: chicken is sawtooth, steam whistle is triangle.
-    const playedTypes = [];
+    const playedTypes = w.__playedTypes = [];
     const fakeNode = () => new Proxy(function () {}, {
       get: (target, prop) => (prop === 'length' ? 0 : fakeNode()),
       set: (target, prop, value) => { if (prop === 'type') playedTypes.push(value); return true; },
@@ -1193,6 +1193,125 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => !$('.dialog') && !$('#timer'), 'session finished');
   });
 
+  const serverToday = () => JSON.parse(JSON.stringify(server.run('bootstrap()').data.today));
+  /** Rewrite the saved session as if it started minutesAgo worked minutes ago, then load it in the page. */
+  const sessionStartedAgo = async (minutesAgo) => {
+    server.run(`(function () {
+      var props = PropertiesService.getUserProperties(), s = JSON.parse(props.getProperty('today.state'));
+      s.session.start = new Date(Date.now() - ${minutesAgo} * 60000).toISOString(); s.session.pausedMs = 0; s.session.pausedAt = '';
+      props.setProperty('today.state', JSON.stringify(s)); })()`);
+    await w.FT.reload();
+  };
+
+  await step('a session starts with a planned length (25, 50, 90, custom or no limit), counts down, and the choice is remembered', async () => {
+    click(tab('Today'));
+    const picker = await waitFor(() => $('select[data-change="today.length"]'), 'length picker beside Start session');
+    assert.deepStrictEqual(Array.from(picker.options).map((o) => o.textContent), ['25 min', '50 min', '90 min', 'No limit', 'Custom…']);
+    assert.strictEqual(picker.value, '25', 'the length used last');
+    setVal(picker, 'custom', 'change');
+    await waitFor(() => $('#dlg-minutes'), 'custom length dialog');
+    setVal($('#dlg-minutes'), '2.5');
+    click($('#dlg-submit'));
+    await waitFor(() => /whole number/.test($('#dlg-err').textContent), 'a part minute is refused');
+    setVal($('#dlg-minutes'), '40');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && $('select[data-change="today.length"]').value === '40', 'custom length picked');
+    assert.deepStrictEqual(Array.from($('select[data-change="today.length"]').options).map((o) => o.value), ['25', '40', '50', '90', 'none', 'custom']);
+    click($('[data-act="today.start"]'));
+    await waitFor(() => $('#plan') && /Planned 40 min/.test($('#plan').textContent), 'countdown shows at once');
+    assert.ok(/(39|40):\d\d left/.test($('#plan').textContent), $('#plan').textContent);
+    await waitFor(() => w.FT.pendingSaves() === 0 && serverToday().session, 'saved');
+    assert.strictEqual(serverToday().session.plannedMin, 40);
+    assert.strictEqual(serverToday().focusLength, 40, 'remembered for next time');
+  });
+
+  await step('the corner timer floats over every page, opens the focus project, drags to a corner, hides and comes back', async () => {
+    const corner = await waitFor(() => $('#cornerTimer:not([hidden])'), 'corner timer while a session runs');
+    const focusId = w.FT.store.today.session.projectId;
+    assert.strictEqual(corner.dataset.corner, 'bottom-left', 'starts bottom left, away from the sticky note buttons');
+    assert.strictEqual(corner.querySelector('.ct-name').textContent, w.FT.project(focusId).name);
+    await waitFor(() => /^(39|40):\d\d$/.test(corner.querySelector('.ct-clock').textContent) && corner.querySelector('.ct-sub').textContent === 'left of 40 min', 'planned time left');
+    click(tab('Lists'));
+    await waitFor(() => tab('Lists').getAttribute('aria-current') === 'page', 'Lists');
+    assert.ok(!$('#cornerTimer').hidden, 'still there on another tab');
+    click(corner.querySelector('.ct-open'));
+    await waitFor(() => w.FT.state.view === 'project' && w.FT.state.projectId === focusId, 'a click opens the focus project');
+    assert.ok(!$('#cornerTimer').hidden, 'and on project pages');
+
+    // Drag: jsdom does no layout, so the dropped position is given by hand.
+    const pointer = (type, x, y) => corner.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+    click(tab('Lists'));
+    pointer('pointerdown', 20, 740);
+    pointer('pointermove', 600, 300);
+    assert.ok(corner.classList.contains('dragging') && corner.style.left, 'follows the pointer');
+    corner.getBoundingClientRect = () => ({ left: 900, top: 40, width: 120, height: 50 });
+    pointer('pointerup', 960, 60);
+    click(corner.querySelector('.ct-open'));
+    assert.strictEqual(w.FT.state.view, 'lists', 'the click that ends a drag does not open the project');
+    assert.strictEqual(corner.dataset.corner, 'top-right', 'snaps to the nearest corner');
+    assert.strictEqual(corner.style.left, '', 'no leftover position');
+    assert.strictEqual(w.localStorage.getItem('ft.timer.corner'), 'top-right', 'remembered on this device');
+    delete corner.getBoundingClientRect;
+
+    click(corner.querySelector('.ct-hide'));
+    assert.ok($('#cornerTimer').hidden, '✕ hides it');
+    assert.strictEqual(w.localStorage.getItem('ft.timer.hidden'), '1');
+    click(tab('Today'));
+    click(await waitFor(() => $('[data-act="today.timerShow"]'), 'Show timer in the session panel'));
+    await waitFor(() => !$('#cornerTimer').hidden && !$('[data-act="today.timerShow"]'), 'shown again');
+    assert.strictEqual(w.localStorage.getItem('ft.timer.hidden'), null);
+    click($('#settingsBtn'));
+    const hideRadio = await waitFor(() => $('input[name="dlg-cornertimer"][value="hide"]'), 'Settings has the corner timer');
+    assert.ok($('input[name="dlg-cornertimer"][value="show"]').checked);
+    hideRadio.checked = true; hideRadio.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok($('#cornerTimer').hidden, 'hidden from Settings');
+    const showRadio = $('input[name="dlg-cornertimer"][value="show"]');
+    showRadio.checked = true; showRadio.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.ok(!$('#cornerTimer').hidden, 'shown from Settings');
+    click($('#dlg-submit'));
+  });
+
+  await step('when the planned time is up: the sound, a blinking title, then Keep going (+10 min or no limit)', async () => {
+    w.__playedTypes.length = 0;
+    await sessionStartedAgo(44.5); // 45 worked minutes, as worked time is rounded up
+    await waitFor(() => $('#plan.over') && /Time is up/.test($('#plan').textContent), 'time is up');
+    assert.deepStrictEqual($$('#plan button').map((b) => b.textContent), ['Finish', '+10 min', '+25 min', 'No limit']);
+    await waitFor(() => d.title.startsWith('⏰ Time is up'), 'alert title');
+    assert.ok(w.__playedTypes.includes('sawtooth'), 'the end sound (the chicken) plays');
+    assert.strictEqual($('#cornerTimer .ct-clock').textContent, 'Time is up');
+    assert.ok($('#cornerTimer').classList.contains('over'));
+    click($('[data-act="today.keepGoing"][data-min="10"]'));
+    await waitFor(() => $('#plan') && !$('#plan.over') && /Planned 55 min/.test($('#plan').textContent), '10 more minutes from now: 45 worked + 10');
+    await waitFor(() => w.FT.pendingSaves() === 0 && serverToday().session.plannedMin === 55, 'saved');
+    await waitFor(() => d.title === 'Focus Tracker', 'the title stops blinking');
+    await sessionStartedAgo(60);
+    click(await waitFor(() => $('[data-act="today.keepGoing"][data-min=""]'), 'time is up again'));
+    await waitFor(() => !$('#plan') && $('#cornerTimer .ct-sub').textContent === 'worked', 'no limit: the session just counts up');
+    await waitFor(() => w.FT.pendingSaves() === 0 && serverToday().session.plannedMin === null, 'saved');
+  });
+
+  await step('Finish session can delete the session after a confirm: no log line, no minutes, next action unchanged', async () => {
+    const focusId = w.FT.store.today.session.projectId;
+    const nextBefore = w.FT.project(focusId).next_action;
+    const logBefore = JSON.parse(JSON.stringify(server.run('bootstrap()').data.log)).length;
+    click($('[data-act="today.finish"]'));
+    click(await waitFor(() => $('#dlg-discard'), 'Delete this session in the finish dialog'));
+    await waitFor(() => /Delete this session\?/.test($('#dlg-heading').textContent), 'asks first');
+    click($('#dlg-cancel'));
+    assert.strictEqual($('.dialog'), null);
+    assert.ok(w.FT.store.today.session, 'Cancel keeps the session');
+    click($('[data-act="today.finish"]'));
+    click(await waitFor(() => $('#dlg-discard'), 'finish dialog'));
+    await waitFor(() => $('#dlg-submit.danger'), 'confirm');
+    click($('#dlg-submit'));
+    await waitFor(() => !$('.dialog') && !$('#timer') && $('#cornerTimer').hidden, 'gone at once');
+    assert.ok(/Session deleted/.test($('#toast').textContent));
+    await waitFor(() => w.FT.pendingSaves() === 0 && serverToday().session === null, 'gone on the server');
+    assert.strictEqual(JSON.parse(JSON.stringify(server.run('bootstrap()').data.log)).length, logBefore, 'no log line');
+    assert.strictEqual(w.FT.project(focusId).next_action, nextBefore);
+    assert.strictEqual(d.title, 'Focus Tracker');
+  });
+
   await step('sticky notes: add, type, recolour, hide with a count badge, show, delete with undo', async () => {
     click(tab('Projects'));
     click(await waitFor(() => $$('tr.row').find((r) => r.textContent.includes('Bathroom extractor fan')), 'row'));
@@ -1290,31 +1409,45 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
   });
 
-  await step('Settings starts with Undo, Redo and Back, and "When the app opens" picks Today or the page you were on', async () => {
+  await step('Settings starts with Undo, Redo and Back; the app opens on Today, on the focus project during a session, or on the page you were on', async () => {
     click($('#settingsBtn'));
     await waitFor(() => $('.dialog'), 'settings');
     assert.deepStrictEqual($$('.dialog .settingsec').map((s) => s.dataset.section).slice(0, 2), ['history', 'data'], 'Undo, Redo and Back come first');
     assert.deepStrictEqual($$('.dialog .historyrow button').map((b) => b.id), ['undoBtn', 'redoBtn', 'backBtn']);
     assert.ok(!$('#backBtn').disabled, 'there is a page to go back to');
-    assert.strictEqual($('input[name="dlg-openon"]:checked').value, '', 'the page I was on by default');
-    const today = $('input[name="dlg-openon"][value="today"]');
-    today.checked = true; today.dispatchEvent(new w.Event('change', { bubbles: true }));
-    assert.strictEqual(w.localStorage.getItem('ft.openOn'), 'today');
+    assert.strictEqual($('input[name="dlg-openon"]:checked').value, '', 'Today by default');
+    assert.ok(/focus project during a session/.test($('input[name="dlg-openon"][value=""]').parentElement.textContent));
     click($('#dlg-submit'));
     // A fresh start of the page (FT.ready false, as on a page load).
     const restart = async (label) => { w.FT.ready = false; w.FT.boot(); await waitFor(() => w.FT.ready && $('.tab[aria-current="page"]'), label); };
+    const currentTab = () => $('.tab[aria-current="page"]') && $('.tab[aria-current="page"]').textContent;
     click(tab('Lists'));
     await restart('reopened');
-    assert.strictEqual($('.tab[aria-current="page"]').textContent, 'Today', 'opens on Today');
+    assert.strictEqual(currentTab(), 'Today', 'opens on Today');
+    w.localStorage.setItem('ft.openOn', 'today'); // saved by the old Settings: the same as the default now
+    click(tab('Lists'));
+    await restart('reopened');
+    assert.strictEqual(currentTab(), 'Today', 'an old "Today" choice still opens on Today');
+    w.localStorage.removeItem('ft.openOn');
+
+    click(await waitFor(() => $('[data-act="today.start"]'), 'start'));
+    await waitFor(() => w.FT.pendingSaves() === 0 && JSON.parse(JSON.stringify(server.run('bootstrap()').data.today)).session, 'session on the server');
+    const sessionProject = w.FT.store.today.session.projectId;
+    click(tab('Lists'));
+    w.FT.ready = false; w.FT.boot();
+    await waitFor(() => w.FT.ready && w.FT.state.view === 'project' && w.FT.state.projectId === sessionProject && $('#timer'), 'opens on the focus project while a session runs');
+    server.run('rpc')('today', 'discard', {});
+    await w.FT.reload();
+
     click($('#settingsBtn'));
     await waitFor(() => $('input[name="dlg-openon"]'), 'settings');
-    const last = $('input[name="dlg-openon"][value=""]');
+    const last = $('input[name="dlg-openon"][value="last"]');
     last.checked = true; last.dispatchEvent(new w.Event('change', { bubbles: true }));
-    assert.strictEqual(w.localStorage.getItem('ft.openOn'), null);
+    assert.strictEqual(w.localStorage.getItem('ft.openOn'), 'last');
     click($('#dlg-submit'));
     click(tab('Lists'));
     await restart('reopened');
-    assert.strictEqual($('.tab[aria-current="page"]').textContent, 'Lists', 'opens on the page it was on');
+    assert.strictEqual(currentTab(), 'Lists', 'opens on the page it was on');
     click($('#settingsBtn'));
     await waitFor(() => $('#backBtn'), 'settings');
     click($('#backBtn'));

@@ -140,6 +140,62 @@ test('a session saved before pauses existed still works', () => {
   assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 12);
 });
 
+test('a session has a planned length, remembered per user for the next start', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  assert.strictEqual(s.call('today', 'state').result.focusLength, 25, '25 minutes before anything was picked');
+  assert.throws(() => s.call('today', 'start', { projectId: p.id, plannedMin: 2.5 }), /whole number of minutes/);
+  assert.throws(() => s.call('today', 'start', { projectId: p.id, plannedMin: 601 }), /from 1 to 600/);
+  const r = s.call('today', 'start', { projectId: p.id, plannedMin: 50 });
+  assert.strictEqual(r.result.plannedMin, 50);
+  assert.strictEqual(r.slices.today.focusLength, 50, 'the choice is remembered');
+  s.call('today', 'finish', { where: 'w' });
+  assert.strictEqual(s.call('today', 'start', { projectId: p.id }).result.plannedMin, null, 'a page from before lengths sends none: no limit');
+  assert.strictEqual(s.call('today', 'state').result.focusLength, 50, 'and the remembered length stays');
+  s.call('today', 'finish', { where: 'w' });
+  assert.strictEqual(s.call('today', 'start', { projectId: p.id, plannedMin: null }).result.plannedMin, null, 'no limit');
+  assert.strictEqual(s.call('today', 'state').result.focusLength, null, 'no limit is remembered too');
+  assert.strictEqual(s.user._m['today.focusLength'], JSON.stringify({ plannedMin: null }), 'kept in user properties, not per mode');
+});
+
+test('keep going adds time from now (or from the planned end if later), or runs with no limit', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  s.call('today', 'start', { projectId: p.id, plannedMin: 25 });
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(30); });
+  assert.strictEqual(s.call('today', 'keepGoing', { minutes: 10 }).result.plannedMin, 40, 'time is up after 30 minutes: 10 more from now');
+  assert.strictEqual(s.call('today', 'keepGoing', { minutes: 10 }).result.plannedMin, 50, 'before the planned end: 10 more after it');
+  assert.throws(() => s.call('today', 'keepGoing', { minutes: -5 }), /whole number of minutes/);
+  assert.strictEqual(s.call('today', 'keepGoing', { minutes: null }).result.plannedMin, null, 'no limit');
+  assert.strictEqual(s.call('today', 'state').result.focusLength, 25, 'keeping going does not change the remembered length');
+});
+
+test('a session saved before planned lengths existed keeps going and finishes', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Old', category: 'house' }).result;
+  s.call('today', 'start', { projectId: p.id });
+  rewindSession(s, (session, minutesAgo) => { session.start = minutesAgo(20); delete session.plannedMin; });
+  assert.strictEqual(s.call('today', 'state').result.session.plannedMin, undefined);
+  assert.strictEqual(s.call('today', 'keepGoing', { minutes: 15 }).result.plannedMin, 35);
+  assert.strictEqual(s.call('today', 'finish', { where: 'w' }).slices.log[0].minutes, 20);
+});
+
+test('deleting the session leaves no log line, no minutes and the next action as it was', () => {
+  const s = fresh();
+  const p = s.call('projects', 'create', { name: 'Fan', category: 'house', next_action: 'Buy screws' }).result;
+  assert.throws(() => s.call('today', 'discard'), /No session/);
+  const touchedBefore = s.call('projects', 'list').result.find((x) => x.id === p.id).last_touched;
+  const logBefore = s.call('log', 'list').result.length;
+  s.call('today', 'start', { projectId: p.id, plannedMin: 25 });
+  const r = s.call('today', 'discard');
+  assert.strictEqual(r.slices.today.session, null);
+  assert.strictEqual(r.undo, null, 'nothing in the sheet changed, so there is nothing to undo');
+  assert.strictEqual(s.call('log', 'list').result.length, logBefore, 'no log line');
+  const after = s.call('projects', 'list').result.find((x) => x.id === p.id);
+  assert.strictEqual(after.next_action, 'Buy screws');
+  assert.strictEqual(after.last_touched, touchedBefore, 'not counted as worked on');
+});
+
 test('doGet only uses meta tags that Apps Script allows', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'main.js'), 'utf8');
   const names = [...src.matchAll(/addMetaTag\('([^']+)'/g)].map((m) => m[1]);

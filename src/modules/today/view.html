@@ -20,6 +20,28 @@
 .away-panel h2 { font-size: 26px; margin-bottom: 6px; }
 .focusbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; border-color: var(--accent); background: var(--accent-soft); }
 .focusbar .label { margin-right: 10px !important; color: var(--accent); }
+.lengthpick { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+.pomo .keepgoing { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.discardrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-top: 16px; color: var(--muted); font-size: 13px; }
+/* The corner timer floats over every page while a session runs. Below dialogs (40) and the message (60), above sticky notes (35). */
+.cornertimer { position: fixed; z-index: 36; display: flex; align-items: stretch; max-width: min(260px, calc(100vw - 32px)); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.cornertimer[hidden] { display: none; }
+.cornertimer[data-corner="top-left"] { top: 76px; left: max(16px, env(safe-area-inset-left, 0px)); }
+.cornertimer[data-corner="top-right"] { top: 76px; right: max(16px, env(safe-area-inset-right, 0px)); }
+.cornertimer[data-corner="bottom-left"] { bottom: max(16px, env(safe-area-inset-bottom, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); }
+.cornertimer[data-corner="bottom-right"] { bottom: max(16px, env(safe-area-inset-bottom, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); }
+.cornertimer.dragging { cursor: grabbing; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28); }
+.cornertimer.over { border-color: var(--warn); background: var(--warn-soft); }
+.cornertimer .ct-open { border: 0; background: transparent; color: inherit; font: inherit; text-align: left; padding: 8px 4px 8px 12px; display: grid; gap: 1px; min-width: 0; cursor: inherit; border-radius: 12px 0 0 12px; }
+.cornertimer .ct-name { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cornertimer .ct-clock { font-family: var(--font-mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.cornertimer .ct-sub { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cornertimer .ct-hide { border: 0; background: transparent; color: var(--muted); font-size: 16px; min-width: 44px; min-height: 44px; cursor: pointer; border-radius: 0 12px 12px 0; }
+.cornertimer .ct-hide:hover { color: var(--ink); }
+:root[data-theme="eink"] .cornertimer { border: 3px solid #000; box-shadow: none; background: #fff; color: #000; }
+:root[data-theme="eink"] .cornertimer .ct-name, :root[data-theme="eink"] .cornertimer .ct-sub, :root[data-theme="eink"] .cornertimer .ct-hide { color: #000; }
+:root[data-theme="eink"] .cornertimer.over { border-style: double; border-width: 6px; }
 </style>
 <script>
 (function () {
@@ -30,7 +52,14 @@
   var ALERT_TITLE = { work: '⏰ Break time', break: '⏰ Back to work' };
   var REMIND_OPTIONS = [['0', 'No reminder'], ['1', 'Tomorrow'], ['3', 'In 3 days'], ['7', 'Next week']];
   var AWAY = 'away';
-  var timer = null, alertedPhaseKey = null, audio = null;
+  var LENGTH_CHOICES_MIN = [25, 50, 90];
+  var DEFAULT_LENGTH_MIN = 25;
+  var MAX_LENGTH_MIN = 600;
+  var NO_LIMIT = 'none', CUSTOM_LENGTH = 'custom';
+  var KEEP_GOING_CHOICES_MIN = [10, 25];
+  var PLAN_ALERT_TITLE = '⏰ Time is up';
+  var timer = null, alertedKey = null, audio = null;
+  var chosenLengthMin; // the length picked in the Start session box; until one is picked, the server's remembered one
   var showFocusOnAwayDay = null; // the date key on which "Show focus anyway" was clicked
 
   function activeProjects() { return (FT.store.projects || []).filter(function (p) { return p.status === 'active'; }); }
@@ -48,6 +77,32 @@
     var lengthMs = session.pomodoro.lengthMin * 60000;
     var leftMs = lengthMs - (workedMs(session, nowMs) - session.pomodoro.phaseStartMs);
     return { phase: phase, leftMs: leftMs, over: leftMs <= 0 };
+  }
+
+  /** Where the planned length is now: { leftMs, over } or null when the session has no limit (or was saved before lengths existed). */
+  function planNow(session, nowMs) {
+    if (!session.plannedMin) return null;
+    var leftMs = session.plannedMin * 60000 - workedMs(session, nowMs);
+    return { leftMs: leftMs, over: leftMs <= 0 };
+  }
+
+  /** The length the next session starts with: minutes, or null for no limit. */
+  function chosenLength(t) {
+    if (chosenLengthMin !== undefined) return chosenLengthMin;
+    return t.focusLength === undefined ? DEFAULT_LENGTH_MIN : t.focusLength;
+  }
+
+  function lengthLabel(minutes) { return minutes ? minutes + ' min' : 'No limit'; }
+
+  /** The length picker beside Start session: 25, 50 and 90 minutes, a custom length once picked, No limit and Custom…. */
+  function lengthPickerHtml(t) {
+    var chosen = chosenLength(t);
+    var minutes = LENGTH_CHOICES_MIN.concat(chosen && LENGTH_CHOICES_MIN.indexOf(chosen) === -1 ? [chosen] : []).sort(function (a, b) { return a - b; });
+    var options = minutes.map(function (m) { return [String(m), lengthLabel(m)]; }).concat([[NO_LIMIT, 'No limit'], [CUSTOM_LENGTH, 'Custom…']]);
+    var selected = chosen ? String(chosen) : NO_LIMIT;
+    return '<label class="lengthpick">for <select class="auto" data-change="today.length" aria-label="Session length">' + options.map(function (o) {
+      return '<option value="' + o[0] + '"' + (o[0] === selected ? ' selected' : '') + '>' + o[1] + '</option>';
+    }).join('') + '</select></label>';
   }
 
   function clock(ms) {
@@ -71,16 +126,31 @@
     return '<div class="pomo' + (p.over ? ' over' : '') + '" id="pomo" data-over="' + (p.over ? '1' : '0') + '" role="status">' + body + '</div>';
   }
 
+  /** The planned length: time left, or once it is up, Finish or Keep going (a few more minutes, or no limit). */
+  function planHtml(t) {
+    var s = t.session, plan = planNow(s, Date.now());
+    if (!plan) return '';
+    if (plan.over) {
+      return '<div class="pomo over" id="plan" data-over="1" role="status"><span><b>Time is up.</b> You planned ' + s.plannedMin + ' minutes.</span>' +
+        '<span class="keepgoing"><button class="btn sm primary" data-act="today.finish">Finish</button><span>Keep going:</span>' +
+        KEEP_GOING_CHOICES_MIN.map(function (m) { return '<button class="btn sm" data-act="today.keepGoing" data-min="' + m + '">+' + m + ' min</button>'; }).join('') +
+        '<button class="btn sm" data-act="today.keepGoing" data-min="">No limit</button></span></div>';
+    }
+    return '<div class="pomo" id="plan" data-over="0" role="status"><span><b>Planned ' + s.plannedMin + ' min</b> <span class="left" id="plan-left">' + clock(plan.leftMs) + '</span> left' +
+      (s.pausedAt ? ' · <b>Paused</b>' : '') + '</span></div>';
+  }
+
   function sessionHtml(t) {
     var s = t.session, paused = !!s.pausedAt;
     return '<div class="timer" role="timer" aria-label="Session time"><span id="timer">' + clock(workedMs(s, Date.now())) + '</span>' + (paused ? '<span class="state">Paused</span>' : '') + '</div>' +
-      pomodoroHtml(t) +
+      planHtml(t) + pomodoroHtml(t) +
       '<div class="actions">' +
       '<button class="btn primary" data-act="today.finish">Finish session</button>' +
       (paused ? '<button class="btn" data-act="today.resume">Resume</button>' : '<button class="btn" data-act="today.pause">Pause</button>') +
       '<button class="btn" data-act="today.pomodoro">' + (s.pomodoro ? 'Pomodoro: on' : 'Pomodoro: off') + '</button>' +
       '<button class="btn" data-act="today.pomodoroSettings" title="Change the pomodoro lengths" aria-label="Pomodoro lengths: ' + t.pomodoroSettings.work + ' minutes work, ' + t.pomodoroSettings.break + ' minutes break. Change">' +
-      t.pomodoroSettings.work + ' / ' + t.pomodoroSettings.break + ' min</button>';
+      t.pomodoroSettings.work + ' / ' + t.pomodoroSettings.break + ' min</button>' +
+      (cornerTimerHidden() ? '<button class="btn" data-act="today.timerShow" title="Show the small timer in a corner of every page">Show timer</button>' : '');
   }
 
   /** Panels other modules add to Today, such as the small tasks and lists: each slot returns [{ id, html, w }]. */
@@ -96,7 +166,7 @@
       '<div class="next"><small>Next action</small>' + FT.linkify(f.next_action) + '</div>' +
       '<div class="lastnote">' + (lastLog ? '<b>Last time:</b> ' + FT.linkify(lastLog.where_stopped) : 'No notes yet for this project.') + '</div>' +
       (running ? sessionHtml(t)
-               : '<div class="actions"><button class="btn primary" data-act="today.start">Start session</button><button class="btn" data-act="today.swap">Swap focus</button>') +
+               : '<div class="actions"><button class="btn primary" data-act="today.start">Start session</button>' + lengthPickerHtml(t) + '<button class="btn" data-act="today.swap">Swap focus</button>') +
       '<button class="btn" data-act="today.open" data-id="' + FT.esc(f.id) + '">Open project</button></div></section>';
   }
 
@@ -232,38 +302,192 @@
 
   function baseTitle() { return FT.config.appName || 'Focus Tracker'; }
 
-  /** While a period is over, the tab title blinks between the alert and the app name. */
-  function showAlertTitle(p) {
-    var alertText = ALERT_TITLE[p.phase] + ' · ' + baseTitle();
+  /** While a period or the planned time is over, the tab title blinks between the alert and the app name. */
+  function blinkTitle(alertTitle) {
+    var alertText = alertTitle + ' · ' + baseTitle();
     document.title = document.title === alertText ? baseTitle() : alertText;
   }
 
-  function alertOnce(session, p) {
-    var key = p.phase + ':' + session.pomodoro.phaseStartMs;
-    if (alertedPhaseKey !== key && playSound(PERIOD_END_SOUND[p.phase])) alertedPhaseKey = key;
+  /** Play the sound once for the end named by key (a pomodoro period, or the planned length). */
+  function alertOnce(key, sound) {
+    if (alertedKey !== key && playSound(sound)) alertedKey = key;
+  }
+
+  /** True when a box drawn as running is now over, or the other way round, so the page must be drawn again. */
+  function overChanged(boxId, now) {
+    var box = document.getElementById(boxId);
+    return !!box && !!now && (box.dataset.over === '1') !== now.over;
+  }
+
+  function showText(elementId, text) {
+    var el = document.getElementById(elementId);
+    if (el) el.textContent = text;
   }
 
   // ---------- ticking clock ----------
-  // Ticks on every page while a session runs, so a finished period is announced even from a project page.
+  // Ticks on every page while a session runs, so a finished period or the planned time is announced even from a project page.
+  // The planned time ending comes first: its sound is the chicken (work is over), and its title wins over a pomodoro's.
   function tick() {
     var t = FT.store.today, s = t && t.session;
-    if (!s) { document.title = baseTitle(); return; }
     var nowMs = Date.now();
-    var timerEl = document.getElementById('timer');
-    if (timerEl) timerEl.textContent = clock(workedMs(s, nowMs));
-    var p = pomodoroNow(s, nowMs);
-    if (!p) { document.title = baseTitle(); return; }
-    var pomoEl = document.getElementById('pomo');
-    if (pomoEl && (pomoEl.dataset.over === '1') !== p.over) { FT.render(); return; }
-    if (!p.over) {
-      var leftEl = document.getElementById('pomo-left');
-      if (leftEl) leftEl.textContent = clock(p.leftMs);
+    showCornerTimer(s, nowMs);
+    if (!s) { document.title = baseTitle(); return; }
+    showText('timer', clock(workedMs(s, nowMs)));
+    var plan = planNow(s, nowMs), p = pomodoroNow(s, nowMs);
+    if (overChanged('plan', plan) || overChanged('pomo', p)) { FT.render(); return; }
+    if (plan && !plan.over) showText('plan-left', clock(plan.leftMs));
+    if (p && !p.over) showText('pomo-left', clock(p.leftMs));
+    if (plan && plan.over) {
+      alertOnce('plan:' + s.plannedMin, playChicken);
+      blinkTitle(PLAN_ALERT_TITLE);
+    } else if (p && p.over) {
+      alertOnce(p.phase + ':' + s.pomodoro.phaseStartMs, PERIOD_END_SOUND[p.phase]);
+      blinkTitle(ALERT_TITLE[p.phase]);
+    } else {
       document.title = baseTitle();
-      return;
     }
-    alertOnce(s, p);
-    showAlertTitle(p);
   }
+
+  // ---------- corner timer ----------
+  // A small timer in a corner of every page while a session runs. Drag it (mouse or finger) and it snaps to the nearest
+  // corner; click it to open the focus project; ✕ hides it. Its corner and whether it is hidden are kept on this device.
+  var TIMER_CORNER_KEY = 'ft.timer.corner', TIMER_HIDDEN_KEY = 'ft.timer.hidden';
+  var CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  var DEFAULT_CORNER = 'bottom-left'; // sticky notes have the bottom right
+  var DRAG_START_PX = 6; // a smaller move is still a click
+  var cornerTimer = null, cornerDrag = null, cornerJustDragged = false;
+
+  function lsGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function lsSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  function lsRemove(key) { try { localStorage.removeItem(key); } catch (e) {} }
+
+  function cornerTimerHidden() { return lsGet(TIMER_HIDDEN_KEY) === '1'; }
+  function savedCorner() { var corner = lsGet(TIMER_CORNER_KEY); return CORNERS.indexOf(corner) !== -1 ? corner : DEFAULT_CORNER; }
+
+  function setCornerTimerHidden(hidden) {
+    if (hidden) lsSet(TIMER_HIDDEN_KEY, '1'); else lsRemove(TIMER_HIDDEN_KEY);
+    FT.render();
+  }
+
+  /** Made once, outside the page (#app is redrawn), and kept up to date by tick(). */
+  function cornerTimerElement() {
+    if (cornerTimer) return cornerTimer;
+    cornerTimer = document.createElement('div');
+    cornerTimer.className = 'cornertimer';
+    cornerTimer.id = 'cornerTimer';
+    cornerTimer.hidden = true;
+    cornerTimer.dataset.corner = savedCorner();
+    cornerTimer.innerHTML = '<button type="button" class="ct-open" data-act="today.timerOpen"><span class="ct-name"></span><span class="ct-clock"></span><span class="ct-sub"></span></button>' +
+      '<button type="button" class="ct-hide" data-act="today.timerHide" aria-label="Hide the timer" title="Hide the timer (Show timer in the session panel or Settings brings it back)">✕</button>';
+    cornerTimer.addEventListener('pointerdown', startCornerDrag);
+    document.body.appendChild(cornerTimer);
+    return cornerTimer;
+  }
+
+  /** What the corner timer says: the planned time left, else the pomodoro, else the time worked; the line under it adds the rest. */
+  function cornerTimerText(s, nowMs) {
+    var plan = planNow(s, nowMs), p = pomodoroNow(s, nowMs);
+    var pomodoroText = p ? PHASE_LABEL[p.phase] + ' ' + (p.over ? 'over' : clock(p.leftMs)) : '';
+    var main = plan ? (plan.over ? 'Time is up' : clock(plan.leftMs))
+      : p ? (p.over ? PHASE_LABEL[p.phase] + ' over' : clock(p.leftMs))
+      : clock(workedMs(s, nowMs));
+    var sub = plan ? (plan.over ? 'of ' : 'left of ') + s.plannedMin + ' min' + (p ? ' · ' + pomodoroText : '')
+      : p ? PHASE_LABEL[p.phase] + ' left'
+      : 'worked';
+    return { main: main, sub: (s.pausedAt ? 'Paused · ' : '') + sub, over: plan ? plan.over : !!(p && p.over) };
+  }
+
+  function showCornerTimer(s, nowMs) {
+    var show = FT.ready && !!s && !cornerTimerHidden();
+    if (!show && !cornerTimer) return;
+    var box = cornerTimerElement();
+    box.hidden = !show;
+    if (!show) return;
+    var project = FT.project(s.projectId), name = project ? project.name : 'Session';
+    var text = cornerTimerText(s, nowMs);
+    box.querySelector('.ct-name').textContent = name;
+    box.querySelector('.ct-clock').textContent = text.main;
+    box.querySelector('.ct-sub').textContent = text.sub;
+    box.querySelector('.ct-open').setAttribute('aria-label', 'Session on ' + name + ': ' + text.main + ', ' + text.sub + '. Open the project');
+    box.classList.toggle('over', text.over);
+  }
+
+  function startCornerDrag(e) {
+    if (e.button > 0 || e.target.closest('.ct-hide')) return;
+    var rect = cornerTimer.getBoundingClientRect();
+    cornerDrag = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top, moved: false };
+    document.addEventListener('pointermove', moveCornerDrag);
+    document.addEventListener('pointerup', endCornerDrag);
+    document.addEventListener('pointercancel', endCornerDrag);
+  }
+
+  function keepInside(position, size, room) { return Math.max(0, Math.min(room - size, position)); }
+
+  function moveCornerDrag(e) {
+    if (!cornerDrag || e.pointerId !== cornerDrag.pointerId) return;
+    var movedPx = Math.max(Math.abs(e.clientX - cornerDrag.startX), Math.abs(e.clientY - cornerDrag.startY));
+    if (!cornerDrag.moved && movedPx < DRAG_START_PX) return;
+    cornerDrag.moved = true;
+    e.preventDefault();
+    cornerTimer.classList.add('dragging');
+    cornerTimer.style.left = keepInside(e.clientX - cornerDrag.offsetX, cornerTimer.offsetWidth, window.innerWidth) + 'px';
+    cornerTimer.style.top = keepInside(e.clientY - cornerDrag.offsetY, cornerTimer.offsetHeight, window.innerHeight) + 'px';
+    cornerTimer.style.right = 'auto';
+    cornerTimer.style.bottom = 'auto';
+  }
+
+  /** The corner nearest to where the timer's middle was dropped. */
+  function nearestCorner(rect) {
+    var middleX = rect.left + rect.width / 2, middleY = rect.top + rect.height / 2;
+    return (middleY < window.innerHeight / 2 ? 'top' : 'bottom') + '-' + (middleX < window.innerWidth / 2 ? 'left' : 'right');
+  }
+
+  function endCornerDrag(e) {
+    if (!cornerDrag || e.pointerId !== cornerDrag.pointerId) return;
+    var moved = cornerDrag.moved;
+    cornerDrag = null;
+    document.removeEventListener('pointermove', moveCornerDrag);
+    document.removeEventListener('pointerup', endCornerDrag);
+    document.removeEventListener('pointercancel', endCornerDrag);
+    if (!moved) return;
+    var corner = nearestCorner(cornerTimer.getBoundingClientRect());
+    cornerTimer.classList.remove('dragging');
+    ['left', 'top', 'right', 'bottom'].forEach(function (side) { cornerTimer.style[side] = ''; });
+    cornerTimer.dataset.corner = corner;
+    lsSet(TIMER_CORNER_KEY, corner);
+    // The click that ends a drag must not open the project.
+    cornerJustDragged = true;
+    setTimeout(function () { cornerJustDragged = false; }, 0);
+  }
+
+  FT.action('today.timerOpen', function () {
+    var s = FT.store.today && FT.store.today.session;
+    if (cornerJustDragged || !s) return;
+    FT.go('project', { id: s.projectId });
+  });
+  FT.action('today.timerHide', function () {
+    setCornerTimerHidden(true);
+    FT.toast('Timer hidden. Show timer in the session panel or Settings brings it back.');
+  });
+  FT.action('today.timerShow', function () { setCornerTimerHidden(false); });
+
+  FT.settings.add({ id: 'timer', order: 25, html: function () {
+    var hidden = cornerTimerHidden();
+    return '<label>Corner timer during a session (this device)</label><div class="choice two" role="radiogroup" aria-label="Corner timer">' +
+      [['show', 'Show', !hidden], ['hide', 'Hide', hidden]].map(function (o) {
+        return '<label><input type="radio" name="dlg-cornertimer" value="' + o[0] + '"' + (o[2] ? ' checked' : '') + '>' + o[1] + '</label>';
+      }).join('') + '</div>';
+  }, onOpen: function (root) {
+    Array.prototype.forEach.call(root.querySelectorAll('input[name="dlg-cornertimer"]'), function (radio) {
+      radio.addEventListener('change', function () { setCornerTimerHidden(radio.value === 'hide'); });
+    });
+  } });
+
+  /** The page to open on while a session runs: the focus project (shell.html asks when the app opens). */
+  FT.sessionPage = function () {
+    var s = FT.store.today && FT.store.today.session;
+    return s ? { view: 'project', projectId: s.projectId } : null;
+  };
 
   /**
    * The top of today's focus project page: the running session with its pomodoro, or a button to start one.
@@ -274,7 +498,7 @@
     if (!t.focusId || t.focusId !== p.id) return '';
     if (!t.session) {
       return '<section class="panel focusbar"><span><span class="label" style="margin:0">Today\'s focus</span> This is today\'s focus project.</span>' +
-        '<button class="btn primary" data-act="today.start">Start session</button></section>';
+        '<span class="actions" style="margin:0"><button class="btn primary" data-act="today.start">Start session</button>' + lengthPickerHtml(t) + '</span></section>';
     }
     return '<section class="panel"><div class="label">Session</div>' + sessionHtml(t) + '</div></section>';
   }
@@ -324,9 +548,41 @@
   FT.action('today.start', function () {
     var t = FT.store.today;
     if (t.session || !t.focusId) return;
-    callNow('start', { projectId: t.focusId }, function () {
-      t.session = { projectId: t.focusId, start: new Date().toISOString(), pausedMs: 0, pausedAt: '', pomodoro: null };
-      return function () { t.session = null; };
+    var plannedMin = chosenLength(t), lengthBefore = t.focusLength;
+    callNow('start', { projectId: t.focusId, plannedMin: plannedMin }, function () {
+      t.session = { projectId: t.focusId, start: new Date().toISOString(), pausedMs: 0, pausedAt: '', pomodoro: null, plannedMin: plannedMin };
+      t.focusLength = plannedMin;
+      return function () { t.session = null; t.focusLength = lengthBefore; };
+    });
+  });
+
+  /** Custom… asks for the minutes. The box is drawn again first, so Cancel leaves the length as it was. */
+  FT.on('change', 'today.length', function (el) {
+    if (el.value !== CUSTOM_LENGTH) { chosenLengthMin = el.value === NO_LIMIT ? null : Number(el.value); FT.render(); return; }
+    var current = chosenLength(FT.store.today);
+    FT.render();
+    FT.dialog({
+      title: 'Session length',
+      submit: 'Use this length',
+      fields: [{ id: 'minutes', label: 'Minutes (1 to ' + MAX_LENGTH_MIN + ')', value: current ? String(current) : '' }],
+      onSubmit: function (v) {
+        var minutes = Number(v.minutes);
+        if (!v.minutes || Math.floor(minutes) !== minutes || minutes < 1 || minutes > MAX_LENGTH_MIN) throw new Error('Type a whole number of minutes from 1 to ' + MAX_LENGTH_MIN + '.');
+        chosenLengthMin = minutes;
+        FT.render();
+      }
+    });
+  });
+
+  /** Same rule as keepGoing on the server: more minutes from now (or from the planned end if later), or no limit. */
+  FT.action('today.keepGoing', function (el) {
+    var s = FT.store.today.session;
+    if (!s) return;
+    var extraMin = el.dataset.min ? Number(el.dataset.min) : null, plannedBefore = s.plannedMin;
+    callNow('keepGoing', { minutes: extraMin }, function () {
+      var workedMin = Math.ceil(workedMs(s, Date.now()) / 60000);
+      s.plannedMin = extraMin === null ? null : Math.max(s.plannedMin || 0, workedMin) + extraMin;
+      return function () { s.plannedMin = plannedBefore; };
     });
   });
   FT.action('today.showAnyway', function () { showFocusOnAwayDay = FT.store.today.day; FT.render(); });
@@ -427,6 +683,22 @@
       onSubmit: function (v) { return FT.rpc('today', 'pomodoroSettings', { work: v.work, break: v.break }, { quiet: true }); }
     });
   });
+  /** Throw the running session away after a clear question: nothing is logged and the project is left as it was. */
+  function confirmDiscard(p) {
+    FT.dialog({
+      title: 'Delete this session?',
+      subtitle: p ? p.name : '',
+      body: '<p>Nothing is logged, its minutes do not count and the next action stays as it is. You cannot undo this.</p>',
+      submit: 'Delete session',
+      danger: true,
+      onSubmit: function () {
+        var t = FT.store.today, before = t.session;
+        callNow('discard', undefined, function () { t.session = null; return function () { t.session = before; }; });
+        FT.toast('Session deleted. Nothing was logged.');
+      }
+    });
+  }
+
   FT.action('today.finish', function () {
     var t = FT.store.today, p = FT.project(t.session ? t.session.projectId : t.focusId);
     FT.dialog({
@@ -437,6 +709,11 @@
         { id: 'where', label: 'Where did you stop?', type: 'textarea', placeholder: 'One line is enough' },
         { id: 'next', label: 'What is the very next action?', value: p ? p.next_action : '', maxlength: 300 }
       ],
+      after: t.session ? '<div class="discardrow"><span>Not worth keeping?</span><button class="btn sm danger" type="button" id="dlg-discard">Delete this session</button></div>' : '',
+      onOpen: function () {
+        var discard = document.getElementById('dlg-discard');
+        if (discard) discard.addEventListener('click', function () { confirmDiscard(p); });
+      },
       onSubmit: function (v) {
         return FT.rpc('today', 'finish', { projectId: p && p.id, where: v.where, next: v.next }, { quiet: true });
       }
