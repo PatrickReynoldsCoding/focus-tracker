@@ -42,6 +42,15 @@
 :root[data-theme="eink"] .cornertimer { border: 3px solid #000; box-shadow: none; background: #fff; color: #000; }
 :root[data-theme="eink"] .cornertimer .ct-name, :root[data-theme="eink"] .cornertimer .ct-sub, :root[data-theme="eink"] .cornertimer .ct-hide { color: #000; }
 :root[data-theme="eink"] .cornertimer.over { border-style: double; border-width: 6px; }
+.fcompact { padding: 14px 16px; }
+.fc-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-right: 76px; min-height: 30px; }
+.fc-top .label { margin: 0; }
+.fc-timer { font-family: var(--font-mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.fc-top .state { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--warn); }
+.fc-name { font-size: 22px; line-height: 1.15; margin: 6px 0 6px; }
+.fc-next { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-next small { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin-right: 4px; }
+.fcompact .actions { margin-top: 10px; }
 </style>
 <script>
 (function () {
@@ -200,26 +209,50 @@
       '<div class="actions"><button class="btn" data-act="today.showAnyway">Show my focus anyway</button></div></section>';
   }
 
-  function staleBanner(f) {
-    var stale = activeProjects().filter(function (p) { return p.id !== f.id && FT.daysSince(p.last_touched) >= FT.config.staleDays; });
-    return stale.length ? '<div class="banner">Not touched for a while: ' + stale.map(function (p) {
+  function staleProjects(f) {
+    return activeProjects().filter(function (p) { return p.id !== f.id && FT.daysSince(p.last_touched) >= FT.config.staleDays; });
+  }
+
+  function staleBanner(stale) {
+    return stale.length ? '<div class="banner stalebanner"><b data-panel-title>Not touched for a while:</b> ' + stale.map(function (p) {
       return '<b>' + FT.esc(p.name) + '</b> (' + FT.daysSince(p.last_touched) + ' days)';
-    }).join(', ') + '.</div>' : '';
+    }).join(', ') + '.<span class="popspot"></span></div>' : '';
+  }
+
+  /**
+   * The phone's pinned focus: the timer, the project, its next action, the planned time left (or Finish and Keep going once
+   * it is up) and the pomodoro, then Start with its length, or Finish with Pause or Resume.
+   */
+  function focusCompactHtml(t, f) {
+    var s = t.session, paused = !!(s && s.pausedAt);
+    var timer = s ? '<span class="fc-timer" id="timer" role="timer" aria-label="Session time">' + clock(workedMs(s, Date.now())) + '</span>' + (paused ? '<span class="state">Paused</span>' : '') : '';
+    var buttons = s
+      ? '<button class="btn primary" data-act="today.finish">Finish session</button>' + (paused ? '<button class="btn" data-act="today.resume">Resume</button>' : '<button class="btn" data-act="today.pause">Pause</button>')
+      : '<button class="btn primary" data-act="today.start">Start session</button>' + lengthPickerHtml(t);
+    return '<section class="panel fcompact"><div class="fc-top"><span class="label">Today\'s focus</span>' + timer + '</div>' +
+      '<h2 class="fc-name">' + FT.esc(f.name) + '</h2>' +
+      '<div class="fc-next"><small>Next</small> ' + FT.linkify(f.next_action) + '</div>' +
+      (s ? planHtml(t) + pomodoroHtml(t) : '') +
+      '<div class="actions">' + buttons + '</div></section>';
   }
 
   function render() {
     var t = FT.store.today || {};
     var f = t.focusId ? FT.project(t.focusId) : null;
     var resting = t.away && !t.session && showFocusOnAwayDay !== t.day;
+    var working = f && !resting, stale = working ? staleProjects(f) : [];
     var focus = resting ? awayHtml(t)
       : f ? focusHtml(t, f)
       : '<section class="panel"><p class="empty">No active projects yet. Add one to get a focus for the day.</p><button class="btn primary" data-act="core.tab" data-view="projects">Go to Projects</button></section>';
     // A panel marked beside: true (the small tasks) sits next to the focus by default; the rest go after the rotation.
     var extra = extraPanels();
-    return remindersHtml(t) + (f && !resting ? staleBanner(f) : '') + FT.layout('today', [{ id: 'focus', title: 'Today\'s focus', description: 'The project picked for today, its next action and the session timer.', html: focus, w: 7 }]
+    return remindersHtml(t) + FT.layout('today', [
+      { id: 'stale', title: 'Not touched for a while', short: 'Not touched', count: stale.length, description: 'Active projects you have not worked on for a few days. Shows only when there are some.',
+        html: staleBanner(stale), w: 12, top: true },
+      { id: 'focus', title: 'Today\'s focus', description: 'The project picked for today, its next action and the session timer.', html: focus, compact: working ? focusCompactHtml(t, f) : '', w: 7 }]
       .concat(extra.filter(function (p) { return p.beside; }))
-      .concat([{ id: 'rotation', title: 'Weekly rotation', description: 'Which category leads on each day of the week.', html: f ? rotationHtml(t) : '', w: extra.some(function (p) { return p.beside; }) ? 7 : 5 }])
-      .concat(extra.filter(function (p) { return !p.beside; })));
+      .concat([{ id: 'rotation', title: 'Weekly rotation', short: 'Rotation', description: 'Which category leads on each day of the week.', html: f ? rotationHtml(t) : '', w: extra.some(function (p) { return p.beside; }) ? 7 : 5 }])
+      .concat(extra.filter(function (p) { return !p.beside; })), { pager: { pinned: 'focus' } });
   }
 
   // ---------- alerts ----------

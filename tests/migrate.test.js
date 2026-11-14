@@ -192,7 +192,7 @@ test('a v1 spreadsheet is backed up, then migrated to v2 with no value lost', ()
   assert.strictEqual(b.data.today.lead, 'house', 'this week\'s change applies today');
   assert.strictEqual(b.data.today.usual[6], 'away');
   assert.deepStrictEqual(b.data.habits.habits.map((h) => [h.name, h.sessions, h.per, h.size, h.category]), [['Job search', 1, 'day', '10 min', 'job']], 'v3: the daily minimum is a habit');
-  assert.deepStrictEqual(b.data.layout, LAYOUT);
+  assert.deepStrictEqual(b.data.layout, { today: LAYOUT.today, project: { kanban: { x: 0, y: 3, w: 12, removed: true } } }, 'a hidden panel is read as removed');
   assert.deepStrictEqual(b.data.kanban.tasks.filter((t) => t.owner === 'l0000001').map((t) => t.title), ['A film', 'A book']);
   assert.deepStrictEqual(b.data.kanban.columns.filter((c) => c.owner === 'l0000001').map((c) => c.name), ['Watch', 'Read']);
   assert.deepStrictEqual(b.data.kanban.tasks.find((t) => t.id === 't0000002').note, 'Use USB');

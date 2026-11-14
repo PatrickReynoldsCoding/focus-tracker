@@ -50,7 +50,7 @@
       var pageLayout = FT.store.layout[PAGE] = FT.store.layout[PAGE] || {};
       pageLayout[PANEL_ID] = { x: 0, y: 10000, w: 12 };
       return function () { delete pageLayout[PANEL_ID]; };
-    }, function () { return FT.rpc('layout', 'setHidden', { page: PAGE, id: PANEL_ID, hidden: false }, { render: false }); }).catch(function () {});
+    }, function () { return FT.rpc('layout', 'setRemoved', { page: PAGE, id: PANEL_ID, removed: false }, { render: false }); }).catch(function () {});
   }
 
   function addable() {

@@ -38,7 +38,7 @@ async function run(browser, size) {
   const sleep = (ms) => pg.waitForTimeout(ms);
 
   await pg.goto(env.url);
-  await pg.waitForSelector('.focus-name');
+  await pg.waitForSelector(size.mobile ? '.fc-name' : '.focus-name');
 
   // Anything on screen that a click could change: the page, the dialog, the message, the page address.
   const signature = () => pg.evaluate(() => [document.getElementById('app').innerText, document.getElementById('dialogRoot').innerHTML.length,
@@ -67,12 +67,17 @@ async function run(browser, size) {
   const projectRow = (id) => env.server.run('bootstrap()').data.projects.find((p) => p.id === id);
   const status = () => pg.evaluate(() => FT.project(FT.state.projectId).status);
   const projectId = () => pg.evaluate(() => FT.state.projectId);
+  // On a phone Today shows one panel at a time: tap its chip first (the pager's own checks are further down).
+  const showPanel = (id) => quickly(async () => {
+    const chip = '#app .pchip[data-id="' + id + '"]';
+    if (size.mobile && await pg.isVisible(chip)) await pg.click(chip);
+  });
 
   env.latency = LATENCY;
 
   // ---------- 1 and 2: Today ----------
   await quick('Today: Start session', pg.locator('[data-act="today.start"]'));
-  assert.ok(await pg.isVisible('.timer'), 'the timer shows straight away');
+  assert.ok(await pg.isVisible('#timer'), 'the timer shows straight away');
   await settle();
   assert.ok(todayState().session, 'the session reached the server');
   await quick('Today: Pause', pg.locator('[data-act="today.pause"]'));
@@ -82,6 +87,7 @@ async function run(browser, size) {
   await quick('Today: Resume', pg.locator('[data-act="today.resume"]'));
   await settle();
   assert.ok(!todayState().session.pausedAt, 'the resume reached the server');
+  if (size.mobile) await quick('Today: More on the pinned focus', pg.locator('.ppinned-more'));
   await quick('Today: Pomodoro lengths dialog', pg.locator('[data-act="today.pomodoroSettings"]')); await closeDialog();
   await quick('Today: Finish dialog', pg.locator('[data-act="today.finish"]')); await closeDialog();
   log('Today: session buttons answer at once and the server catches up');
@@ -156,6 +162,7 @@ async function run(browser, size) {
   const today = srv('todayIso_()');
   const doneToday = (id) => { const r = habitsNow().log.find((x) => x.habit_id === id && x.kind === 'done' && x.day === today); return r ? r.count : 0; };
   const jobId = habitsNow().habits.find((h) => h.name === 'Job search').id;
+  await showPanel('habits');
   const dot = () => pg.locator(`.habits-panel .habit[data-id="${jobId}"] [data-act="habits.tap"]`).first();
   await quick('Habits: tap a dot', dot());
   assert.ok(await pg.isVisible(`.habits-panel .habit[data-id="${jobId}"] .dot.on`), 'the dot fills at once');
@@ -174,6 +181,7 @@ async function run(browser, size) {
   assert.strictEqual(doneToday(jobId), 0, 'the server never changed');
   log('Habits: a dot tap and − answer at once and reach the server; a refused tap is put back');
 
+  await showPanel('todos');
   const grocery = () => todosNow().find((t) => t.title === 'Grocery shopping');
   await quick('To-dos: tick', pg.locator('.todos li:has-text("Grocery shopping") input[type="checkbox"]'));
   assert.ok(await pg.isVisible('.todos li.done:has-text("Grocery shopping")'), 'struck through at once');
@@ -202,7 +210,9 @@ async function run(browser, size) {
   const lastAnswer = () => srv(`new Table('Habit log', ['id']).all().filter(function (r) { return r.kind === 'prompt'; }).map(function (r) { return r.value; }).pop()`);
   for (const [label, answer] of [['Not now', 'not now'], ['Yes, adjust', 'yes'], ['I\'m at my goal', 'at goal']]) {
     makeDue();
-    await quickly(async () => { await pg.evaluate(() => FT.reload()); await pg.waitForSelector('.stepcard'); });
+    await quickly(async () => { await pg.evaluate(() => FT.reload()); });
+    await showPanel('habits');
+    await pg.waitForSelector('.stepcard');
     await quick('Want to go further?: ' + label, pg.locator(`.stepcard [data-act="habits.answer"][data-answer="${answer}"]`));
     assert.ok(!(await pg.isVisible('.stepcard')), 'the card goes at once');
     assert.ok(/Undo/.test(await pg.evaluate(() => document.getElementById('toast').innerText)), 'and the message offers Undo');
@@ -244,6 +254,7 @@ async function run(browser, size) {
   assert.ok(await pg.isVisible('.habits-panel .habit:has-text("Learn Spanish")'), 'and the screen agrees');
   log('All habits, quick-add an aspiring habit and Start answer at once and reach the server');
 
+  await showPanel('rotation');
   await quick('Today: Rotation Edit dialog', pg.locator('[data-act="today.rotationEdit"], [data-act="today.editRotation"], [data-act="today.rotation"]').first()); await closeDialog();
 
   // ---------- 1 and 2: a project page ----------
@@ -431,6 +442,7 @@ async function run(browser, size) {
   await settle();
   assert.strictEqual(env.server.run('bootstrap()').data.whiteboard.find((b) => b.id === boardId).show_today, 'yes', 'On Today reached the server');
   await gotoTab('Today');
+  await showPanel('whiteboard-' + boardId);
   const todayThumb = pg.locator('#app .wbtodaypanel .wbthumb').first();
   await todayThumb.scrollIntoViewIfNeeded();
   const t0 = Date.now();
@@ -441,11 +453,85 @@ async function run(browser, size) {
   await pg.waitForSelector('#wb-shell', { state: 'detached', timeout: 10000 });
   await settle();
   log('Whiteboards: the tab\'s buttons and "+ Today" answer at once, and a board on Today opens from its thumbnail');
-
-  // ---------- Edit layout: the header button (desktop) or menu item (phone), ▲ ▼ on a phone, Hide and Add feature ----------
+  // ---------- Moving panels: by the title (desktop), the phone's pager and press-and-hold (phone) ----------
   await gotoTab('Today');
   const layoutNow = () => JSON.parse(JSON.stringify(env.server.run('bootstrap()').data.layout));
   const panelOnPage = (id) => `#app .grid-stack-item[gs-id="${id}"], #app .lcell[data-panel="${id}"]`;
+  const box = (selector) => pg.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }, selector);
+  if (!size.mobile) {
+    const gridLoaded = await pg.evaluate(() => !!window.GridStack && !!document.querySelector('#app .grid-stack-item[gs-id="rotation"]'));
+    if (!gridLoaded) {
+      out.push('  skip [' + size.name + '] Drag by the title: GridStack did not load from the CDN');
+    } else {
+      await pg.evaluate(() => window.scrollTo(0, 0));
+      const focusBefore = await box('#app .grid-stack-item[gs-id="focus"]');
+      const next = await box('#app .grid-stack-item[gs-id="focus"] .next');
+      await pg.mouse.move(next.x + 10, next.y + next.h / 2);
+      await pg.mouse.down();
+      await pg.mouse.move(next.x + 200, next.y + next.h / 2 + 120, { steps: 8 });
+      await pg.mouse.up();
+      assert.deepStrictEqual(await box('#app .grid-stack-item[gs-id="focus"]'), focusBefore, 'dragging inside a panel does not move it');
+      assert.ok((await pg.evaluate(() => String(window.getSelection()))).length > 0, 'it selects text instead');
+      const rotationBefore = await box('#app .grid-stack-item[gs-id="rotation"]');
+      const handle = await box('#app .grid-stack-item[gs-id="rotation"] .panel-handle');
+      const savedBefore = JSON.stringify(layoutNow().today || {});
+      await pg.mouse.move(handle.x + 10, handle.y + handle.h / 2);
+      await pg.mouse.down();
+      await pg.mouse.move(focusBefore.x + 30, focusBefore.y + 10, { steps: 12 });
+      await pg.mouse.up();
+      await sleep(300);
+      const rotationAfter = await box('#app .grid-stack-item[gs-id="rotation"]');
+      assert.ok(rotationAfter.y < rotationBefore.y || rotationAfter.x < rotationBefore.x, 'dragged by its title, the panel moved without Edit layout');
+      assert.ok(!(await pg.isVisible('.editbar')), 'and Edit layout stayed off');
+      await settle();
+      assert.notStrictEqual(JSON.stringify(layoutNow().today || {}), savedBefore, 'the new place reached the server');
+      log('Drag by the title: a panel moves at any time and is saved; dragging inside it selects text');
+      const tops = await pg.evaluate(() => {
+        const p = FT.store.projects.find((x) => x.status === 'active' && x.id !== FT.store.today.focusId);
+        p.last_touched = new Date(Date.now() - 8 * 86400000).toISOString();
+        FT.render();
+        return [...document.querySelectorAll('#app .grid-stack-item')].map((el) => ({ id: el.getAttribute('gs-id'), top: el.getBoundingClientRect().top }));
+      });
+      const stale = tops.find((t) => t.id === 'stale');
+      assert.ok(stale && tops.every((t) => t.top >= stale.top), '"Not touched for a while" shows above the saved panels: ' + JSON.stringify(tops));
+      log('"Not touched for a while" is a panel, placed above a saved layout');
+    }
+  } else {
+    const cdp = await ctx.newCDPSession(pg);
+    const finger = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+    const chipIds = () => pg.evaluate(() => [...document.querySelectorAll('#app .pchip')].map((c) => c.dataset.id));
+    const chosen = () => pg.evaluate(() => document.querySelector('#app .pchip[aria-selected="true"]').dataset.id);
+    assert.ok(await pg.isVisible('#app .ppager > .ppinned:first-child + .pchips'), 'the focus is pinned at the top, above the chips');
+    const ids = await chipIds();
+    assert.ok(ids.length >= 3 && !ids.includes('focus'), 'a chip for each other panel: ' + ids.join(','));
+    await quick('Today pager: tap a chip', pg.locator(`#app .pchip[data-id="${ids[0]}"]`));
+    assert.strictEqual(await chosen(), ids[0]);
+    await pg.evaluate(() => window.scrollTo(0, 0));
+    const area = await box('#app .ppanel:not([hidden])');
+    const swipeY = area.y + Math.min(area.h / 2, 120);
+    await finger('touchStart', 330, swipeY);
+    for (const x of [300, 250, 200, 150, 100]) await finger('touchMove', x, swipeY + 2);
+    await finger('touchEnd', 100, swipeY + 2);
+    await sleep(300);
+    assert.strictEqual(await chosen(), ids[1], 'a swipe on the panel shows the next one');
+    assert.strictEqual(await pg.evaluate(() => FT.state.view), 'today', 'and stays on Today');
+    log('Today pager: the pinned focus, a chip answers at once, a swipe changes the panel and not the tab');
+
+    const chip0 = await box(`#app .pchip[data-id="${ids[0]}"]`), chip1 = await box(`#app .pchip[data-id="${ids[1]}"]`);
+    await finger('touchStart', chip0.x + chip0.w / 2, chip0.y + chip0.h / 2);
+    await sleep(600);
+    assert.ok(await pg.isVisible('#app .pchip.lifted'), 'held, the chip lifts');
+    for (const step of [0.3, 0.6, 1]) await finger('touchMove', chip0.x + chip0.w / 2 + (chip1.x + chip1.w - 4 - chip0.x - chip0.w / 2) * step, chip0.y + chip0.h / 2);
+    await finger('touchEnd', chip1.x + chip1.w - 4, chip0.y + chip0.h / 2);
+    await sleep(100);
+    const want = [ids[1], ids[0]].concat(ids.slice(2));
+    assert.deepStrictEqual(await chipIds(), want, 'dropped after the next chip at once');
+    await settle();
+    assert.deepStrictEqual((layoutNow()['today.phone'] || []).filter((id) => want.includes(id)), want, 'the phone order reached the server');
+    log('Press and hold a chip, then drag it: the order changes at once and reaches the server');
+  }
+
+  // ---------- Edit layout: the header button (desktop) or menu item (phone), ▲ ▼ on a phone, Remove and Add feature ----------
   if (size.mobile) {
     await quickly(() => pg.click('#menuBtn'));
     assert.strictEqual(await pg.innerText('#menuLayoutBtn'), 'Edit layout', 'the phone menu has Edit layout');
@@ -457,34 +543,37 @@ async function run(browser, size) {
   assert.ok(await pg.isVisible('.editbar [data-act="core.addFeature"]'), 'Edit layout shows Add feature');
   if (size.mobile) {
     const order = () => pg.evaluate(() => [...document.querySelectorAll('#app .lcell')].map((c) => c.dataset.panel));
-    const start = await order(), swapped = [start[1], start[0]].concat(start.slice(2));
-    await quick('Edit layout: ▼', pg.locator(`.lcell[data-panel="${start[0]}"] [data-act="core.movePanel"][data-d="1"]`));
+    const start = await order(), swapped = [start[0], start[2], start[1]].concat(start.slice(3));
+    assert.strictEqual(start[0], 'focus', 'the pinned focus is first');
+    await quick('Edit layout: ▼', pg.locator(`.lcell[data-panel="${start[1]}"] [data-act="core.movePanel"][data-d="1"]`));
     assert.deepStrictEqual(await order(), swapped, 'moved down at once');
     await settle();
-    assert.deepStrictEqual((layoutNow()['today.phone'] || []).slice(0, 2), swapped.slice(0, 2), 'the phone order reached the server');
-    await quick('Edit layout: ▲', pg.locator(`.lcell[data-panel="${start[0]}"] [data-act="core.movePanel"][data-d="-1"]`));
+    const savedPair = () => (layoutNow()['today.phone'] || []).filter((id) => id === start[1] || id === start[2]);
+    assert.deepStrictEqual(savedPair(), [start[2], start[1]], 'the phone order reached the server');
+    await quick('Edit layout: ▲', pg.locator(`.lcell[data-panel="${start[1]}"] [data-act="core.movePanel"][data-d="-1"]`));
     assert.deepStrictEqual(await order(), start, 'moved back up at once');
     await settle();
-    assert.deepStrictEqual((layoutNow()['today.phone'] || []).slice(0, 2), start.slice(0, 2), 'and that reached the server');
+    assert.deepStrictEqual(savedPair(), [start[1], start[2]], 'and that reached the server');
     log('Edit layout: ▲ ▼ move a panel at once and the phone order reaches the server');
   }
-  await quick('Edit layout: Hide', pg.locator('#app [data-act="core.hidePanel"][data-id="rotation"]'));
+  await quick('Edit layout: Remove', pg.locator('#app [data-act="core.removePanel"][data-id="rotation"]'));
   assert.ok(!(await pg.isVisible(panelOnPage('rotation'))), 'the panel goes at once');
   await settle();
-  assert.ok(layoutNow().today.rotation.hidden, 'the hide reached the server');
+  assert.ok(layoutNow().today.rotation.removed, 'the remove reached the server');
   await quick('Edit layout: Add feature', pg.locator('.editbar [data-act="core.addFeature"]'));
-  assert.ok(await pg.isVisible('#dlg-features li:has-text("Weekly rotation")'), 'the hidden panel is offered');
-  await quick('Add feature: Add a hidden panel', pg.locator('#dlg-features [aria-label="Add Weekly rotation"]'));
+  assert.ok(await pg.isVisible('#dlg-features li:has-text("Weekly rotation")'), 'the removed panel is offered');
+  assert.ok(await pg.isVisible('#dlg-features li.on:has-text("Habits")'), 'in one list with the panels already on the page');
+  await quick('Add feature: Add a removed panel', pg.locator('#dlg-features [aria-label="Add Weekly rotation"]'));
   assert.ok(await pg.isVisible(panelOnPage('rotation')), 'it is back at once');
   await settle();
-  assert.ok(!layoutNow().today.rotation.hidden, 'the show reached the server');
+  assert.ok(!layoutNow().today.rotation.removed, 'the add reached the server');
   await quick('Add feature: Add a list to Today', pg.locator('#dlg-features [aria-label="Add Shopping"]'));
   assert.ok(await pg.isVisible(panelOnPage('list-' + listId)), 'the list is on Today at once');
   await settle();
   assert.strictEqual(env.server.run('bootstrap()').data.lists.find((l) => l.id === listId).show_today, 'yes', 'show_today reached the server');
   await quickly(async () => { await pg.click('#dlg-submit'); await pg.click('.editbar [data-act="core.layout"]'); });
   assert.ok(!(await pg.isVisible('.editbar')), 'Done leaves Edit layout');
-  log('Edit layout: the button, Hide, Add feature and its Add answer at once and reach the server');
+  log('Edit layout: the button, Remove, Add feature and its Add answer at once and reach the server');
 
 
   // ---------- 3: a save the server refuses ----------

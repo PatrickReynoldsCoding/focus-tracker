@@ -237,10 +237,17 @@
       '</section>';
   }
 
+  /** For the phone's chip: how many active habits are done for now (today, or this week for a weekly one), of how many. */
+  function doneCount() {
+    var list = activeHabits();
+    if (!list.length) return '';
+    return list.filter(function (h) { var pr = progress(h); return pr.done >= pr.target; }).length + '/' + list.length;
+  }
+
   function todayPanels() {
     var html = panelHtml();
     popId = null;
-    return [{ id: 'habits', title: 'Habits', description: 'Your habits as rows of dots to tap, the step-up prompt, All habits and Plan my week.', html: html, w: 5, beside: true }];
+    return [{ id: 'habits', title: 'Habits', description: 'Your habits as rows of dots to tap, the step-up prompt, All habits and Plan my week.', html: html, w: 5, beside: true, count: doneCount() }];
   }
 
   FT.module({ id: 'habits', slots: { 'today.panels': [{ order: 0, render: todayPanels }], 'today.planWeek': [{}] } });

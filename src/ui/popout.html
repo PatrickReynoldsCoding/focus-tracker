@@ -226,7 +226,8 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     return panels.map(function (panel) {
       if (!panel.html) return panel;
       var win = findWindow(windowKey(page, projectId, panel.id));
-      return win ? copyOf(panel, { html: placeholderHtml(win) }) : withPopButton(page, panel);
+      // compact is the phone pager's pinned version (Today's focus): a popped-out panel shows only its placeholder there too
+      return win ? copyOf(panel, { html: placeholderHtml(win), compact: '' }) : withPopButton(page, panel);
     });
   });
 

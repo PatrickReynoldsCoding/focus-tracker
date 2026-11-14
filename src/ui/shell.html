@@ -12,6 +12,7 @@
  *              'addable.today': [{ render: function (FT, project) { return [{ id, title, description, panel, add: fn }]; } }] },   // optional extension points
  *     // title and description name a panel in Edit layout's "Add feature"; an alwaysShown panel cannot be hidden. addable.<page> (today, project, ...) offers
  *     // things that can be put on that page; add() shows one at once and saves it (see FT.optimistic).
+ *     // A Today panel may also give short (its chip's name on a phone) and count (a short number on the chip); see FT.layout.
  *     onProject: function (projectId) {}                                                           // optional, runs when a project page opens
  *   });
  * Interactions use data attributes handled by delegation:
@@ -532,11 +533,14 @@ var FT = (function () {
   }
 
   // ---------- page layout ----------
-  // Desktop pages are a 12-column grid (GridStack, loaded from a CDN). In "Edit layout" mode panels can be dragged
-  // and their left or right edge dragged to change the width; heights follow the content. Places are saved per page.
+  // Desktop pages are a 12-column grid (GridStack, loaded from a CDN). A panel can be dragged by its title at any time;
+  // in "Edit layout" mode it can be dragged by any part and its left or right edge dragged to change the width. Heights
+  // follow the content. Places are saved per page.
   // On a phone, or if the grid library did not load, panels flow in order. A phone has its own order (▲ ▼ in Edit
-  // layout), saved apart from the desktop grid as `<page>.phone`. Hidden panels are hidden on every screen size.
-  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null, layoutHidden = [], layoutShown = [], layoutIds = [];
+  // layout, or press and hold a panel and drag it), saved apart from the desktop grid as `<page>.phone`. A page can ask
+  // for a pager on a phone (Today): one panel pinned at the top, a row of chips, and one panel at a time.
+  // A removed panel is off the page on every screen size until Add feature puts it back.
+  var LAYOUT_COLUMNS = 12, grids = [], layoutPage = null, layoutPanels = [], layoutShown = [], layoutIds = [];
   var narrow = window.matchMedia('(max-width: 760px)');
   if (narrow.addEventListener) narrow.addEventListener('change', function () { FT.state.editLayout = false; FT.render(); });
 
@@ -571,20 +575,118 @@ var FT = (function () {
 
   function panelName(p) { return p.title || p.id; }
 
-  /** In Edit layout without the grid (a phone): the panel's name, ▲ ▼ on a phone, and Hide, each a 44 px target. */
-  function flowEditHtml(p, i, count) {
+  /** A removed panel's saved place. A copy of the layout saved on this device before 2026-11-14 may still say hidden. */
+  function isRemoved(place) { return !!(place && (place.removed || place.hidden)); }
+
+  /** In Edit layout without the grid (a phone): the panel's name, ▲ ▼ on a phone (not for the pinned one), and Remove, each a 44 px target. */
+  function flowEditHtml(p, spot) {
     var id = FT.esc(p.id), name = FT.esc(panelName(p));
-    var arrows = narrow.matches
-      ? '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="-1" aria-label="Move ' + name + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
-        '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="1" aria-label="Move ' + name + ' down"' + (i === count - 1 ? ' disabled' : '') + '>▼</button>'
-      : '';
+    var arrows = spot.pinned ? '<span class="pedit-pinned">Pinned at the top</span>'
+      : narrow.matches
+        ? '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="-1" aria-label="Move ' + name + ' up"' + (spot.first ? ' disabled' : '') + '>▲</button>' +
+          '<button class="pedit-btn" data-act="core.movePanel" data-id="' + id + '" data-d="1" aria-label="Move ' + name + ' down"' + (spot.last ? ' disabled' : '') + '>▼</button>'
+        : '';
     return '<div class="pedit"><span class="pedit-title">' + name + '</span><span class="pedit-btns">' + arrows +
-      (p.alwaysShown ? '' : '<button class="pedit-btn pedit-hide" data-act="core.hidePanel" data-id="' + id + '" aria-label="Hide ' + name + '">Hide</button>') + '</span></div>';
+      (p.alwaysShown ? '' : '<button class="pedit-btn pedit-remove" data-act="core.removePanel" data-id="' + id + '" aria-label="Remove ' + name + '">Remove</button>') + '</span></div>';
   }
 
-  function allHiddenHtml() {
-    return '<section class="panel allhidden"><p class="empty">All panels are hidden. Edit layout → Add feature</p>' +
+  function allRemovedHtml() {
+    return '<section class="panel allremoved"><p class="empty">Every panel is removed from this page. Edit layout → Add feature</p>' +
       '<div class="actions"><button class="btn primary" data-act="core.addFeature">Add feature</button></div></section>';
+  }
+
+  function panelWidth(saved, p) { return placeOf(saved, p.id) ? saved[p.id].w : (p.w || LAYOUT_COLUMNS); }
+
+  function flowHtml(saved, pinned, list, edit) {
+    var cells = (pinned ? [pinned] : []).concat(list);
+    return '<div class="lflow">' + cells.map(function (p) {
+      var at = list.indexOf(p), spot = { pinned: p === pinned, first: at === 0, last: at === list.length - 1 };
+      return '<div class="lcell" style="--span:' + panelWidth(saved, p) + '" data-panel="' + FT.esc(p.id) + '">' + (edit ? flowEditHtml(p, spot) : '') + p.html + '</div>';
+    }).join('') + '</div>';
+  }
+
+  /**
+   * The grid's panels. A panel with no saved place goes where the grid finds room, except one marked top (a reminder
+   * such as "Not touched for a while"): initGrids moves it above the rest once the grid is built.
+   */
+  function gridHtml(page, shown, saved, edit) {
+    return '<div class="grid-stack" data-page="' + FT.esc(page) + '">' + shown.map(function (p) {
+      var s = placeOf(saved, p.id), w = p.w || LAYOUT_COLUMNS;
+      var place = s ? ' gs-x="' + s.x + '" gs-y="' + s.y + '" gs-w="' + s.w + '"'
+        : ' gs-w="' + w + '" gs-auto-position="true"' + (p.top ? ' data-new-on-top' : '');
+      var remove = edit && !p.alwaysShown ? '<button class="removebtn" data-act="core.removePanel" data-id="' + FT.esc(p.id) + '" aria-label="Remove ' + FT.esc(panelName(p)) + '">Remove</button>' : '';
+      return '<div class="grid-stack-item" gs-id="' + FT.esc(p.id) + '"' + place + '><div class="grid-stack-item-content">' + p.html + '</div>' + remove + '</div>';
+    }).join('') + '</div>';
+  }
+
+  // ---------- the phone's pager (Today) ----------
+  // The pinned panel stays at the top: its short version (compact) with a More button for the whole panel. Below it
+  // one chip per other panel, in the phone's order, and one panel at a time. Tap a chip or swipe the panel sideways to
+  // change panel. The chip last chosen is kept on this device, per mode and page.
+  var PAGER_KEY = 'ft.pager.', pinnedOpen = {};
+  function pagerKey(page) { return PAGER_KEY + (FT.state.mode || '') + '.' + page; }
+
+  function chosenPanel(page, list) {
+    var saved = lsGet(pagerKey(page));
+    return list.some(function (p) { return p.id === saved; }) ? saved : list[0].id;
+  }
+
+  function pinnedHtml(page, pinned) {
+    if (!pinned.compact) return '<div class="ppinned" data-panel="' + FT.esc(pinned.id) + '">' + pinned.html + '</div>';
+    var open = !!pinnedOpen[page];
+    return '<div class="ppinned" data-panel="' + FT.esc(pinned.id) + '">' + (open ? pinned.html : pinned.compact) +
+      '<button class="btn sm ppinned-more" data-act="core.pinnedMore" aria-expanded="' + open + '" aria-label="' + (open ? 'Less of ' : 'More of ') + FT.esc(panelName(pinned)) + '">' + (open ? 'Less' : 'More') + '</button></div>';
+  }
+
+  function chipHtml(p, chosen) {
+    var id = FT.esc(p.id), on = p.id === chosen, count = p.count === undefined || p.count === null || p.count === '' ? '' : String(p.count);
+    return '<button class="pchip" role="tab" id="pchip-' + id + '" aria-selected="' + on + '" aria-controls="ppanel-' + id + '" tabindex="' + (on ? '0' : '-1') + '"' +
+      ' data-act="core.pagerChip" data-id="' + id + '">' + FT.esc(p.short || panelName(p)) + (count ? '<span class="pcount">' + FT.esc(count) + '</span>' : '') + '</button>';
+  }
+
+  function pagerHtml(page, pinned, list) {
+    var top = pinned ? pinnedHtml(page, pinned) : '';
+    if (!list.length) return '<div class="ppager" data-page="' + FT.esc(page) + '">' + top + '</div>';
+    var chosen = chosenPanel(page, list);
+    return '<div class="ppager" data-page="' + FT.esc(page) + '">' + top +
+      '<div class="pchips" role="tablist" aria-label="Panels on this page">' + list.map(function (p) { return chipHtml(p, chosen); }).join('') + '</div>' +
+      '<div class="ppanels">' + list.map(function (p) {
+        var id = FT.esc(p.id);
+        return '<div class="ppanel" role="tabpanel" id="ppanel-' + id + '" aria-labelledby="pchip-' + id + '" data-panel="' + id + '"' + (p.id === chosen ? '' : ' hidden') + '>' + p.html + '</div>';
+      }).join('') + '</div></div>';
+  }
+
+  function pagerChips() {
+    var pager = document.querySelector('#app .ppager');
+    return pager ? Array.prototype.slice.call(pager.querySelectorAll('.pchip')) : [];
+  }
+  function chosenChipIndex(chips) {
+    for (var i = 0; i < chips.length; i++) if (chips[i].getAttribute('aria-selected') === 'true') return i;
+    return -1;
+  }
+
+  /** Show one panel of the pager without redrawing the page (what is typed elsewhere stays). dir: +1 from the right, -1 from the left. */
+  function showPagerPanel(id, dir) {
+    var pager = document.querySelector('#app .ppager');
+    if (!pager) return;
+    var chips = pagerChips(), chip = chips.filter(function (c) { return c.dataset.id === id; })[0];
+    if (!chip) return;
+    chips.forEach(function (c) { var on = c === chip; c.setAttribute('aria-selected', on ? 'true' : 'false'); c.tabIndex = on ? 0 : -1; });
+    Array.prototype.forEach.call(pager.querySelectorAll('.ppanel'), function (body) {
+      body.hidden = body.dataset.panel !== id;
+      body.classList.remove('slide-next', 'slide-prev');
+      if (!body.hidden && dir && motionOk()) { void body.offsetWidth; body.classList.add(dir > 0 ? 'slide-next' : 'slide-prev'); }
+    });
+    lsSet(pagerKey(pager.dataset.page), id);
+    try { chip.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+  }
+
+  /** The next (dir 1) or previous (-1) panel of the pager. False at either end. */
+  function pagerStep(dir) {
+    var chips = pagerChips(), next = chips[chosenChipIndex(chips) + dir];
+    if (!next) return false;
+    showPagerPanel(next.dataset.id, dir);
+    return true;
   }
 
   /**
@@ -598,46 +700,46 @@ var FT = (function () {
   /**
    * Lay out a page's panels. page: a short key such as 'today'. panels: [{ id, title, description, html, w }] where w is
    * the default width in twelfths, and title and description name the panel in Edit layout's Add feature. Panels with no
-   * html are left out. An alwaysShown panel has no Hide and shows even if it was hidden before.
+   * html are left out (but still listed in Add feature). Optional: top (a new panel goes above the rest on the grid),
+   * alwaysShown (no Remove, and shown even if it was removed or hidden before), and for the phone's pager short (the
+   * chip's name), count (a short number on the chip) and compact (the pinned panel's short version).
+   * opts.pager: { pinned: id } shows the page as a pager on a phone, with that panel pinned at the top.
    */
-  FT.layout = function (page, panels) {
+  FT.layout = function (page, panels, opts) {
+    opts = opts || {};
     panels = layoutTaps.reduce(function (list, tap) { return list && tap(page, list); }, panels);
     if (!panels) return '';
     layoutPage = page;
+    layoutPanels = panels;
     var all = FT.store.layout || {}, saved = all[page] || {}, edit = FT.state.editLayout && isLoaded('layout');
+    function removed(p) { return !p.alwaysShown && isRemoved(saved[p.id]); }
     var drawn = panels.filter(function (p) { return p.html; });
-    function hidden(p) { return !p.alwaysShown && !!(saved[p.id] && saved[p.id].hidden); }
-    layoutHidden = drawn.filter(hidden);
-    var shown = drawn.filter(function (p) { return !hidden(p); });
+    var shown = drawn.filter(function (p) { return !removed(p); });
     layoutShown = []; layoutIds = [];
-    if (!shown.length && layoutHidden.length) return allHiddenHtml();
-    if (!canArrange()) {
-      var list = narrow.matches ? phoneOrder(drawn, saved, all[phoneKey(page)]) : readingOrder(drawn, saved);
-      layoutIds = list.map(function (p) { return p.id; });
-      list = list.filter(function (p) { return !hidden(p); });
-      layoutShown = list.map(function (p) { return p.id; });
-      return '<div class="lflow">' + list.map(function (p, i) {
-        var w = placeOf(saved, p.id) ? saved[p.id].w : (p.w || LAYOUT_COLUMNS);
-        return '<div class="lcell" style="--span:' + w + '" data-panel="' + FT.esc(p.id) + '">' + (edit ? flowEditHtml(p, i, list.length) : '') + p.html + '</div>';
-      }).join('') + '</div>';
+    if (!shown.length && drawn.length) return allRemovedHtml();
+    if (canArrange()) {
+      layoutShown = shown.map(function (p) { return p.id; });
+      return gridHtml(page, shown, saved, edit);
     }
-    layoutShown = shown.map(function (p) { return p.id; });
-    return '<div class="grid-stack" data-page="' + FT.esc(page) + '">' + shown.map(function (p) {
-      var s = placeOf(saved, p.id);
-      var place = s ? ' gs-x="' + s.x + '" gs-y="' + s.y + '" gs-w="' + s.w + '"' : ' gs-w="' + (p.w || LAYOUT_COLUMNS) + '" gs-auto-position="true"';
-      var hide = edit && !p.alwaysShown ? '<button class="hidebtn" data-act="core.hidePanel" data-id="' + FT.esc(p.id) + '" aria-label="Hide ' + FT.esc(panelName(p)) + '">Hide</button>' : '';
-      return '<div class="grid-stack-item" gs-id="' + FT.esc(p.id) + '"' + place + '><div class="grid-stack-item-content">' + p.html + '</div>' + hide + '</div>';
-    }).join('') + '</div>';
+    var order = narrow.matches ? phoneOrder(drawn, saved, all[phoneKey(page)]) : readingOrder(drawn, saved);
+    layoutIds = order.map(function (p) { return p.id; });
+    var list = order.filter(function (p) { return !removed(p); });
+    var pager = narrow.matches && opts.pager;
+    var pinned = pager ? list.filter(function (p) { return p.id === opts.pager.pinned; })[0] : null;
+    if (pinned) list = list.filter(function (p) { return p !== pinned; });
+    layoutShown = list.map(function (p) { return p.id; });
+    if (pager && !edit) return pagerHtml(page, pinned, list);
+    return flowHtml(saved, pinned, list, edit);
   };
 
   function saveLayout(page, grid) {
     var previous = (FT.store.layout || {})[page] || {};
     var items = grid.engine.nodes.map(function (n) { return { id: n.id, x: n.x, y: n.y, w: n.w }; });
     Object.keys(previous).forEach(function (id) {
-      if (previous[id].hidden) items.push({ id: id, x: previous[id].x, y: previous[id].y, w: previous[id].w, hidden: true });
+      if (isRemoved(previous[id])) items.push({ id: id, x: previous[id].x, y: previous[id].y, w: previous[id].w, removed: true });
     });
     var positions = {};
-    items.forEach(function (it) { positions[it.id] = { x: it.x, y: it.y, w: it.w }; if (it.hidden) positions[it.id].hidden = true; });
+    items.forEach(function (it) { positions[it.id] = { x: it.x, y: it.y, w: it.w }; if (it.removed) positions[it.id].removed = true; });
     FT.store.layout = FT.store.layout || {};
     FT.store.layout[page] = positions;
     FT.rpc('layout', 'save', { page: page, items: items }, { render: false }).catch(function () {});
@@ -669,16 +771,37 @@ var FT = (function () {
     });
   }
 
+  // Outside Edit layout a panel moves only by its title, so text, buttons and editors inside it work as usual.
+  // The title is what a module marks with data-panel-title, else the panel's first label or heading; a panel with
+  // none of those gets a small grip at its top edge.
+  var PANEL_HANDLE = 'panel-handle';
+
+  function markPanelHandle(item) {
+    var content = item.querySelector('.grid-stack-item-content');
+    var title = content && content.querySelector('[data-panel-title], .label, h2');
+    if (!title) {
+      title = document.createElement('span');
+      title.className = 'panel-grip';
+      item.appendChild(title);
+    }
+    title.classList.add(PANEL_HANDLE);
+    title.title = 'Drag to move this panel';
+  }
+
   function initGrids() {
     grids.forEach(function (g) { g.destroy(false); });
     grids = [];
     gridBusy = false;
     if (canArrange()) {
+      var arranging = !!FT.state.editLayout;
       Array.prototype.forEach.call(document.querySelectorAll('#app .grid-stack'), function (el) {
+        if (!arranging) Array.prototype.forEach.call(el.querySelectorAll('.grid-stack-item'), markPanelHandle);
         var grid = window.GridStack.init({
-          column: LAYOUT_COLUMNS, cellHeight: 8, margin: 8, float: false, animate: false,
-          staticGrid: !FT.state.editLayout, sizeToContent: true, resizable: { handles: 'e, w' }
+          column: LAYOUT_COLUMNS, cellHeight: 8, margin: 8, float: false, animate: false, sizeToContent: true,
+          handle: arranging ? '.grid-stack-item-content' : '.' + PANEL_HANDLE,
+          disableResize: !arranging, resizable: { handles: 'e, w' }
         }, el);
+        Array.prototype.forEach.call(el.querySelectorAll('.grid-stack-item[data-new-on-top]'), function (item) { grid.update(item, { x: 0, y: 0 }); });
         var page = el.dataset.page;
         grid.on('dragstart resizestart', function () { gridBusy = true; });
         grid.on('dragstop resizestop', function () {
@@ -716,7 +839,7 @@ var FT = (function () {
     }
   }
 
-  function setPanelHidden(id, hidden) {
+  function setPanelRemoved(id, removed) {
     if (!layoutPage) return;
     var page = layoutPage;
     FT.store.layout = FT.store.layout || {};
@@ -724,19 +847,17 @@ var FT = (function () {
     var before = pageLayout[id] ? JSON.parse(JSON.stringify(pageLayout[id])) : null;
     FT.optimistic(function () {
       var place = pageLayout[id] || { x: 0, y: 10000, w: 12 };
-      if (hidden) place.hidden = true; else delete place.hidden;
+      delete place.hidden;
+      if (removed) place.removed = true; else delete place.removed;
       pageLayout[id] = place;
       return function () { if (before) pageLayout[id] = before; else delete pageLayout[id]; };
-    }, function () { return FT.rpc('layout', 'setHidden', { page: page, id: id, hidden: hidden }, { render: false }); }).catch(function () {});
+    }, function () { return FT.rpc('layout', 'setRemoved', { page: page, id: id, removed: removed }, { render: false }); }).catch(function () {});
   }
 
-  /** Swap a panel with its neighbour in the phone's order (d is -1 for up, 1 for down). Shown at once, saved behind. */
-  function movePanel(id, d) {
-    var page = layoutPage, at = layoutShown.indexOf(id), other = layoutShown[at + d];
-    if (!page || at === -1 || !other) return;
-    var order = layoutIds.slice(), i = order.indexOf(id), j = order.indexOf(other);
-    order[i] = other; order[j] = id;
-    var key = phoneKey(page), before = (FT.store.layout || {})[key];
+  /** Save a new phone order of the page's panels: shown at once, saved behind, put back if the save is refused. */
+  function savePhoneOrder(drawnOrder) {
+    var page = layoutPage, key = phoneKey(page), before = (FT.store.layout || {})[key];
+    var order = withUndrawnPanels(drawnOrder, before || []);
     FT.optimistic(function () {
       FT.store.layout = FT.store.layout || {};
       FT.store.layout[key] = order;
@@ -744,11 +865,43 @@ var FT = (function () {
     }, function () { return FT.rpc('layout', 'saveOrder', { page: page, order: order }, { render: false }); }).catch(function () {});
   }
 
+  /**
+   * The order of the panels drawn now, with the saved ones not drawn now (such as "Not touched for a while" on a day
+   * nothing is stale) kept just after the panel they followed, so a reorder does not lose their place.
+   */
+  function withUndrawnPanels(drawnOrder, savedOrder) {
+    var order = drawnOrder.slice();
+    savedOrder.forEach(function (id, i) {
+      if (order.indexOf(id) !== -1) return;
+      var after = savedOrder.slice(0, i).reverse().filter(function (earlier) { return order.indexOf(earlier) !== -1; })[0];
+      order.splice(after === undefined ? 0 : order.indexOf(after) + 1, 0, id);
+    });
+    return order;
+  }
+
+  /** Swap a panel with its neighbour in the phone's order (d is -1 for up, 1 for down). */
+  function movePanel(id, d) {
+    var at = layoutShown.indexOf(id), other = layoutShown[at + d];
+    if (!layoutPage || at === -1 || !other) return;
+    var order = layoutIds.slice(), i = order.indexOf(id), j = order.indexOf(other);
+    order[i] = other; order[j] = id;
+    savePhoneOrder(order);
+  }
+
+  /**
+   * The phone order after some panels were put in a new sequence (a long press and drag): they take the places in the
+   * order the same panels had, so the pinned panel and removed ones stay where they were.
+   */
+  function orderWithSequence(sequence) {
+    var moved = sequence.filter(function (id) { return layoutIds.indexOf(id) !== -1; }), next = 0;
+    return layoutIds.map(function (id) { return moved.indexOf(id) !== -1 ? moved[next++] : id; });
+  }
+
   function editBarHtml() {
     if (!editing()) return '';
-    var how = canArrange() ? 'Drag a panel to move it. Drag its left or right edge to change its width. '
-      : narrow.matches ? '▲ ▼ change the order on this phone; a desktop keeps its own layout. ' : '';
-    how += '"Hide" takes a panel off the page; "Add feature" brings it back or adds more.';
+    var how = canArrange() ? 'Drag a panel to move it (or drag it by its title at any time). Drag its left or right edge to change its width. '
+      : narrow.matches ? '▲ ▼ change the order on this phone (or press and hold a panel, then drag it); a desktop keeps its own layout. ' : '';
+    how += '"Remove" takes a panel off the page; "Add feature" puts it back or adds more.';
     return '<div class="editbar" role="status"><span><b>Editing layout.</b> <span class="edithow">' + how + '</span></span>' +
       '<span class="actions" style="margin:0"><button class="btn sm primary addfeature" data-act="core.addFeature">+ Add feature</button>' +
       '<button class="btn sm" data-act="core.layoutReset">Reset this page</button>' +
@@ -757,48 +910,57 @@ var FT = (function () {
   }
 
   // ---------- Add feature ----------
-  // In Edit layout, "Add feature" lists what this page could show but does not: its hidden panels, and whatever modules
+  // One list of everything this page can show: its own panels (removed ones can be added back) and whatever modules
   // offer through the slot 'addable.<page>': render(FT, project) returns [{ id, title, description, panel, add }],
   // where add() shows the item (on screen first, saved behind) and panel is the id of the panel it makes, if any.
-  var featureItems = { hidden: [], more: [] };
+  // What can be added comes first; panels already on the page follow, ticked and greyed.
+  var featureItems = [];
+
+  function offeredByModules() {
+    var project = layoutPage === 'project' ? FT.project(FT.state.projectId) : null;
+    return layoutPage ? FT.slots('addable.' + layoutPage).reduce(function (all, s) { return all.concat(s.render(FT, project) || []); }, []) : [];
+  }
 
   function collectFeatures() {
-    var project = layoutPage === 'project' ? FT.project(FT.state.projectId) : null;
-    featureItems = {
-      hidden: layoutHidden.map(function (p) { return { id: p.id, panel: p.id, title: panelName(p), description: p.description || '' }; }),
-      more: layoutPage ? FT.slots('addable.' + layoutPage).reduce(function (all, s) { return all.concat(s.render(FT, project) || []); }, []) : []
-    };
+    var saved = (FT.store.layout || {})[layoutPage] || {};
+    var rows = layoutPanels.map(function (p) {
+      return { panel: p.id, title: panelName(p), description: p.description || '', onPage: !!p.alwaysShown || !isRemoved(saved[p.id]) };
+    });
+    // A module offers a panel only while it is not on the page (such as the Projects tab's Categories, drawn once placed).
+    offeredByModules().forEach(function (it) {
+      var same = it.panel ? rows.filter(function (r) { return r.panel === it.panel; })[0] : null;
+      if (same) { same.onPage = false; same.add = it.add; return; }
+      rows.push({ panel: it.panel, title: it.title, description: it.description || '', onPage: false, add: it.add });
+    });
+    featureItems = rows.filter(function (r) { return !r.onPage; }).concat(rows.filter(function (r) { return r.onPage; }));
     return featureItems;
   }
 
-  function featureRows(kind, items) {
-    return '<ul class="featlist">' + items.map(function (it, i) {
-      return '<li><div class="feat"><b>' + FT.esc(it.title) + '</b>' + (it.description ? '<small>' + FT.esc(it.description) + '</small>' : '') + '</div>' +
-        '<button class="btn sm primary" data-act="core.addFeatureItem" data-kind="' + kind + '" data-i="' + i + '" aria-label="Add ' + FT.esc(it.title) + '">Add</button></li>';
-    }).join('') + '</ul>';
+  function featureRowHtml(it, i) {
+    var state = it.onPage ? '<span class="feat-on">✓ On page</span>'
+      : '<button class="btn sm primary" data-act="core.addFeatureItem" data-i="' + i + '" aria-label="Add ' + FT.esc(it.title) + '">Add</button>';
+    return '<li' + (it.onPage ? ' class="on"' : '') + '><div class="feat"><b>' + FT.esc(it.title) + '</b>' + (it.description ? '<small>' + FT.esc(it.description) + '</small>' : '') + '</div>' + state + '</li>';
   }
 
   function featuresHtml() {
-    var f = collectFeatures();
-    return '<div id="dlg-features">' +
-      (f.hidden.length ? '<h3 class="feathead">Hidden on this page</h3>' + featureRows('hidden', f.hidden) : '') +
-      (f.more.length ? '<h3 class="feathead">Can be added here</h3>' + featureRows('more', f.more) : '') +
-      (f.hidden.length || f.more.length ? '' : '<p class="empty">Everything this page can show is already on it.</p>') + '</div>';
+    var items = collectFeatures(), canAdd = items.some(function (it) { return !it.onPage; });
+    return '<div id="dlg-features">' + (canAdd ? '' : '<p class="empty">Everything this page can show is already on it.</p>') +
+      '<ul class="featlist">' + items.map(featureRowHtml).join('') + '</ul></div>';
   }
 
   function addFeatureDialog() {
     FT.dialog({
-      title: 'Add feature', subtitle: 'Bring back a hidden panel, or add something to this page.',
+      title: 'Add feature', subtitle: 'Everything this page can show. Add puts it on the page; what is already on it is ticked.',
       body: featuresHtml(), submit: 'Done', cancel: false, onSubmit: function () {}
     });
   }
 
-  function addFeature(kind, i) {
-    var it = (featureItems[kind] || [])[i];
-    if (!it) return;
-    var hiddenPanel = it.panel && layoutHidden.some(function (p) { return p.id === it.panel; });
-    if (kind === 'more' && it.add) it.add();
-    if (hiddenPanel) setPanelHidden(it.panel, false);
+  function addFeature(i) {
+    var it = featureItems[i];
+    if (!it || it.onPage) return;
+    var removedPanel = it.panel && isRemoved(((FT.store.layout || {})[layoutPage] || {})[it.panel]);
+    if (it.add) it.add();
+    if (removedPanel) setPanelRemoved(it.panel, false);
     var box = $('dlg-features');
     if (box) {
       box.outerHTML = featuresHtml();
@@ -821,10 +983,10 @@ var FT = (function () {
     if (FT.state.dragging) { renderWaiting = true; return; }
     renderWaiting = false;
     renderTabs();
-    layoutPage = null;
+    layoutPage = null; layoutPanels = [];
     var html = FT.pageHtml(FT.state.view, FT.state.projectId);
     var y = window.scrollY;
-    $('app').innerHTML = editBarHtml() + html; // after the page html, so the bar knows the page's hidden panels
+    $('app').innerHTML = editBarHtml() + html; // after the page html, so the bar knows the page's panels
     document.body.classList.toggle('editing-layout', editing());
     document.body.classList.toggle('editing-grid', editing() && canArrange());
     initGrids();
@@ -1354,6 +1516,8 @@ var FT = (function () {
   // ---------- swipe between views (phone) ----------
   // A sideways swipe moves to the next or previous tab. It is ignored where a sideways gesture already means something:
   // boards (drag and drop, sideways scroll), sticky notes, whiteboards, editors, dialogs and anything that scrolls sideways.
+  // On a pager's panel (Today) a swipe changes the panel instead, and stops at the first and last panel: the pinned
+  // panel, the chips and the strip under the bar still swipe between tabs.
   var swipeStart = null;
   /** Elements that use a sideways gesture themselves block a swipe outright. */
   function swipeBlocked(el) {
@@ -1395,42 +1559,152 @@ var FT = (function () {
       setTimeout(function () { el.style.transition = ''; }, 280);
     }, 140);
   }
-  function snapBack() {
-    var el = $('app');
+  function snapBack(el) {
     if (!el) return;
     el.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out'; el.style.transform = ''; el.style.opacity = '';
     setTimeout(function () { el.style.transition = ''; }, 240);
   }
+  function putBack(el) { if (el) { el.style.transition = ''; el.style.transform = ''; el.style.opacity = ''; } }
+
+  /** What a sideways swipe from this element moves through: the pager's panels, or the tabs. */
+  function swipeSteps(target) {
+    var panels = target.closest && target.closest('#app .ppanels');
+    if (panels && pagerChips().length > 1) {
+      return { el: panels, at: function () { return chosenChipIndex(pagerChips()); }, count: function () { return pagerChips().length; },
+        go: function (dir) { putBack(panels); pagerStep(dir); } };
+    }
+    return { el: $('app'), at: currentIndex, count: function () { return viewIds().length; },
+      go: function (dir) { slideTo(viewIds()[currentIndex() + dir], dir); } };
+  }
 
   document.addEventListener('touchstart', function (e) {
     swipeStart = narrow.matches && e.touches.length === 1 && !swipeBlocked(e.target)
-      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), dragging: false, scrollers: sidewaysScrollers(e.target), decided: false, blocked: false } : null;
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), dragging: false, scrollers: sidewaysScrollers(e.target), decided: false, blocked: false, steps: swipeSteps(e.target) } : null;
   }, { passive: true });
-  // While the finger is down the page follows it (less at the first or last view, so you can feel the end).
+  // While the finger is down the page (or the pager's panel) follows it, less at the first or last one, so you can feel the end.
   document.addEventListener('touchmove', function (e) {
-    var s = swipeStart, el = $('app');
+    var s = swipeStart, el = s && s.steps.el;
     if (!s || !el || !e.touches.length || FT.state.editLayout || !motionOk()) return;
     var dx = e.touches[0].clientX - s.x, dy = e.touches[0].clientY - s.y;
     if (!s.dragging) {
       if (Math.abs(dx) > 16 && Math.abs(dx) > Math.abs(dy) * 1.6) { s.dragging = true; s.blocked = canScrollThatWay(s.scrollers, dx); s.decided = true; } else return;
     }
     if (s.blocked) return;
-    var at = currentIndex(), target = at + (dx < 0 ? 1 : -1), atEnd = at < 0 || target < 0 || target >= viewIds().length;
+    var at = s.steps.at(), target = at + (dx < 0 ? 1 : -1), atEnd = at < 0 || target < 0 || target >= s.steps.count();
     var pull = dx * (atEnd ? 0.2 : 0.55);
     el.style.transition = 'none'; el.style.transform = 'translateX(' + pull + 'px)'; el.style.opacity = String(1 - Math.min(Math.abs(pull) / 320, 0.45));
   }, { passive: true });
-  document.addEventListener('touchcancel', function () { if (swipeStart && swipeStart.dragging) snapBack(); swipeStart = null; }, { passive: true });
+  document.addEventListener('touchcancel', function () { if (swipeStart && swipeStart.dragging) snapBack(swipeStart.steps.el); swipeStart = null; }, { passive: true });
   document.addEventListener('touchend', function (e) {
     var s = swipeStart; swipeStart = null;
     if (!s || !e.changedTouches.length || FT.state.editLayout) return;
     var dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y;
-    var ids = viewIds(), at = currentIndex(), next = at + (dx < 0 ? 1 : -1);
+    var dir = dx < 0 ? 1 : -1, at = s.steps.at(), next = at + dir;
     if (!s.decided) s.blocked = canScrollThatWay(s.scrollers, dx);
     if (s.blocked) return;
-    var commit = Math.abs(dx) >= 70 && Math.abs(dx) >= Math.abs(dy) * 1.6 && Date.now() - s.t <= 900 && at >= 0 && next >= 0 && next < ids.length;
-    if (commit) slideTo(ids[next], dx < 0 ? 1 : -1);
-    else if (s.dragging) snapBack();
+    var commit = Math.abs(dx) >= 70 && Math.abs(dx) >= Math.abs(dy) * 1.6 && Date.now() - s.t <= 900 && at >= 0 && next >= 0 && next < s.steps.count();
+    if (commit) s.steps.go(dir);
+    else if (s.dragging) snapBack(s.steps.el);
   }, { passive: true });
+
+  // ---------- press, hold and drag to reorder (phone) ----------
+  // Outside Edit layout, holding a finger on a panel (or a pager's chip) for a moment lifts it; dragging then moves it
+  // and letting go saves the phone's order. Moving the finger before then is a scroll or a swipe, and nothing lifts.
+  // Form fields, buttons, links, editors and boards keep their own long press. The lifted panel jumps from place to
+  // place (no animation), so it suits E-ink and "reduce motion" too.
+  var LONG_PRESS_MS = 400, PRESS_SLOP_PX = 10, EDGE_SCROLL_PX = 56, EDGE_SCROLL_STEP_PX = 14;
+  var KEEP_OWN_LONG_PRESS = 'input, textarea, select, button, a[href], label, [contenteditable="true"], .board, .kcard, .col, .sticky, .nt-grip, [data-nolongpress]';
+  var press = null;
+
+  function pressTarget(el) {
+    if (!el || !el.closest || !narrow.matches || FT.state.editLayout || !isLoaded('layout') || !layoutPage) return null;
+    var chip = el.closest('#app .pchip');
+    if (chip) return pagerChips().length > 1 ? { item: chip, axis: 'x' } : null;
+    var cell = el.closest('#app .lflow > .lcell');
+    if (!cell || el.closest(KEEP_OWN_LONG_PRESS) || layoutShown.length < 2) return null;
+    return { item: cell, axis: 'y' };
+  }
+
+  function pressedSiblings() {
+    var kind = press.axis === 'x' ? 'pchip' : 'lcell';
+    return Array.prototype.filter.call(press.item.parentNode.children, function (c) { return c.classList.contains(kind); });
+  }
+  function itemId(item) { return item.dataset.id || item.dataset.panel; }
+
+  function liftPressed() {
+    if (!press) return;
+    press.lifted = true;
+    swipeStart = null;
+    press.item.classList.add('lifted');
+    document.body.classList.add('reordering');
+    try { window.getSelection().removeAllRanges(); } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+    press.edgeTimer = setInterval(scrollNearEdge, 40);
+  }
+
+  /** Move the lifted item before the first other one whose middle is past the finger. */
+  function followFinger() {
+    var finger = press.axis === 'x' ? press.lastX : press.lastY, others = pressedSiblings().filter(function (c) { return c !== press.item; });
+    var before = others.filter(function (c) {
+      var r = c.getBoundingClientRect();
+      return finger < (press.axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2);
+    })[0] || null;
+    var inPlace = before ? press.item.nextElementSibling === before : !press.item.nextElementSibling;
+    if (!inPlace) press.item.parentNode.insertBefore(press.item, before);
+  }
+
+  function scrollNearEdge() {
+    if (!press || !press.lifted) return;
+    if (press.axis === 'y') {
+      var step = press.lastY < EDGE_SCROLL_PX ? -EDGE_SCROLL_STEP_PX : press.lastY > window.innerHeight - EDGE_SCROLL_PX ? EDGE_SCROLL_STEP_PX : 0;
+      if (step) { window.scrollBy(0, step); followFinger(); }
+      return;
+    }
+    var row = press.item.parentNode, box = row.getBoundingClientRect();
+    var sideways = press.lastX < box.left + EDGE_SCROLL_PX ? -EDGE_SCROLL_STEP_PX : press.lastX > box.right - EDGE_SCROLL_PX ? EDGE_SCROLL_STEP_PX : 0;
+    if (sideways) { row.scrollLeft += sideways; followFinger(); }
+  }
+
+  /** Let go: save the new order when the item was dropped (keep), or put the page back as it was. */
+  function endPress(keep) {
+    var ended = press;
+    press = null;
+    if (!ended) return;
+    clearTimeout(ended.timer);
+    clearInterval(ended.edgeTimer);
+    if (!ended.lifted) return;
+    document.body.classList.remove('reordering');
+    ended.item.classList.remove('lifted');
+    var sequence = Array.prototype.map.call(ended.item.parentNode.children, itemId).filter(Boolean);
+    var order = orderWithSequence(sequence);
+    if (order.join() === layoutIds.join()) return;
+    if (keep) savePhoneOrder(order); else FT.render();
+  }
+
+  document.addEventListener('touchstart', function (e) {
+    endPress(false);
+    if (e.touches.length !== 1) return;
+    var target = pressTarget(e.target);
+    if (!target) return;
+    var touch = e.touches[0];
+    press = { item: target.item, axis: target.axis, x: touch.clientX, y: touch.clientY, lastX: touch.clientX, lastY: touch.clientY, lifted: false, timer: setTimeout(liftPressed, LONG_PRESS_MS) };
+  }, { passive: true });
+  // Not passive: once a panel is lifted the finger drags it, so the page must not scroll or swipe.
+  document.addEventListener('touchmove', function (e) {
+    if (!press || !e.touches.length) return;
+    var touch = e.touches[0];
+    if (!press.lifted) {
+      if (Math.abs(touch.clientX - press.x) > PRESS_SLOP_PX || Math.abs(touch.clientY - press.y) > PRESS_SLOP_PX) endPress(false);
+      return;
+    }
+    if (e.cancelable) e.preventDefault();
+    press.lastX = touch.clientX; press.lastY = touch.clientY;
+    followFinger();
+  }, { passive: false });
+  document.addEventListener('touchend', function () { endPress(true); }, { passive: true });
+  document.addEventListener('touchcancel', function () { endPress(false); }, { passive: true });
+  // A long press would otherwise open the browser's own menu or start selecting text.
+  document.addEventListener('contextmenu', function (e) { if (press) e.preventDefault(); });
 
   // ---------- event delegation ----------
   // data-list: the tab's own page (the list of all projects), never the page it was left on.
@@ -1464,8 +1738,12 @@ var FT = (function () {
   FT.action('core.undo', function () { FT.closeDialog(); FT.undo(); });
   FT.action('core.redo', function () { FT.closeDialog(); FT.redo(); });
   FT.action('core.settings', function () { closeMenu(); settingsDialog(); });
-  FT.action('core.hidePanel', function (el) { setPanelHidden(el.dataset.id, true); });
-  FT.action('core.showPanel', function (el) { setPanelHidden(el.dataset.id, false); });
+  FT.action('core.removePanel', function (el) { setPanelRemoved(el.dataset.id, true); });
+  FT.action('core.pagerChip', function (el) {
+    var chips = pagerChips(), from = chosenChipIndex(chips), to = chips.indexOf(el);
+    showPagerPanel(el.dataset.id, to > from ? 1 : to < from ? -1 : 0);
+  });
+  FT.action('core.pinnedMore', function () { pinnedOpen[layoutPage] = !pinnedOpen[layoutPage]; FT.render(); });
   // ▲ ▼ redraw the page: keep the pressed button under the finger and focused, so it can be pressed again.
   FT.action('core.movePanel', function (el) {
     var id = el.dataset.id, d = el.dataset.d, top = el.getBoundingClientRect().top;
@@ -1476,12 +1754,23 @@ var FT = (function () {
     if (again.disabled) again = again.parentNode.querySelector('[data-act="core.movePanel"]:not([disabled])') || again;
     try { again.focus({ preventScroll: true }); } catch (e) {}
   });
-  // From the "All panels are hidden" message, Add feature also turns Edit layout on.
+  // From the "Every panel is removed" message, Add feature also turns Edit layout on.
   FT.action('core.addFeature', function () {
     if (!FT.state.editLayout) { FT.state.editLayout = true; FT.render(); }
     addFeatureDialog();
   });
-  FT.action('core.addFeatureItem', function (el) { addFeature(el.dataset.kind, Number(el.dataset.i)); });
+  FT.action('core.addFeatureItem', function (el) { addFeature(Number(el.dataset.i)); });
+  // The pager's chips are tabs: the arrow keys, Home and End move between them (and show that panel).
+  var CHIP_STEP_BY_KEY = { ArrowRight: 1, ArrowLeft: -1 };
+  document.addEventListener('keydown', function (e) {
+    if (!e.target.classList || !e.target.classList.contains('pchip')) return;
+    var chips = pagerChips(), at = chips.indexOf(e.target);
+    var to = e.key === 'Home' ? 0 : e.key === 'End' ? chips.length - 1 : CHIP_STEP_BY_KEY[e.key] ? at + CHIP_STEP_BY_KEY[e.key] : -1;
+    if (to < 0 || to >= chips.length || to === at) return;
+    e.preventDefault();
+    showPagerPanel(chips[to].dataset.id, to > at ? 1 : -1);
+    chips[to].focus();
+  });
   FT.action('core.layoutReset', function () {
     if (!layoutPage) return;
     var page = layoutPage;
