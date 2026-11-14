@@ -1,7 +1,7 @@
 <style>
 /* Pop-out windows: any panel can leave its page and float on top of every view. Three styles, switched from the title bar:
    a free window (drag, resize, minimise to the dock), the side pane (docked on the right, the page reflows beside it) and the
-   mini card (snaps to a corner, opens on hover or tap). On a phone every window is a card in a bottom corner that opens as a full screen sheet. */
+   mini card (snaps to a corner, opens on hover or tap). A phone has no windows: every panel draws in place. */
 #popRoot { position: fixed; inset: 0; z-index: 36; pointer-events: none; }
 #popRoot > * { pointer-events: auto; }
 .lcell { position: relative; }
@@ -57,22 +57,12 @@ button.poptitle { border: 0; background: none; color: inherit; font: inherit; fo
 .pop-at-tl .popgrip[data-pop-resize="mini"] { bottom: 0; right: 0; cursor: nwse-resize; }
 @media (prefers-reduced-motion: no-preference) { .popwin.pop-mini { transition: width 0.14s ease-out, height 0.14s ease-out; } }
 
-/* Phone: a card of just its title in a bottom corner; tapped, it opens as a sheet over the whole screen. */
-.popwin.pop-phone { height: auto; max-width: min(70vw, 280px); }
-.popwin.pop-phone .popbody { display: none; }
-.popwin.pop-phone .pophead { min-height: 44px; border-bottom: 0; }
-.popwin.pop-phone .popbtns button { min-width: 44px; height: 44px; }
-.popwin.pop-sheet { top: 0; left: 0; right: 0; bottom: 0; width: auto; height: var(--vvh, 100dvh); max-width: none; border-radius: 0; border-width: 0; z-index: 1001 !important; }
-.popwin.pop-sheet .popbody { display: block; }
-.popwin.pop-sheet .pophead { padding-top: max(4px, env(safe-area-inset-top, 0px)); }
-
 .popdock { position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 90vw; }
 body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
 .popchip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 14px; border: 1px solid var(--line-strong, var(--line)); border-radius: 999px;
   background: var(--surface); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16); }
 .popchip:hover { background: var(--surface-2); }
 .popchip::before { content: ""; width: 10px; height: 2px; background: currentColor; opacity: 0.6; }
-@media (max-width: 760px) { .popchip { min-height: 44px; } body.pop-cards-on { padding-bottom: 110px; } }
 
 /* Side pane: docked on the right for every view; the page keeps the rest of the width, so nothing is covered. */
 .poppane { position: fixed; top: 0; right: 0; bottom: 0; width: var(--pop-pane-w); display: flex; flex-direction: column; background: var(--surface); color: var(--ink);
@@ -94,7 +84,6 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
   /* The narrow desktop bar (styles.html, 761 to 1000 px) when the page beside the pane is that narrow. */
   body.pop-pane-tight .bar { flex-wrap: wrap; } body.pop-pane-tight .brand { flex: 1 1 auto; } body.pop-pane-tight .tabs { order: 20; flex: 1 1 100%; }
 }
-@media (max-width: 760px) { .popbtn { width: 40px; height: 40px; margin: -12px -6px -12px 2px; } .popbtn.popcorner { top: 2px; right: 2px; margin: 0; } }
 
 /* E-ink: thick black borders, no shadows (the theme turns off motion everywhere), the chosen style filled black, 44 px targets. */
 :root[data-theme="eink"] .popwin, :root[data-theme="eink"] .poppane, :root[data-theme="eink"] .popchip { border: 3px solid #000 !important; background: #fff; color: #000; }
@@ -119,6 +108,10 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
  *
  * Kept per device and mode in localStorage (`ft.popout.<mode>`): which panels are out, their style, place, size and
  * minimised state, and the pane's width and tab.
+ *
+ * A phone (up to 760 px) has no windows: no Pop out buttons, no windows, pane or dock, and no placeholders, so every
+ * panel draws in place. Windows popped out on a desktop stay saved and come back when the screen is wide again (the
+ * shell draws the page again when the screen crosses 760 px).
  */
 (function () {
   var STATE_KEY = 'ft.popout.';
@@ -134,12 +127,13 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
   var PANELS_TIED_TO_THE_OPEN_PROJECT = { header: true };
   /**
    * Panels whose editor uses fixed element ids (the notes: #nt-text and its toolbar), so only one copy can be on screen.
-   * While one is in a window, every other copy (Today's notes, a project page's notes) shows a note instead of a second editor.
+   * Today's note and a project's notes are both the panel `notes`, so while either is in a window, every other notes
+   * panel (Today's, a project page's) shows a note instead of a second editor.
    */
   var ONE_COPY_ON_SCREEN = { notes: true };
   var FREE_MIN_WIDTH = 240, FREE_MIN_HEIGHT = 140, FREE_MAX_START_WIDTH = 720, FREE_MIN_START_WIDTH = 320;
   var VISIBLE_EDGE = 80, TITLE_BAR_HEIGHT = 40, CASCADE_STEP = 24;
-  var MINI_DEFAULT = { corner: 'bl', w: 380, h: 340 }, MINI_MIN_WIDTH = 240, MINI_MIN_HEIGHT = 160, MINI_GAP = 12, MINI_CLOSED_HEIGHT = 104, PHONE_CARD_HEIGHT = 46;
+  var MINI_DEFAULT = { corner: 'bl', w: 380, h: 340 }, MINI_MIN_WIDTH = 240, MINI_MIN_HEIGHT = 160, MINI_GAP = 12, MINI_CLOSED_HEIGHT = 104;
   var PANE_DEFAULT_WIDTH = 400, PANE_MIN_WIDTH = 280, PANE_MAX_SHARE = 0.7, PANE_KEY_STEP = 24, NARROW_DESKTOP_MAX_WIDTH = 1000;
   var DRAG_THRESHOLD = 6;
   var LABEL_OPENING = /<(div|span) class="label"[^>]*>/;
@@ -150,7 +144,6 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
   var statesByMode = {};
   var livePanelsByPage = {};   // page -> the panels FT.layout drew in this render, before placeholders went in
   var capturedPanelsByPage = null; // while a page is rendered off screen: page -> its panels
-  var sheetKey = null, sheetHistoryEntry = false, backHandlerAdded = false;
   var gesture = null, swallowNextClick = false, escapeTakenElsewhere = false;
 
   var root = document.createElement('div');
@@ -239,15 +232,15 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
 
   FT.onLayout(function (page, panels) {
     if (capturedPanelsByPage) { capturedPanelsByPage[page] = panels; return null; }
+    if (isPhone()) return panels;
     livePanelsByPage[page] = panels;
     var projectId = contextProjectId(page);
     return panels.map(function (panel) {
       if (!panel.html) return panel;
       var win = findWindow(windowKey(page, projectId, panel.id));
-      // compact is the phone pager's pinned version (Today's focus): a popped-out panel shows only its placeholder there too
-      if (win) return copyOf(panel, { html: placeholderHtml(win), compact: '' });
+      if (win) return copyOf(panel, { html: placeholderHtml(win) });
       var other = otherCopyWindow(panel.id);
-      return other ? copyOf(panel, { html: otherCopyHtml(other), compact: '' }) : withPopButton(page, panel);
+      return other ? copyOf(panel, { html: otherCopyHtml(other) }) : withPopButton(page, panel);
     });
   });
 
@@ -323,20 +316,15 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       return '<button type="button" data-act="popout.style" data-style="' + style + '" data-key="' + key + '" aria-pressed="' + (win.style === style) + '" aria-label="' + STYLE_NAMES[style] +
         '" title="' + STYLE_NAMES[style] + '">' + STYLE_ICONS[style] + '</button>';
     }).join('') + '<span class="popsep"></span>' : '';
-    var done = options.done ? '<button type="button" data-act="popout.sheetDone" data-key="' + key + '" aria-label="Back to the card" title="Back to the card">Done</button>' : '';
     var minimise = options.minimise ? '<button type="button" data-act="popout.minimise" data-key="' + key + '" aria-label="Minimise ' + title + '" title="Minimise (Esc)">–</button>' : '';
-    return '<span class="popbtns">' + styles + done + minimise +
+    return '<span class="popbtns">' + styles + minimise +
       '<button type="button" data-act="popout.close" data-key="' + key + '" aria-label="Close ' + title + ' and put it back on its page" title="Close: put it back on its page">✕</button></span>';
   }
 
-  function headHtml(win, look) {
+  function headHtml(win) {
     var title = esc(windowTitle(win));
-    if (look === 'phone-card') {
-      return '<button type="button" class="poptitle popopen" data-act="popout.sheet" data-key="' + esc(win.key) + '" aria-label="Open ' + title + '">' + title + '</button>' +
-        controlsHtml(win, {});
-    }
     return '<span class="poptitle" id="pt-' + esc(win.key) + '" title="' + title + '">' + title + '</span>' +
-      controlsHtml(win, { styles: look !== 'phone-sheet', minimise: true, done: look === 'phone-sheet' });
+      controlsHtml(win, { styles: true, minimise: true });
   }
 
   // ---------- drawing ----------
@@ -358,16 +346,10 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     return el;
   }
 
-  function lookOf(win) {
-    if (!isPhone()) return win.style === 'mini' ? 'mini' : 'free';
-    return sheetKey === win.key ? 'phone-sheet' : 'phone-card';
-  }
+  function lookOf(win) { return win.style === 'mini' ? 'mini' : 'free'; }
 
-  /** The corner a card sits in. A phone keeps them along the bottom, clear of the header. */
-  function cornerOf(win) {
-    var corner = (win.mini && win.mini.corner) || MINI_DEFAULT.corner;
-    return isPhone() ? 'b' + corner.charAt(1) : corner;
-  }
+  /** The corner a mini card sits in. */
+  function cornerOf(win) { return (win.mini && win.mini.corner) || MINI_DEFAULT.corner; }
 
   function freePlace(win) {
     var w = clamp(win.free.w, FREE_MIN_WIDTH, Math.max(FREE_MIN_WIDTH, window.innerWidth));
@@ -387,14 +369,11 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
       s.left = place.x + 'px'; s.top = place.y + 'px'; s.width = place.w + 'px'; s.height = place.h + 'px';
       return;
     }
-    if (look === 'phone-sheet') return;
-    var corner = cornerOf(win), offset = MINI_GAP + stackIndex * ((look === 'mini' ? MINI_CLOSED_HEIGHT : PHONE_CARD_HEIGHT) + MINI_GAP);
-    if (corner.charAt(0) === 't') s.top = (offset + (look === 'mini' ? 56 : 0)) + 'px'; else s.bottom = offset + 'px';
+    var corner = cornerOf(win), offset = MINI_GAP + stackIndex * (MINI_CLOSED_HEIGHT + MINI_GAP);
+    if (corner.charAt(0) === 't') s.top = (offset + 56) + 'px'; else s.bottom = offset + 'px';
     if (corner.charAt(1) === 'l') s.left = MINI_GAP + 'px'; else s.right = MINI_GAP + 'px';
-    if (look === 'mini') {
-      s.setProperty('--mini-w', Math.min(win.mini.w, window.innerWidth - 2 * MINI_GAP) + 'px');
-      s.setProperty('--mini-h', Math.min(win.mini.h, window.innerHeight - 2 * MINI_GAP) + 'px');
-    }
+    s.setProperty('--mini-w', Math.min(win.mini.w, window.innerWidth - 2 * MINI_GAP) + 'px');
+    s.setProperty('--mini-h', Math.min(win.mini.h, window.innerHeight - 2 * MINI_GAP) + 'px');
   }
 
   function drawFloating(list, bodies) {
@@ -402,14 +381,13 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     list.forEach(function (win) {
       keep[win.key] = true;
       var el = frameFor(win.key) || newFrame(win.key), look = lookOf(win);
-      var corner = cornerOf(win), stackIndex = look === 'free' || look === 'phone-sheet' ? 0 : (stackByCorner[corner] = (stackByCorner[corner] === undefined ? 0 : stackByCorner[corner] + 1));
-      el.className = 'popwin pop-' + (look === 'free' ? 'free' : look === 'mini' ? 'mini' : look === 'phone-sheet' ? 'phone pop-sheet' : 'phone') + ' pop-at-' + corner;
+      var corner = cornerOf(win), stackIndex = look === 'free' ? 0 : (stackByCorner[corner] = (stackByCorner[corner] === undefined ? 0 : stackByCorner[corner] + 1));
+      el.className = 'popwin pop-' + look + ' pop-at-' + corner;
       el.setAttribute('aria-label', windowTitle(win) + ' window');
       placeFrame(el, win, look, stackIndex);
-      var head = el.querySelector('.pophead'), headHtmlNow = headHtml(win, look);
+      var head = el.querySelector('.pophead'), headHtmlNow = headHtml(win);
       if (head.__html !== headHtmlNow) { head.innerHTML = headHtmlNow; head.__html = headHtmlNow; }
-      var body = el.querySelector('.popbody');
-      if (look === 'phone-card') { body.innerHTML = ''; body.dataset.drawn = ''; } else setBody(body, bodies(win));
+      setBody(el.querySelector('.popbody'), bodies(win));
     });
     framesOf('popwin').forEach(function (el) { if (!keep[el.dataset.key]) el.remove(); });
   }
@@ -468,15 +446,13 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     if (dock.__html !== html) { dock.innerHTML = html; dock.__html = html; }
   }
 
+  /** A phone draws no windows, pane or dock: the saved windows wait for a wide screen. */
   function draw() {
-    var st = state(), bodies = bodyMaker(), phone = isPhone();
-    var open = st.windows.filter(function (win) { return !win.minimised; });
-    if (sheetKey && !open.some(function (win) { return win.key === sheetKey; })) sheetKey = null;
-    var paneList = phone ? [] : open.filter(function (win) { return win.style === 'pane'; });
-    drawFloating(open.filter(function (win) { return phone || win.style !== 'pane'; }), bodies);
-    drawPane(paneList, bodies);
-    drawDock(st.windows.filter(function (win) { return win.minimised; }));
-    document.body.classList.toggle('pop-cards-on', st.windows.length > 0);
+    var bodies = bodyMaker(), windows = isPhone() ? [] : state().windows;
+    var open = windows.filter(function (win) { return !win.minimised; });
+    drawFloating(open.filter(function (win) { return win.style !== 'pane'; }), bodies);
+    drawPane(open.filter(function (win) { return win.style === 'pane'; }), bodies);
+    drawDock(windows.filter(function (win) { return win.minimised; }));
     livePanelsByPage = {};
   }
 
@@ -511,8 +487,9 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     return { x: Math.round(clamp(x, 0, Math.max(0, window.innerWidth - w))), y: Math.round(clamp(y, 0, Math.max(0, window.innerHeight - h))), w: Math.round(w), h: Math.round(h) };
   }
 
-  /** Pop a panel of the page on screen out into a free window (a card on a phone), keeping the view and project it came from. */
+  /** Pop a panel of the page on screen out into a free window, keeping the view and project it came from. */
   FT.action('popout.open', function (el) {
+    if (isPhone()) return;
     var page = el.dataset.page, projectId = contextProjectId(page), key = windowKey(page, projectId, el.dataset.panel);
     var win = findWindow(key);
     if (!win) {
@@ -527,7 +504,6 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     saveState();
     FT.render();
     focusWindow(key);
-    if (isPhone()) FT.toast(win.title + ' is a card at the bottom of the screen now, on every tab. Tap it to open it.');
   });
 
   FT.action('popout.style', function (el) {
@@ -545,7 +521,6 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     var win = findWindow(key);
     if (!win) return;
     win.minimised = true;
-    if (sheetKey === key) closeSheet();
     saveState();
     FT.render();
     var chip = Array.prototype.filter.call(root.querySelectorAll('.popchip'), function (c) { return c.dataset.key === key; })[0];
@@ -572,34 +547,12 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
   FT.action('popout.close', function (el) {
     var key = el.dataset.key, st = state(), win = findWindow(key);
     if (!win) return;
-    if (sheetKey === key) closeSheet();
     st.windows = st.windows.filter(function (w) { return w.key !== key; });
     saveState();
     FT.render();
     var button = Array.prototype.filter.call(document.querySelectorAll('#app .popbtn'), function (b) { return b.dataset.page === win.page && b.dataset.panel === win.panel; })[0];
     if (button) button.focus(); else { var app = document.getElementById('app'); if (app) app.focus({ preventScroll: true }); }
   });
-
-  // ---------- phone: a card opens as a full screen sheet; the phone's back button closes it ----------
-  function closeSheet() {
-    sheetKey = null;
-    if (sheetHistoryEntry) { sheetHistoryEntry = false; FT.popHistory(); }
-  }
-  FT.action('popout.sheet', function (el) {
-    if (!backHandlerAdded) {
-      backHandlerAdded = true; // added on first use, so editors inside a sheet (the notes) handle a back press first
-      FT.onBack(function () {
-        if (!sheetKey || !sheetHistoryEntry) return false;
-        sheetHistoryEntry = false; sheetKey = null; FT.render();
-        return true;
-      });
-    }
-    sheetKey = el.dataset.key;
-    sheetHistoryEntry = FT.pushHistory();
-    FT.render();
-    focusWindow(sheetKey);
-  });
-  FT.action('popout.sheetDone', function (el) { var key = el.dataset.key; closeSheet(); FT.render(); var card = frameFor(key); if (card) card.focus(); });
 
   // ---------- keyboard: Esc minimises the window that has focus; arrow keys move the pane's divider ----------
   document.addEventListener('keydown', function (e) {
@@ -610,8 +563,7 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     if (!holder) return;
     if (e.key === 'Escape' && !escapeTakenElsewhere && !e.defaultPrevented) {
       e.preventDefault();
-      if (holder.classList.contains('pop-sheet')) { var key = holder.dataset.key; closeSheet(); FT.render(); var card = frameFor(key); if (card) card.focus(); }
-      else minimise(holder.dataset.key);
+      minimise(holder.dataset.key);
       return;
     }
     if (e.target.matches('[data-pop-divider]') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
@@ -655,7 +607,7 @@ body.pop-pane-on .popdock { left: calc((100% - var(--pop-pane-w)) / 2); }
     var look = lookOf(win);
     if (grip && look === 'free') { e.preventDefault(); startGesture(e, 'free-size', frame, win, grip.dataset.popResize); }
     else if (grip && look === 'mini') { e.preventDefault(); startGesture(e, 'mini-size', frame, win, ''); }
-    else if (head && look !== 'phone-sheet' && !e.target.closest('button:not(.popopen)')) startGesture(e, look === 'free' ? 'free-move' : 'card-move', frame, win, '');
+    else if (head && !e.target.closest('button')) startGesture(e, look === 'free' ? 'free-move' : 'card-move', frame, win, '');
   });
 
   function freeRectAfter(start, side, dx, dy) {

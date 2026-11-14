@@ -322,6 +322,7 @@ function guideMarkdown_() {
     '- Notes may use simple markdown: # for a heading, - for a list item, **bold**, *italic*, and [text](https://...) for a link. One paragraph per line: use real line breaks inside the cell (not the two characters backslash and n).',
     '- Writing text into the notes cell never loses the old notes: the app adds your text to the end of them.',
     '- Never create a new Doc or file for notes, and never rename or move the notes Doc: the app could no longer find it.',
+    '- The Doc "Today notes" in the same folder is the owner\'s running note on the Today page, not a project\'s notes. Leave it alone unless the owner asks you to add to it.',
     '- A card has its own short note: the note column in Tasks. To change a card\'s note, write note and empty its note_html cell.', '');
 
   p('## Rules for every row', '',

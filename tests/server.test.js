@@ -517,20 +517,66 @@ test('a notes Doc deleted in Drive: the notes read as empty and the next save ma
   assert.strictEqual(s.call('projects', 'list').result[0].notes, saved.url);
 });
 
-test('notes typed on Today save to today\'s focus project, the same notes as on its page', () => {
+test('Today has its own note: the Doc "Today notes" in the Notes folder, not the focus project\'s notes', () => {
   const s = fresh();
-  s.mock.weekday = 3;
-  const a = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
-  const b = s.call('projects', 'create', { name: 'Shed', category: 'house' }).result;
-  const focusId = s.call('today', 'state').result.focusId;
-  assert.ok([a.id, b.id].includes(focusId));
-  const otherId = focusId === a.id ? b.id : a.id;
-  s.call('notes', 'save', { projectId: focusId, text: 'Written on Today', _base: '', _editedAt: new Date().toISOString() });
-  assert.strictEqual(s.call('notes', 'get', { projectId: focusId }).result.text, 'Written on Today', 'the focus project has them');
-  assert.strictEqual(s.call('notes', 'get', { projectId: otherId }).result.text, '', 'the other project does not');
-  const row = rowsOf(s.ss.sheets.Notes)[0];
-  assert.strictEqual(row.project_id, focusId);
-  assert.strictEqual(json(s.run('bootstrap()')).data.notes.filter((n) => n.project_id === focusId).length, 1, 'one notes row, shared by Today and the project page');
+  const fan = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  assert.strictEqual(s.call('today', 'state').result.focusId, fan.id);
+  assert.deepStrictEqual(s.call('notes', 'get', { projectId: 'today' }).result, { html: '', text: '', url: '', updated: '' }, 'no Doc yet: empty');
+  const saved = s.call('notes', 'save', { projectId: 'today', html: '<p>Call the plumber</p>', _base: '', _editedAt: new Date().toISOString() }).result;
+  const [doc] = s.docs.docs();
+  assert.strictEqual(doc.name, 'Today notes');
+  assert.strictEqual(s.drive.pathOf(doc), 'Focus Tracker/Personal/Notes/Today notes');
+  assert.strictEqual(saved.url, 'https://docs.google.com/document/d/' + doc.id + '/edit');
+  assert.strictEqual(saved.updated, doc.modifiedTime, 'versioned by the Doc\'s modifiedTime, like project notes');
+  tick();
+  const again = s.call('notes', 'save', { projectId: 'today', html: '<p>Call the plumber</p><p>Buy fuses</p>', _base: saved.updated, _editedAt: new Date().toISOString() }).result;
+  assert.strictEqual(s.docs.docs().length, 1, 'the next save updates the same Doc');
+  const got = s.call('notes', 'get', { projectId: 'today' }).result;
+  assert.deepStrictEqual([got.text, got.url, got.updated], ['Call the plumber\nBuy fuses', saved.url, again.updated]);
+  assert.strictEqual(s.call('notes', 'get', { projectId: fan.id }).result.text, '', 'the focus project\'s notes are untouched');
+  assert.deepStrictEqual(rowsOf(s.ss.sheets.Notes).map((r) => [r.project_id, r.doc_id]), [['today', doc.id]], 'one Notes row, keyed "today"');
+  s.call('notes', 'save', { projectId: 'today', html: '', _base: again.updated, _editedAt: new Date().toISOString() });
+  assert.strictEqual(s.call('notes', 'get', { projectId: 'today' }).result.text, '', 'cleared by hand, the same Doc is kept empty');
+  assert.strictEqual(s.docs.docs().length, 1);
+});
+
+test('Today\'s note never shows up as a project: no project row, notes cell, Log project or Insights line', () => {
+  const s = fresh();
+  const fan = s.call('projects', 'create', { name: 'Fan', category: 'house' }).result;
+  const v1 = s.call('notes', 'save', { projectId: 'today', html: '<p>first</p>' }).result.updated;
+  tick();
+  s.call('notes', 'save', { projectId: 'today', html: '<p>from the phone</p>', _base: v1, _editedAt: new Date().toISOString() });
+  tick();
+  const clash = s.call('notes', 'save', { projectId: 'today', html: '<p>from the old laptop tab</p>', _base: v1, _editedAt: new Date(Date.now() + 1000).toISOString() }).result;
+  assert.strictEqual(clash.conflict.kept, 'yours');
+  assert.ok(/^Today notes - conflict \d{12}$/.test(clash.conflict.copyName), 'the conflict copy is named after Today\'s note: ' + clash.conflict.copyName);
+  const copy = s.docs.docs().find((d) => d.name === clash.conflict.copyName);
+  assert.strictEqual(s.docs.text(copy.id), 'from the phone');
+  assert.strictEqual(s.drive.pathOf(copy), 'Focus Tracker/Personal/Notes/' + copy.name, 'a Doc in the Notes folder');
+  const data = json(s.run('bootstrap()')).data;
+  assert.deepStrictEqual(data.projects.map((p) => p.id), [fan.id], 'no project for Today\'s note');
+  assert.strictEqual(data.projects[0].notes, '', 'and no project\'s notes cell links its Doc');
+  const conflictLine = data.log.find((l) => /conflict/i.test(l.where_stopped));
+  assert.ok(conflictLine && /Today's notes/.test(conflictLine.where_stopped) && /Notes folder/.test(conflictLine.where_stopped), 'a Log line says where the copy is');
+  assert.strictEqual(conflictLine.project_id, '', 'with no project');
+  const insights = JSON.stringify(s.call('insights', 'summary').result);
+  assert.ok(!/"(project_)?id":"today"/.test(insights) && !insights.includes('Today notes'), 'Insights has nothing for it');
+  assert.deepStrictEqual(data.notes.map((n) => n.project_id), ['today'], 'the notes slice has its row, for the editor');
+  s.run('ensureSchema_()');
+  assert.strictEqual(s.call('notes', 'get', { projectId: 'today' }).result.text, 'from the old laptop tab', 'schema steps leave it alone');
+  assert.throws(() => s.call('notes', 'save', { projectId: 'ab12cd34', html: '<p>x</p>' }), /Project not found/, 'any other key still needs a project');
+});
+
+test('Today\'s note is per mode: Work has its own "Today notes" Doc in its own Notes folder', () => {
+  const s = fresh();
+  const inWork = (fn, args) => json(s.run('rpc')('notes', fn, json(args), 'work')).result;
+  s.call('notes', 'save', { projectId: 'today', html: '<p>Personal errands</p>' });
+  assert.deepStrictEqual(inWork('get', { projectId: 'today' }), { html: '', text: '', url: '', updated: '' }, 'Work starts with an empty note');
+  inWork('save', { projectId: 'today', html: '<p>Standup at ten</p>' });
+  const paths = s.docs.docs().map((d) => s.drive.pathOf(d)).sort();
+  assert.deepStrictEqual(paths, ['Focus Tracker/Personal/Notes/Today notes', 'Focus Tracker/Work/Notes/Today notes']);
+  assert.strictEqual(s.call('notes', 'get', { projectId: 'today' }).result.text, 'Personal errands');
+  assert.strictEqual(inWork('get', { projectId: 'today' }).text, 'Standup at ten');
 });
 
 test('resources only accept https links and attach to a category or a project', () => {

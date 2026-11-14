@@ -862,7 +862,22 @@ async function run(browser, size) {
   assert.ok(/^https:\/\/docs\.google\.com\/document\/d\//.test(docLink.href) && docLink.href === docRow.doc, '[' + size.name + '] and links the Doc: ' + docLink.href);
   log('"Open in Docs" shows once the notes Doc exists');
 
-  // ---------- 8: pop-out windows ----------
+  // ---------- 8: Today's own note ----------
+  await gotoTab('Today');
+  if (size.mobile) await pg.click('.pchip[data-id="notes"]');
+  await pg.waitForSelector('#nt-text[data-project="today"][contenteditable="true"]', { timeout: 15000 });
+  assert.strictEqual((await pg.textContent('#nt-panel > .label')).trim(), 'Notes', '[' + size.name + '] Today\'s note is labelled Notes');
+  await pg.click('#nt-text');
+  await pg.keyboard.type('Typed into Today in Chrome');
+  if (size.mobile) await pg.click('.notes-done');
+  const todayNotesText = () => env.server.run('rpc')('notes', 'get', { projectId: 'today' }, null).result.text;
+  for (let t0 = Date.now(); !todayNotesText().includes('Typed into Today in Chrome'); await sleep(100)) {
+    assert.ok(Date.now() - t0 < 15000, '[' + size.name + '] Today\'s note never reached its Doc: ' + JSON.stringify(todayNotesText()));
+  }
+  assert.ok(env.server.docs.docs().some((f) => f.name === 'Today notes'), '[' + size.name + '] the Doc "Today notes" holds it');
+  log('Today\'s note: typing saves to its own Doc, "Today notes"');
+
+  // ---------- 9: pop-out windows ----------
   env.latency = LATENCY;
   await gotoTab('Today');
   const popWin = pg.locator('#popRoot .popwin[data-key="today::todos"]');
@@ -872,9 +887,29 @@ async function run(browser, size) {
     await pg.mouse.move(from.x + dx, from.y + dy, { steps: 6 }); await pg.mouse.up(); await sleep(60);
   };
   const near = (a, b, label) => assert.ok(Math.abs(a - b) <= 1.5, '[' + size.name + '] ' + label + ': ' + a + ' vs ' + b);
+  const popRootChildren = () => pg.evaluate(() => document.getElementById('popRoot').children.length);
+  const DESKTOP_VIEWPORT = SIZES.find((s) => !s.mobile).viewport;
+  if (size.mobile) {
+    assert.strictEqual(await pg.locator('#app .popbtn').count(), 0, '[' + size.name + '] no Pop out button on a phone');
+    await pg.setViewportSize(DESKTOP_VIEWPORT);
+    await pg.waitForSelector('#app .popbtn[data-panel="todos"]');
+  }
   await quick('Pop out: To-dos', pg.locator('#app .popbtn[data-panel="todos"]'));
   await popWin.waitFor();
-  if (!size.mobile) {
+  if (size.mobile) {
+    await pg.setViewportSize(size.viewport);
+    await pg.waitForFunction(() => !document.getElementById('popRoot').children.length, null, { timeout: 5000 });
+    assert.strictEqual(await pg.locator('#app .popslot').count(), 0, 'narrowed to a phone: no placeholder');
+    assert.strictEqual(await pg.locator('#app .popbtn').count(), 0, 'and no Pop out buttons');
+    await quick('Phone: the To-dos chip', pg.locator('.pchip[data-id="todos"]'), false);
+    assert.ok(await pg.isVisible('#app #td-new'), 'To-dos draws in place');
+    assert.strictEqual((await saved()).panel, 'todos', 'the desktop window stays saved');
+    await pg.setViewportSize(DESKTOP_VIEWPORT);
+    await popWin.waitFor();
+    await pg.waitForSelector('#app .popslot', { timeout: 5000 });
+    assert.ok((await pg.textContent('#app .popslot')).includes('To-dos'), 'wide again: the window and its placeholder are back');
+    log('Pop out: a phone has no windows or Pop out buttons; a window popped out on a desktop waits and comes back when the screen is wide again');
+  } else {
     const start = await popWin.boundingBox(), title = await popWin.locator('.poptitle').boundingBox();
     await drag({ x: title.x + 30, y: title.y + title.height / 2 }, 150, 80);
     const moved = await popWin.boundingBox();
@@ -924,21 +959,11 @@ async function run(browser, size) {
     const snapped = await popWin.boundingBox();
     near(snapped.x + snapped.width, size.viewport.width - 12, 'against the right edge');
     log('Pop out: a mini card snaps to the nearest corner');
-  } else {
-    assert.ok(await popWin.evaluate((el) => el.classList.contains('pop-phone')), 'on a phone the window is a card');
-    const card = await popWin.boundingBox();
-    assert.ok(card.y + card.height > size.viewport.height - 80, '[' + size.name + '] at the bottom of the screen');
-    await quick('Pop out: open the card', popWin.locator('.popopen'), false);
-    await pg.waitForSelector('#popRoot .pop-sheet #td-new');
-    const sheet = await popWin.boundingBox();
-    near(sheet.width, size.viewport.width, 'the sheet fills the width');
-    await pg.click('#popRoot .pop-sheet [data-act="popout.sheetDone"]');
-    assert.ok(!(await popWin.evaluate((el) => el.classList.contains('pop-sheet'))), 'Done puts it back to a card');
-    log('Pop out: on a phone the window is a card at the bottom that opens as a full screen sheet');
   }
   await pg.click('#popRoot .popwin [data-act="popout.close"]');
-  assert.strictEqual(await pg.evaluate(() => document.getElementById('popRoot').children.length), 0, 'closed');
+  assert.strictEqual(await popRootChildren(), 0, 'closed');
   await pg.evaluate(() => localStorage.removeItem('ft.popout.personal'));
+  if (size.mobile) await pg.setViewportSize(size.viewport);
 
   await ctx.close();
   await env.close();

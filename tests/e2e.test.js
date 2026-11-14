@@ -698,21 +698,32 @@ async function waitFor(fn, label, ms = 3000) {
   const notesOf = (id) => JSON.parse(JSON.stringify(server.run('rpc')('notes', 'get', { projectId: id }))).result.text;
   const typeNotes = (html) => { const ed = $('#nt-text'); ed.innerHTML = html; ed.dispatchEvent(new w.Event('input', { bubbles: true })); };
 
-  await step('Today has a Notes panel with the focus project\'s notes: typing there saves to that project, and its page shows them', async () => {
+  const todayDoc = () => server.docs.docs().find((f) => f.name === 'Today notes');
+
+  await step('Today has its own Notes panel, not the focus project\'s notes: typing there saves to the Doc "Today notes"', async () => {
     click(tab('Today'));
     const fan = projectNamed('Bathroom extractor fan');
     await waitFor(() => $('.focus-name').textContent === fan.name, 'the fan is the focus');
-    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id && $('#nt-text').getAttribute('contenteditable') === 'true' && $('#nt-text').textContent.includes('100mm'), 'the focus project\'s notes on Today');
-    assert.ok($('#nt-panel .label').textContent.includes('Notes · Bathroom extractor fan'), 'named after the project');
-    assert.ok($('#nt-bar [data-cmd="bold"]') && $('[data-act="notes.copy"]'), 'the same editor, toolbar and Copy as markdown');
-    typeNotes($('#nt-text').innerHTML + '<p>Typed on Today</p>');
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === 'today' && $('#nt-text').getAttribute('contenteditable') === 'true', 'Today\'s own note');
+    assert.ok(!$('#nt-text').textContent.includes('100mm'), 'not the focus project\'s notes');
+    assert.strictEqual($('#nt-panel .label').textContent.trim(), 'Notes', 'the label is just Notes');
+    assert.ok(!$('#nt-panel .label a, #nt-panel .label [data-act^="notes."]'), 'with no project link');
+    assert.ok($('#nt-bar [data-cmd="bold"]') && $('[data-act="notes.copy"]') && $('#nt-paper'), 'the same editor, toolbar, paper and Copy as markdown');
+    assert.ok(!todayDoc() && $('#nt-link').hidden, 'no Doc until something is typed');
+    typeNotes('<p>Call the plumber about the <b>stopcock</b></p>');
     $('#nt-text').dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
     await waitFor(() => $('#nt-status').textContent === 'Saved', 'saved');
-    assert.ok(notesOf(fan.id).endsWith('Typed on Today'), 'saved into the focus project\'s notes');
-    click($('#nt-panel [data-act="notes.openProject"]'));
-    await waitFor(() => w.FT.state.view === 'project' && $('#nt-text') && $('#nt-text').textContent.includes('Typed on Today'), 'the project page shows the same notes');
+    assert.ok(todayDoc() && todayDoc().content.includes('<b>stopcock</b>'), 'the Doc "Today notes" holds it, formatting and all');
+    assert.strictEqual(server.drive.pathOf(todayDoc()), 'Focus Tracker/Personal/Notes/Today notes', 'in the Notes folder');
+    assert.strictEqual(notesOf('today'), 'Call the plumber about the **stopcock**');
+    assert.ok(!notesOf(fan.id).includes('plumber'), 'the focus project\'s notes are untouched');
+    assert.ok(!$('#nt-link').hidden && $('#nt-link').href === todayDoc().getUrl(), '"Open in Docs" links Today\'s Doc');
+    assert.ok(!projectNamed('Today') && !w.FT.store.projects.some((p) => p.notes === todayDoc().getUrl()), 'no project for it, and no project\'s notes cell links it');
+    w.FT.go('project', { id: fan.id });
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id && $('#nt-text').textContent.includes('100mm'), 'the fan\'s page has its own notes');
+    assert.ok(!$('#nt-text').textContent.includes('plumber'));
     click(tab('Today'));
-    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === fan.id, 'back on Today');
+    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === 'today' && $('#nt-text').textContent.includes('plumber'), 'back on Today, Today\'s note');
   });
 
   await step('the notes paper can be Plain, Legal pad, Graph paper or Index card, kept on this device for every notes panel', async () => {
@@ -724,7 +735,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok($('#nt-text').classList.contains('paper') && $('#nt-text').classList.contains('paper-legal'), 'the pad at once, no redraw');
     assert.strictEqual(w.localStorage.getItem('ft.notes.paper'), 'legal');
     assert.ok(d.getElementById('nt-hand-font'), 'its handwriting font is asked for only now');
-    click($('#nt-panel [data-act="notes.openProject"]'));
+    w.FT.go('project', { id: w.FT.store.today.focusId });
     await waitFor(() => w.FT.state.view === 'project' && $('#nt-text'), 'project page');
     assert.ok($('#nt-text').classList.contains('paper-legal') && $('#nt-paper').value === 'legal', 'the project page uses it too');
     setVal($('#nt-paper'), 'graph', 'change');
@@ -738,7 +749,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('#nt-text'), 'Today');
   });
 
-  await step('when Today\'s focus changes, the notes panel saves what was typed and switches to the new focus\'s notes; no focus shows a short note', async () => {
+  await step('when Today\'s focus changes, Today\'s note stays as it is, typing and all; with no focus it is still there', async () => {
     const fan = projectNamed('Bathroom extractor fan');
     await waitFor(() => $('#nt-text') && $('#nt-text').getAttribute('contenteditable') === 'true', 'editable');
     typeNotes($('#nt-text').innerHTML + '<p>Typed just before the swap</p>'); // no focusout, inside the save delay
@@ -749,17 +760,36 @@ async function waitFor(fn, label, ms = 3000) {
     setVal($('#dlg-to'), to.value, 'change');
     click($('#dlg-submit'));
     await waitFor(() => !$('.dialog') && $('.focus-name').textContent === toName, 'the new focus');
-    await waitFor(() => $('#nt-text') && $('#nt-text').dataset.project === to.value && $('#nt-panel .label').textContent.includes(toName), 'the panel shows the new focus\'s notes');
-    await waitFor(() => notesOf(fan.id).endsWith('Typed just before the swap'), 'the text typed for the old focus is saved to it');
-    assert.ok(!$('#nt-text').textContent.includes('Typed just before the swap'), 'and is not in the new project\'s notes');
+    assert.ok($('#nt-text').dataset.project === 'today' && $('#nt-text').textContent.includes('Typed just before the swap'), 'the same note, with what was typed');
+    await waitFor(() => notesOf('today').endsWith('Typed just before the swap'), 'saved to Today\'s Doc');
+    assert.ok(!notesOf(fan.id).includes('Typed just before the swap') && !notesOf(to.value).includes('Typed just before the swap'), 'not to either project');
 
     const today = w.FT.store.today, focusBefore = today.focusId;
     today.focusId = null;
     w.FT.render();
-    assert.ok($('#app .notes-panel .nt-empty').textContent.includes('No focus project today'), 'no focus: a short note');
-    assert.ok(!$('#nt-text'));
+    assert.ok($('#app #nt-text') && $('#nt-text').dataset.project === 'today', 'no focus: Today\'s note is still there');
     today.focusId = focusBefore;
     w.FT.render();
+  });
+
+  await step('Today\'s note is cleared by hand and stays the same Doc; it can be removed and added back through Add feature', async () => {
+    const doc = todayDoc();
+    typeNotes('');
+    $('#nt-text').dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => notesOf('today') === '', 'the cleared note is saved');
+    assert.strictEqual(server.docs.docs().filter((f) => f.name === 'Today notes').length, 1, 'still one Doc');
+    assert.strictEqual(todayDoc().id, doc.id, 'the same one');
+    click($('#layoutBtn'));
+    click($('.lcell[data-panel="notes"] [data-act="core.removePanel"]'));
+    assert.ok(!$('#app #nt-text'), 'removed from Today');
+    click($('.editbar [data-act="core.addFeature"]'));
+    const row = $$('#dlg-features li').find((li) => li.querySelector('b').textContent === 'Today notes');
+    assert.ok(row && /running note for Today/.test(row.textContent), 'Add feature offers Today notes, described');
+    click(row.querySelector('[data-act="core.addFeatureItem"]'));
+    click($('#dlg-submit'));
+    click($('#layoutBtn'));
+    await waitFor(() => $('#app #nt-text') && $('#nt-text').dataset.project === 'today', 'back on Today');
+    await waitFor(() => !w.FT.pendingSaves(), 'the layout saved');
   });
 
   // ---------- habits, to-dos and Plan my week ----------
@@ -2214,7 +2244,7 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.ppager'), 'back on Today');
   });
 
-  await step('phone Today: the pinned focus has the session length, its countdown, Keep going and the corner timer; popped out, it is a placeholder', async () => {
+  await step('phone Today: the pinned focus has the session length, its countdown, Keep going and the corner timer; a desktop window does not take its place', async () => {
     assert.ok($('.ppinned [data-change="today.length"]'), 'the length box beside Start');
     click($('.ppinned [data-act="today.start"]'));
     await waitFor(() => $('.ppinned #plan-left') && $('.ppinned [data-act="today.finish"]'), 'the countdown in the pinned focus');
@@ -2228,14 +2258,24 @@ async function waitFor(fn, label, ms = 3000) {
     await waitFor(() => $('.ppinned #plan-left') && !$('.ppinned #plan.over'), 'the countdown is back');
     const chipsBefore = chipIds();
     click($('.ppinned-more'));
-    click($('.ppinned .popbtn[data-panel="focus"]'));
-    await waitFor(() => $('#popRoot .popwin[data-key="today::focus"]'), 'the focus in a window (a card at the bottom on a phone)');
-    assert.ok($('.ppinned .popslot') && !$('#app .fcompact'), 'the pinned place shows the placeholder, not a second focus');
-    assert.ok($$('#timer').length <= 1, 'never two session clocks (the card shows its panel only when opened)');
+    assert.ok(!$('#app .popbtn'), 'no Pop out button on a phone');
+    click($('.ppinned-more'));
+    w.__narrow = false;
+    w.FT.render();
+    click($('#app .popbtn[data-panel="focus"]'));
+    await waitFor(() => $('#popRoot .popwin[data-key="today::focus"]'), 'the focus popped out on a desktop');
+    w.__narrow = true;
+    w.FT.render();
+    assert.ok(!$('#popRoot .popwin') && !$('.ppinned .popslot'), 'back on a phone: no window and no placeholder');
+    assert.ok($('.ppinned .fcompact #timer') && $$('#timer').length === 1, 'the pinned focus draws in place, one session clock');
     assert.deepStrictEqual(chipIds(), chipsBefore, 'the chips are unchanged');
-    click($('.ppinned .popslot [data-act="popout.close"]'));
-    await waitFor(() => !$('.ppinned .popslot') && !$('#popRoot .popwin'), 'put back');
-    if ($('.ppinned-more').getAttribute('aria-expanded') === 'true') click($('.ppinned-more'));
+    w.__narrow = false;
+    w.FT.render();
+    assert.ok($('#popRoot .popwin[data-key="today::focus"]') && $('#app .lcell[data-panel="focus"] .popslot'), 'wide again, the window is back');
+    click($('#popRoot .popwin[data-key="today::focus"] [data-act="popout.close"]'));
+    await waitFor(() => !$('#popRoot .popwin'), 'put back');
+    w.__narrow = true;
+    w.FT.render();
     assert.ok($('.ppinned .fcompact #timer'), 'short again, with its clock');
     click($('.ppinned [data-act="today.finish"]'));
     click(await waitFor(() => $('#dlg-discard'), 'the finish dialog'));
@@ -2445,25 +2485,58 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!notesOf(other.id).includes('Typed in the window'), 'not to the project open on the page');
     click(tab('Today'));
     assert.ok(!$('#app #nt-text') && $$('#nt-text').length === 1, 'Today\'s notes panel does not draw a second editor either');
+    assert.ok($('#app .lcell[data-panel="notes"] .popslot').textContent.includes(project.name), 'it names the project whose notes are in the window');
     w.FT.go('project', { id: project.id });
     assert.ok(popWin('notes').querySelector('#nt-text') && $('#app .lcell[data-panel="notes"] .popslot'), 'on its own page, the usual placeholder');
   });
 
-  await step('pop out: on a phone every window is a card that opens as a full screen sheet', async () => {
+  await step('pop out: Today\'s note in a window keeps saving to Today\'s Doc on a project page, and is the one notes editor on screen', async () => {
+    const project = w.FT.project(w.FT.state.projectId);
+    click(popWin('notes').querySelector('[data-act="popout.close"]'));
     click(tab('Today'));
+    await waitFor(() => $('#app .lcell[data-panel="notes"] .popbtn'), 'Today\'s note with a Pop out button');
+    click($('#app .lcell[data-panel="notes"] .popbtn'));
+    assert.strictEqual(popWin('notes').dataset.key, 'today::notes');
+    assert.strictEqual(popWin('notes').querySelector('.poptitle').textContent, 'Today notes', 'the window says whose notes they are');
+    await waitFor(() => popWin('notes').querySelector('#nt-text[data-project="today"][contenteditable="true"]'), 'Today\'s note in the window');
+    w.FT.go('project', { id: project.id });
+    await waitFor(() => $('#app .lcell[data-panel="notes"] .popslot'), 'the project page');
+    assert.strictEqual($$('#nt-text').length, 1, 'one notes editor: the project\'s notes wait for the window');
+    assert.ok($('#app .lcell[data-panel="notes"] .popslot').textContent.includes('Today notes'), 'naming Today\'s note');
+    const windowEditor = popWin('notes').querySelector('#nt-text');
+    windowEditor.innerHTML += '<p>Typed in Today\'s window</p>';
+    windowEditor.dispatchEvent(new w.Event('input', { bubbles: true }));
+    windowEditor.dispatchEvent(new w.FocusEvent('focusout', { bubbles: true }));
+    await waitFor(() => notesOf('today').endsWith('Typed in Today\'s window'), 'saved to Today\'s Doc');
+    assert.ok(!notesOf(project.id).includes('Typed in Today\'s window'), 'not to the project on the page');
+    click(tab('Today'));
+    assert.ok($('#app .lcell[data-panel="notes"] .popslot') && $$('#nt-text').length === 1, 'on Today, the usual placeholder');
+  });
+
+  await step('pop out: a phone has no windows, cards, sheets, dock, placeholders or Pop out buttons; every panel draws in place, and the desktop windows come back', async () => {
+    click(tab('Today'));
+    click(popWin('todos').querySelector('[data-act="popout.minimise"]'));
+    assert.ok($('#popRoot .popdock'), 'one minimised, in the dock');
+    const savedBefore = JSON.stringify(popSaved());
     w.__narrow = true;
     w.FT.render();
-    const cards = $$('#popRoot .popwin');
-    assert.strictEqual(cards.length, 3);
-    assert.ok(cards.every((c) => c.classList.contains('pop-phone') && !c.querySelector('.popbody').innerHTML), 'title-only cards');
-    assert.ok(!$('#popRoot .popwin [data-act="popout.style"]'), 'no style buttons on a phone');
-    click(popWin('todos').querySelector('.popopen'));
-    assert.ok(popWin('todos').classList.contains('pop-sheet') && popWin('todos').querySelector('#td-new'), 'tapped, it opens as a sheet with the panel');
-    key(popWin('todos').querySelector('#td-new'), 'Escape');
-    assert.ok(!popWin('todos').classList.contains('pop-sheet'), 'Esc puts it back to a card');
+    assert.strictEqual($$('#popRoot > *').length, 0, 'no windows, pane, cards or dock');
+    assert.ok(!$('#app .popslot') && !$('#app .popbtn'), 'no placeholders and no Pop out buttons');
+    click($('.pchip[data-id="todos"]'));
+    assert.ok($('#app #td-new'), 'To-dos draws in place');
+    click($('.pchip[data-id="notes"]'));
+    assert.ok($('#app #nt-text[data-project="today"]') && $$('#nt-text').length === 1, 'Today\'s note draws in place, one editor');
+    w.FT.go('project', { id: w.FT.store.projects.find((p) => p.status === 'active' && !w.FT.lockedUntil(p)).id });
+    assert.ok($('#app .lcell[data-panel="criteria"] #crit-new') && !$('#app .popslot'), 'a project page draws its panels in place too');
+    assert.strictEqual(JSON.stringify(popSaved()), savedBefore, 'the desktop windows stay saved');
     w.__narrow = false;
     w.FT.render();
-    assert.ok(popWin('todos').classList.contains('pop-free'), 'the desktop keeps its own style');
+    click(tab('Today'));
+    await waitFor(() => w.FT.state.view === 'today', 'Today');
+    assert.strictEqual($$('#popRoot .popwin').length, 2, 'wide again, the windows come back');
+    assert.ok($('#popRoot .popdock .popchip') && popWin('notes').classList.contains('pop-free'), 'with their own styles and the dock');
+    assert.ok($('#app .lcell[data-panel="todos"] .popslot') && $('#app .lcell[data-panel="notes"] .popslot'), 'and their placeholders');
+    click($('#popRoot .popdock .popchip'));
   });
 
   await step('pop out: ✕ puts each panel back on its page, and nothing stays behind', async () => {
