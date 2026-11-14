@@ -202,8 +202,8 @@
     sortables.forEach(function (sortable) { sortable.destroy(); });
     sortables = [];
     if (!window.Sortable) return;
-    Array.prototype.forEach.call(document.querySelectorAll('#app .board .cards'), function (list) { sortables.push(makeSortable(list)); });
-    Array.prototype.forEach.call(document.querySelectorAll('#app .board[data-owner]'), function (b) { sortables.push(makeColumnSortable(b)); });
+    Array.prototype.forEach.call(document.querySelectorAll('#app .board .cards, #popRoot .board .cards'), function (list) { sortables.push(makeSortable(list)); });
+    Array.prototype.forEach.call(document.querySelectorAll('#app .board[data-owner], #popRoot .board[data-owner]'), function (b) { sortables.push(makeColumnSortable(b)); });
   });
 
   FT.kanban = { boardHtml: boardHtml };
