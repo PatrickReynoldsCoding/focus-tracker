@@ -260,13 +260,45 @@
     return list.filter(function (h) { var pr = progress(h); return pr.done >= pr.target; }).length + '/' + list.length;
   }
 
+  /**
+   * To do today (slot today.list, drawn by the today module as one slim checklist). A daily habit leaves it once today's
+   * sessions are done. A weekly one shows until the week is met: a tap counts a session today and hides it until
+   * tomorrow, and "Not today" hides it for today without a session (a skip row). Done and skipped ones can be taken back.
+   */
+  function listItems() {
+    var s = slice(), open = [], done = [];
+    activeHabits().forEach(function (h) {
+      var id = FT.esc(h.id), name = FT.esc(h.name), size = h.level ? h.level.size : h.size;
+      var target = Number(h.level ? h.level.sessions : h.sessions) || 1, today = count(h.id, s.day, 'done');
+      var label = '<span class="nm"><span class="nmt">' + name + '</span>' + (size ? ' <small>· ' + FT.esc(size) + '</small>' : '') + '</span>';
+      var tick = '<button class="tk" data-act="habits.tap" data-id="' + id + '" aria-label="Done: ' + name + '"></button>';
+      var undo = '<button class="ckact" data-act="habits.untap" data-id="' + id + '" aria-label="Take back a session of ' + name + '">Undo</button>';
+      if (h.per === 'day') {
+        if (today >= target) done.push('<li class="ckrow done"><span class="tk on" aria-hidden="true">✓</span>' + label + '<span class="mt">done</span>' + undo + '</li>');
+        else open.push('<li class="ckrow">' + tick + label + (target > 1 ? '<span class="mt">' + today + '/' + target + '</span>' : '') + '</li>');
+        return;
+      }
+      var week = weekCount(h.id, s.monday, 'done'), weekWords = week + '/' + target + ' wk';
+      if (today > 0) { done.push('<li class="ckrow done"><span class="tk on" aria-hidden="true">✓</span>' + label + '<span class="mt">' + weekWords + '</span>' + undo + '</li>'); return; }
+      if (count(h.id, s.day, 'skip') > 0) {
+        done.push('<li class="ckrow done"><span class="tk on" aria-hidden="true">–</span>' + label + '<span class="mt">not today</span>' +
+          '<button class="ckact" data-act="habits.notToday" data-id="' + id + '" data-on="0" aria-label="Back on today\'s list: ' + name + '">Back</button></li>');
+        return;
+      }
+      if (week >= target) return; // met for the week: nothing to do today
+      open.push('<li class="ckrow">' + tick + label + '<span class="mt">' + weekWords + '</span>' +
+        '<button class="ckact" data-act="habits.notToday" data-id="' + id + '" data-on="1" aria-label="Not today: ' + name + '">Not today</button></li>');
+    });
+    return { label: 'Habits', open: open, done: done };
+  }
+
   function todayPanels() {
     var html = panelHtml();
     popId = null;
     return [{ id: 'habits', title: 'Habits', description: 'Your habits as rows of dots to tap, the step-up prompt, All habits and Plan my week.', html: html, w: 5, beside: true, count: doneCount() }];
   }
 
-  FT.module({ id: 'habits', slots: { 'today.panels': [{ order: 0, render: todayPanels }], 'today.planWeek': [{}] } });
+  FT.module({ id: 'habits', slots: { 'today.panels': [{ order: 0, render: todayPanels }], 'today.planWeek': [{}], 'today.list': [{ order: 0, render: listItems }] } });
 
   // ---------- taps ----------
   function send(fn, args) {
@@ -290,6 +322,14 @@
       send('tap', { id: h.id, day: s.day, delta: -1 })).catch(function () {});
     var pr = progress(h);
     FT.toast('One session taken off. ' + h.name + ': ' + pr.done + ' of ' + pr.target + ' ' + pr.label + '.', null, { label: 'Undo', run: FT.undo });
+  });
+
+  /** Not today (data-on 1) hides a weekly habit from To do today until tomorrow; Back (0) brings it back. */
+  FT.action('habits.notToday', function (el) {
+    var h = habit(el.dataset.id), s = slice(), on = el.dataset.on === '1';
+    if (!h) return;
+    FT.optimistic(function () { return bump(h.id, s.day, 'skip', function () { return on ? 1 : 0; }); },
+      send('notToday', { id: h.id, on: on })).catch(function () {});
   });
 
   FT.action('habits.resume', function (el) { setStatus(el.dataset.id, 'active'); });

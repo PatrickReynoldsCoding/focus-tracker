@@ -93,7 +93,7 @@ async function waitFor(fn, label, ms = 3000) {
   let p1 = page();
   let projectId, projectName;
   await step('a first visit shows Today, and the page you move to is remembered for this device', async () => {
-    await waitFor(() => p1.$('.focus-name'), 'today');
+    await waitFor(() => p1.$('.focus-name, .pickhead'), 'today');
     assert.strictEqual(p1.w.FT.state.view, 'today');
     p1.w.localStorage.setItem('ft.openOn', 'last'); // Settings: "When the app opens" = The page I was on (the default is Today)
     p1.click(tabOf(p1, 'Projects'));
@@ -116,7 +116,7 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(p2.w.FT.state.projectId, projectId, 'still on the project after the fresh data replaced the copy');
     // Another device has its own memory: nothing stored there, so it starts on Today
     const other = page();
-    await waitFor(() => other.$('.focus-name'), 'today on another device');
+    await waitFor(() => other.$('.focus-name, .pickhead'), 'today on another device');
     assert.strictEqual(other.w.FT.state.view, 'today');
     p2.close(); other.close();
     p1 = page(saved);
@@ -132,13 +132,13 @@ async function waitFor(fn, label, ms = 3000) {
     const p2 = page(saved);
     await waitFor(() => p2.$('.phead'), 'the saved copy is shown while loading');
     net.hold = null; net.release();
-    await waitFor(() => p2.$('.focus-name') && p2.w.FT.state.view === 'today', 'today once the fresh data says it is locked');
+    await waitFor(() => p2.$('.focus-name, .pickhead') && p2.w.FT.state.view === 'today', 'today once the fresh data says it is locked');
     p2.close();
     rpc('projects', 'setLock', { id: projectId, until: '', early: true });
     // Deleted since the last visit
     rpc('projects', 'remove', { id: projectId });
     const p3 = page(saved);
-    await waitFor(() => p3.$('.focus-name') && p3.w.FT.state.view === 'today', 'today for a deleted project');
+    await waitFor(() => p3.$('.focus-name, .pickhead') && p3.w.FT.state.view === 'today', 'today for a deleted project');
     p3.close();
     // A fresh project for the rest of the tests
     projectId = rpc('projects', 'create', { name: 'Offline tests', category: 'coding' }).result.id;
@@ -146,14 +146,15 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('by default a reload opens Today, then the focus project once the fresh data shows a session started on another device', async () => {
     const warm = page();
-    await waitFor(() => warm.$('.focus-name'), 'warm up');
+    await waitFor(() => warm.$('.focus-name, .pickhead'), 'warm up');
     warm.click(tabOf(warm, 'Notes'));
     const saved = warm.storage(); warm.close();
+    rpc('today', 'pick', { projectId: data().today.ranked[0] }); // nothing is picked for you: pick one first
     const focusId = data().today.focusId;
     rpc('today', 'start', { projectId: focusId, plannedMin: 25 });
     net.hold = new Promise((r) => { net.release = r; });
     const p = page(saved);
-    await waitFor(() => p.w.FT.ready && p.$('.focus-name') && p.w.FT.state.view === 'today', 'the saved copy has no session, so Today');
+    await waitFor(() => p.w.FT.ready && p.$('.focus-name, .pickhead') && p.w.FT.state.view === 'today', 'the saved copy has no session, so Today');
     net.hold = null; net.release();
     await waitFor(() => p.w.FT.state.view === 'project' && p.w.FT.state.projectId === focusId && p.$('#timer'), 'the fresh data opens the focus project');
     rpc('today', 'discard');
@@ -207,12 +208,12 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('the saved copy shows at once with "Updating…", then the fresh data replaces it', async () => {
     const warm = page();
-    await waitFor(() => warm.$('.focus-name'), 'warm up');
+    await waitFor(() => warm.$('.focus-name, .pickhead'), 'warm up');
     const saved = warm.storage(); warm.close();
     rpc('projects', 'update', { id: projectId, next_action: 'Changed on the server since' });
     net.hold = new Promise((r) => { net.release = r; });
     const p = page(saved);
-    await waitFor(() => p.w.FT.ready && p.$('.focus-name'), 'the saved copy is drawn before Google answers');
+    await waitFor(() => p.w.FT.ready && p.$('.focus-name, .pickhead'), 'the saved copy is drawn before Google answers');
     assert.strictEqual(status(p), 'Updating…');
     assert.ok(!p.w.FT.store.projects.some((x) => x.next_action === 'Changed on the server since'), 'it is the older copy');
     net.hold = null; net.release();
@@ -222,7 +223,7 @@ async function waitFor(fn, label, ms = 3000) {
 
   await step('a saved copy from another version is ignored, and storage that is blocked does not stop the app', async () => {
     const warm = page();
-    await waitFor(() => warm.$('.focus-name'), 'warm up');
+    await waitFor(() => warm.$('.focus-name, .pickhead'), 'warm up');
     const saved = warm.storage(); warm.close();
     const snap = JSON.parse(saved['ft.kv.snap:personal']);
     snap.v = 999;
@@ -232,11 +233,11 @@ async function waitFor(fn, label, ms = 3000) {
     await sleep(60);
     assert.strictEqual(p.w.FT.ready, false, 'nothing is drawn from a copy with a different version');
     net.hold = null; net.release();
-    await waitFor(() => p.$('.focus-name'), 'loads normally');
+    await waitFor(() => p.$('.focus-name, .pickhead'), 'loads normally');
     await waitFor(() => JSON.parse(p.w.localStorage.getItem('ft.kv.snap:personal')).v === 6, 'and writes a fresh copy');
     p.close();
     const blocked = page({}, { blockedStorage: true });
-    await waitFor(() => blocked.$('.focus-name'), 'loads with storage blocked');
+    await waitFor(() => blocked.$('.focus-name, .pickhead'), 'loads with storage blocked');
     blocked.click(tabOf(blocked, 'Projects'));
     await waitFor(() => blocked.$$('tr.row').length, 'and works');
     blocked.close();
@@ -245,7 +246,7 @@ async function waitFor(fn, label, ms = 3000) {
   // The offline tests: a page on the new project, with the connection then cut.
   const open2 = async (storage) => {
     const p = page(storage);
-    await waitFor(() => p.$('.focus-name'), 'today');
+    await waitFor(() => p.$('.focus-name, .pickhead'), 'today');
     p.click(tabOf(p, 'Projects'));
     await waitFor(() => p.$$('tr.row').length, 'projects');
     p.click(p.$$('tr.row').find((r) => r.textContent.includes('Offline tests')));

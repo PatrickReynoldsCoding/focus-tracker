@@ -1,0 +1,249 @@
+<title>To Do Today Phone Mockups</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an intro, then a sideways row of full 360 x 800 phone screens (20:9), each the real Today with a different To do today. */
+:root {
+  --bg: #eef2f1; --surface: #ffffff; --surface-2: #e6ecea; --ink: #15201e; --muted: #4d5d5a; --line: #d3dcd9; --line-strong: #6a7b78;
+  --accent: #0e6b62; --accent-ink: #ffffff; --accent-soft: #d9efeb; --ok: #2b7a4b; --frame: #15201e; --page: #dfe6e4;
+  --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1615; --surface: #172120; --surface-2: #1f2b29; --ink: #e4ecea; --muted: #9cb0ac; --line: #2c3a38; --line-strong: #5d716d;
+  --accent: #4fc2b4; --accent-ink: #0b1514; --accent-soft: #163a36; --ok: #6fcf97; --frame: #000000; --page: #0a100f; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1615; --surface: #172120; --surface-2: #1f2b29; --ink: #e4ecea; --muted: #9cb0ac; --line: #2c3a38; --line-strong: #5d716d;
+  --accent: #4fc2b4; --accent-ink: #0b1514; --accent-soft: #163a36; --ok: #6fcf97; --frame: #000000; --page: #0a100f; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 48px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.intro { max-width: 760px; margin: 0 auto 20px; }
+.intro h1 { font-family: var(--font-display); font-size: clamp(24px, 5vw, 32px); margin: 4px 0 8px; text-wrap: balance; }
+.intro p { margin: 0 0 8px; color: var(--muted); }
+.kicker { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.strip { overflow-x: auto; padding: 4px 4px 16px; }
+.phones { display: flex; gap: 28px; width: max-content; margin: 0 auto; align-items: flex-start; }
+.col { width: 376px; display: grid; gap: 10px; }
+.col h2 { font-family: var(--font-display); font-size: 19px; margin: 0; }
+.col h2 b { background: var(--ink); color: var(--page); border-radius: 5px; padding: 0 7px; margin-right: 6px; font-size: 15px; }
+.col p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.col p b { color: var(--ink); font-weight: 600; }
+
+/* A 20:9 phone: 360 x 800 CSS px screen inside an 8 px frame. */
+.phone { width: 376px; height: 816px; border: 8px solid var(--frame); border-radius: 36px; overflow: hidden; background: var(--bg); position: relative; }
+.screen { width: 360px; height: 800px; overflow: hidden; display: flex; flex-direction: column; }
+.status { height: 26px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 18px; font-size: 12px; font-weight: 600; }
+.status .cam { width: 10px; height: 10px; border-radius: 50%; background: var(--frame); }
+.navbar { height: 18px; flex: none; display: flex; justify-content: center; align-items: center; margin-top: auto; }
+.navbar i { width: 110px; height: 4px; border-radius: 4px; background: var(--ink); opacity: 0.5; }
+.app { flex: 1; min-height: 0; overflow: hidden; padding: 0 16px; display: flex; flex-direction: column; }
+
+/* The real app chrome, as on the 393 px screenshot */
+.hdr { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.sq { width: 44px; height: 44px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); display: inline-flex; align-items: center; justify-content: center; font-size: 17px; flex: none; }
+.brand { font-family: var(--font-display); font-weight: 700; font-size: 17px; flex: 1; }
+.pager { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 8px 0 6px; font-size: 13px; }
+.pager .now { font-weight: 600; text-align: center; }
+.pager .now i { display: flex; gap: 4px; justify-content: center; margin-top: 3px; }
+.pager .now i span { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.pager .now i span:first-child { width: 16px; border-radius: 4px; background: var(--accent); }
+.pager .next { text-align: right; color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.label { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.focus .row1 { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.focus h3 { font-family: var(--font-display); font-size: 21px; margin: 2px 0 8px; }
+.btn { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 8px; padding: 0 12px; height: 40px; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.sm { height: 32px; font-size: 13px; padding: 0 10px; }
+.startrow { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.sel { border: 1px solid var(--line-strong); border-radius: 8px; height: 40px; padding: 0 10px; display: inline-flex; align-items: center; color: var(--ink); background: var(--surface); }
+.pills { display: flex; gap: 8px; align-items: center; padding: 10px 0; }
+.pills .scroll { display: flex; gap: 8px; overflow: hidden; flex: 1; }
+.pill { height: 40px; border-radius: 99px; border: 1px solid var(--line-strong); background: var(--surface); padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; white-space: nowrap; flex: none; }
+.pill small { font-family: var(--font-mono); font-size: 11.5px; background: var(--surface-2); color: var(--ink); border-radius: 99px; padding: 1px 7px; }
+.pill.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pill.on small { background: var(--line-strong); color: var(--bg); }
+.gear { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--surface); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+
+/* ----- A: slim checklist ----- */
+.ttl { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.ttl a { font-size: 12.5px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.sec { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 6px 0 2px; }
+.ck { list-style: none; margin: 0; padding: 0; }
+.ck li { display: flex; align-items: center; gap: 10px; min-height: 42px; border-bottom: 1px solid var(--line); }
+.ck li:last-child { border-bottom: 0; }
+.tk { width: 26px; height: 26px; flex: none; border: 2px solid var(--accent); border-radius: 50%; background: transparent; cursor: pointer; padding: 0; position: relative; }
+.tk::after { content: ""; position: absolute; inset: -9px; } /* 44 px tap area */
+.tk.sq2 { border-radius: 6px; }
+.ck .nm { flex: 1; min-width: 0; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck .nm small { color: var(--muted); font-size: 12.5px; }
+.ck .mt { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.skip { border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; padding: 10px 0 10px 4px; white-space: nowrap; }
+.donel { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding-top: 8px; }
+
+/* ----- B: habit chips + to-do lines ----- */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 6px; }
+.chip { height: 36px; border-radius: 99px; border: 2px solid var(--accent); background: var(--surface); padding: 0 12px 0 6px; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+.chip i { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--accent); flex: none; }
+.chip small { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.chip.wk { border-style: dashed; }
+.hint { font-size: 11.5px; color: var(--muted); }
+
+/* ----- C: inside the focus card ----- */
+.bar { display: flex; gap: 3px; margin: 6px 0 4px; }
+.bar span { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); }
+.bar span.on { background: var(--accent); }
+.fl { list-style: none; margin: 4px 0 0; padding: 0; }
+.fl li { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.fl .nm { flex: 1; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.more { font-size: 13px; color: var(--muted); padding-top: 4px; }
+.more b { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-weight: 500; }
+
+/* ----- D: all done ----- */
+.alldone { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.alldone b { color: var(--ok); }
+.ghost { flex: 1; border: 2px dashed var(--line); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; text-align: center; padding: 16px; margin-bottom: 10px; }
+.swipe { text-align: center; font-size: 12px; color: var(--muted); padding: 6px 0; }
+</style>
+
+<header class="intro">
+  <div class="kicker">Focus Tracker · phone mockups · 15 Nov 2026</div>
+  <h1>To do today, slimmer, on a whole phone screen</h1>
+  <p>Each screen is 360 × 800, a standard 20:9 phone, with Today as it is now: the header, the compact focus card and your pill row. The same example day goes in each: 5 habits and 3 to-dos. Nothing scrolls, so you can see what fits.</p>
+  <p>The list is its own panel, so it can be a pill. Here it is the first pill, "Today", with a count of what is left. Tap the circles and squares to try them.</p>
+</header>
+
+<div class="strip">
+  <div class="phones">
+    <div class="col">
+      <h2><b>A</b>Slim checklist</h2>
+      <div class="phone"><div class="screen" id="A"></div></div>
+      <p><b>One line per thing,</b> 42 px high. Habits, then to-dos. "Not today" is a small link on weekly habits. Done ones fold into one line at the bottom.</p>
+    </div>
+    <div class="col">
+      <h2><b>B</b>Habit chips</h2>
+      <div class="phone"><div class="screen" id="B"></div></div>
+      <p><b>Habits as tap chips,</b> several to a line. Dashed chips are weekly: a long press gives "Not today". To-dos stay a short list underneath. The most compact one.</p>
+    </div>
+    <div class="col">
+      <h2><b>C</b>In the focus card</h2>
+      <div class="phone"><div class="screen" id="C"></div></div>
+      <p><b>No pill needed.</b> The pinned focus card shows a progress bar and the next three things. "+5 more" opens the rest. You see it whichever pill is open.</p>
+    </div>
+    <div class="col">
+      <h2><b>D</b>All done (A, B or C)</h2>
+      <div class="phone"><div class="screen" id="D"></div></div>
+      <p><b>When everything is done</b> the list is one line and the pill shows ✓. "Show" opens what you did, to take something back.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Example day (not your data).
+  function day() {
+    return [
+      { id: 'st', name: 'Stretch', size: '10 min', kind: 'daily', meta: 'today' },
+      { id: 'wa', name: 'Water', size: '1 glass', kind: 'daily', meta: '1/3', n: 1, t: 3 },
+      { id: 're', name: 'Read', size: '20 min', kind: 'daily', meta: 'today' },
+      { id: 'ca', name: 'Cardio', size: '30 min', kind: 'weekly', meta: '1/3 wk' },
+      { id: 'gu', name: 'Guitar', size: '15 min', kind: 'weekly', meta: '0/2 wk' },
+      { id: 'pl', name: 'Call the plumber', kind: 'todo', meta: '' },
+      { id: 'gr', name: 'Grocery shopping', kind: 'todo', meta: '' },
+      { id: 'pp', name: 'Post parcel', kind: 'todo', meta: 'from Fri' }
+    ].map(function (x) { x.done = false; return x; });
+  }
+  var S = { A: day(), B: day(), C: day() };
+  var openC = false;
+
+  function chrome(pillsHtml, focusExtra) {
+    return '<div class="status"><span>7:42</span><span class="cam"></span><span>▲ ▮ 82%</span></div><div class="app">' +
+      '<div class="hdr"><span class="sq">☰</span><span class="brand">Focus Tracker</span><span class="sq">⚙</span></div>' +
+      '<div class="pager"><span></span><span class="now">Today<i><span></span><span></span><span></span><span></span><span></span></i></span><span class="next">Projects ›</span></div>' +
+      '<div class="card focus"><div class="row1"><div><div class="label">Today\'s focus</div><h3>CV and portfolio</h3></div><span class="btn sm">More</span></div>' +
+      '<div class="startrow"><span class="btn primary">Start session</span>for<span class="sel">25 min ▾</span></div>' + (focusExtra || '') + '</div>' +
+      (pillsHtml === null ? '' : '<div class="pills"><div class="scroll">' + pillsHtml + '</div><span class="gear">⚙</span></div>');
+  }
+  function end() { return '</div><div class="navbar"><i></i></div>'; }
+  function left(list) { return list.filter(function (x) { return !x.done; }); }
+  function pills(list, on) {
+    var l = left(list).length;
+    return '<span class="pill' + (on ? ' on' : '') + '">Today <small>' + (l ? l + ' left' : '✓') + '</small></span><span class="pill' + (on ? '' : ' on') + '">Habits <small>1/5</small></span><span class="pill">To-dos <small>3</small></span><span class="pill">Rotation</span>';
+  }
+  function tick(x, who) {
+    return '<button class="tk' + (x.kind === 'todo' ? ' sq2' : '') + '" data-who="' + who + '" data-id="' + x.id + '" aria-label="Done: ' + x.name + '"></button>';
+  }
+
+  function A() {
+    var l = S.A, open = left(l), done = l.length - open.length;
+    var habits = open.filter(function (x) { return x.kind !== 'todo'; }), todos = open.filter(function (x) { return x.kind === 'todo'; });
+    function row(x) {
+      return '<li>' + tick(x, 'A') + '<span class="nm">' + x.name + (x.size ? ' <small>· ' + x.size + '</small>' : '') + '</span>' +
+        (x.meta ? '<span class="mt">' + x.meta + '</span>' : '') + (x.kind === 'weekly' ? '<button class="skip" data-who="A" data-skip="' + x.id + '">Not today</button>' : '') + '</li>';
+    }
+    var body = open.length
+      ? '<div class="ttl"><span class="label">To do today · ' + open.length + ' left</span></div>' +
+        (habits.length ? '<div class="sec">Habits</div><ul class="ck">' + habits.map(row).join('') + '</ul>' : '') +
+        (todos.length ? '<div class="sec">To-dos</div><ul class="ck">' + todos.map(row).join('') + '</ul>' : '') +
+        (done ? '<div class="donel"><span>✓ ' + done + ' done</span><span>Show ›</span></div>' : '')
+      : '<div class="alldone"><span><b>✓ All done for today.</b></span><span>Show</span></div>';
+    return chrome(pills(l, true)) + '<div class="card">' + body + '</div>' + end();
+  }
+
+  function B() {
+    var l = S.B, open = left(l), done = l.length - open.length;
+    var habits = open.filter(function (x) { return x.kind !== 'todo'; }), todos = open.filter(function (x) { return x.kind === 'todo'; });
+    var body = '<div class="ttl"><span class="label">To do today · ' + open.length + ' left</span>' + (done ? '<a>✓ ' + done + ' done</a>' : '') + '</div>' +
+      (habits.length ? '<div class="chips">' + habits.map(function (x) {
+        return '<button class="chip' + (x.kind === 'weekly' ? ' wk' : '') + '" data-who="B" data-id="' + x.id + '"><i></i>' + x.name + (x.meta && x.meta !== 'today' ? ' <small>' + x.meta + '</small>' : '') + '</button>';
+      }).join('') + '</div><div class="hint">Dashed = weekly. Hold for Not today.</div>' : '') +
+      (todos.length ? '<ul class="ck" style="margin-top:6px">' + todos.map(function (x) {
+        return '<li>' + tick(x, 'B') + '<span class="nm">' + x.name + '</span>' + (x.meta ? '<span class="mt">' + x.meta + '</span>' : '') + '</li>';
+      }).join('') + '</ul>' : '');
+    return chrome(pills(l, true)) + '<div class="card">' + (open.length ? body : '<div class="alldone"><span><b>✓ All done for today.</b></span><span>Show</span></div>') + '</div>' + end();
+  }
+
+  function C() {
+    var l = S.C, open = left(l), done = l.length - open.length;
+    var shown = openC ? open : open.slice(0, 3);
+    var extra = '<div style="border-top:1px solid var(--line);margin-top:12px;padding-top:8px">' +
+      '<div class="ttl"><span class="label">To do today · ' + done + ' of ' + l.length + ' done</span></div>' +
+      '<div class="bar">' + l.map(function (x) { return '<span class="' + (x.done ? 'on' : '') + '"></span>'; }).join('') + '</div>' +
+      (open.length ? '<ul class="fl">' + shown.map(function (x) {
+        return '<li>' + tick(x, 'C') + '<span class="nm">' + x.name + '</span><span class="mt" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted)">' + (x.kind === 'todo' ? 'to-do' : x.meta) + '</span></li>';
+      }).join('') + '</ul>' + (open.length > 3 ? '<div class="more"><b data-morec="1">' + (openC ? 'Show less' : '+' + (open.length - 3) + ' more') + '</b></div>' : '')
+        : '<div class="alldone"><b>✓ All done for today.</b></div>') + '</div>';
+    var p = '<span class="pill on">Habits <small>1/5</small></span><span class="pill">To-dos <small>3</small></span><span class="pill">Rotation</span><span class="pill">Notes</span>';
+    return chrome(p, extra) + '<div class="card"><div class="label">Habits</div><p style="margin:6px 0 0;color:var(--muted);font-size:13px">The Habits pill as now: the full rows of dots, All habits, Plan my week.</p></div>' + end();
+  }
+
+  function D() {
+    return chrome('<span class="pill on">Today <small>✓</small></span><span class="pill">Habits <small>5/5</small></span><span class="pill">To-dos <small>0</small></span><span class="pill">Rotation</span>') +
+      '<div class="card"><div class="alldone"><span><b>✓ All done for today.</b> 8 things.</span><span style="text-decoration:underline">Show</span></div></div>' +
+      '<div class="swipe">Swipe ← → for the next pill</div><div class="ghost">The rest of the screen is free.<br>Nothing else to do today.</div>' + end();
+  }
+
+  function draw() {
+    document.getElementById('A').innerHTML = A();
+    document.getElementById('B').innerHTML = B();
+    document.getElementById('C').innerHTML = C();
+    document.getElementById('D').innerHTML = D();
+  }
+  function find(who, id) { return S[who].filter(function (x) { return x.id === id; })[0]; }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-who],[data-morec]');
+    if (!t) return;
+    if (t.dataset.morec) { openC = !openC; draw(); return; }
+    var x = find(t.dataset.who, t.dataset.id || t.dataset.skip);
+    if (!x) return;
+    if (x.t && !t.dataset.skip && x.n + 1 < x.t) { x.n++; x.meta = x.n + '/' + x.t; } else x.done = true;
+    draw();
+  });
+  draw();
+})();
+</script>

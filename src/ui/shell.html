@@ -217,7 +217,7 @@ var FT = (function () {
     'whiteboard.create': 'Whiteboard added', 'whiteboard.rename': 'Whiteboard rename', 'whiteboard.remove': 'Whiteboard removed',
     'whiteboard.setShowToday': 'Whiteboard on Today', 'lists.setProject': 'List link', 'lists.showToday': 'List on Today',
     'resources.add': 'Resource added', 'resources.update': 'Resource edit', 'resources.remove': 'Resource removed',
-    'links.add': 'Project link added', 'links.remove': 'Project link removed', 'today.finish': 'Session saved', 'today.swap': 'Focus swap',
+    'links.add': 'Project link added', 'links.remove': 'Project link removed', 'today.finish': 'Session saved', 'today.pick': 'Focus change',
     'habits.create': 'Habit added', 'habits.update': 'Habit edit', 'habits.remove': 'Habit deleted', 'habits.tap': 'Habit session', 'habits.setStatus': 'Habit pause or end',
     'habits.move': 'Habit moved', 'habits.plan': 'Plan change', 'habits.copyWeek': 'Plan copied', 'habits.answer': 'Step-up answer',
     'habits.aspire': 'Habit idea added', 'habits.start': 'Habit started', 'habits.acceptLevel': 'New level accepted', 'habits.postponeLevel': 'New level put off',
@@ -694,6 +694,9 @@ var FT = (function () {
     var onPage = phoneOrder(panels, saved, all[phoneKey(page)]).filter(function (p) {
       return p.id !== pinnedId && (p.alwaysShown || !isRemoved(saved[p.id]));
     });
+    // A panel marked newPill (To do today) comes first, unless the phone order was set with it already in place.
+    var order = all[phoneKey(page)] || [];
+    onPage = onPage.filter(function (p) { return p.newPill && order.indexOf(p.id) === -1; }).concat(onPage.filter(function (p) { return !(p.newPill && order.indexOf(p.id) === -1); }));
     var pills = onPage.slice(0, MAX_PILLS).map(function (p) {
       return { id: p.id, name: pillChoice(p).name.slice(0, MAX_PILL_NAME), icon: '', panels: [p.id] };
     });
@@ -785,8 +788,38 @@ var FT = (function () {
       (swipe && pills.length > 1 ? '<p class="pswipehint">Swipe ← → for the next pill</p>' : '') + '</div>';
   }
 
+  /**
+   * A panel marked newPill (To do today) that came after the pills were saved is added once, as the first pill, and its
+   * id is kept in the page's view choices (pillsOffered), so deleting that pill later keeps it gone. Shown at once and
+   * saved behind (after this draw). Nothing happens with no pills saved (the default pills have it) or with 12 pills.
+   */
+  var MAX_OFFERED = 10;
+  function offerNewPills(page, panels) {
+    var saved = savedPills(page);
+    if (!saved || !isLoaded('layout')) return;
+    var view = (FT.store.layout || {})[page + '.view'] || {}, offered = Array.isArray(view.pillsOffered) ? view.pillsOffered : [];
+    var fresh = panels.filter(function (p) {
+      return p.newPill && p.html && offered.indexOf(p.id) === -1 && !saved.some(function (pill) { return pill.panels.indexOf(p.id) !== -1; });
+    });
+    if (!fresh.length || saved.length + fresh.length > MAX_PILLS) return;
+    var ids = saved.map(function (pill) { return pill.id; });
+    var pills = fresh.map(function (p) {
+      var id = p.id, n = 2;
+      while (ids.indexOf(id) !== -1) id = p.id + '-' + n++;
+      return { id: id, name: pillChoice(p).name.slice(0, MAX_PILL_NAME), icon: '', panels: [p.id] };
+    }).concat(saved);
+    var nowOffered = offered.concat(fresh.map(function (p) { return p.id; })).slice(-MAX_OFFERED);
+    FT.store.layout[page + '.pills'] = pills;
+    FT.store.layout[page + '.view'] = Object.assign({}, view, { pillsOffered: nowOffered });
+    setTimeout(function () {
+      FT.rpc('layout', 'savePills', { page: page, pills: pills }, { render: false }).catch(FT.saveFailed);
+      FT.rpc('layout', 'saveView', { page: page, view: { pillsOffered: nowOffered } }, { render: false }).catch(FT.saveFailed);
+    }, 0);
+  }
+
   /** A page drawn as a pager (a phone): its pills, or Today settings while that is open. */
   function pagerPage(page, panels, pager) {
+    offerNewPills(page, panels);
     var pinned = panels.filter(function (p) { return p.id === pager.pinned; })[0] || null;
     var model = pagerModels[page] = { page: page, pinned: pinned, choices: pillChoices(panels, pager), templates: pager.templates || [], defaults: defaultPills(page, panels, pager.pinned) };
     layoutIsPager = true;

@@ -1,9 +1,9 @@
 /**
- * Today module: picks the day's focus project and tracks the working session.
+ * Today module: the day's focus project and the working session.
  *
- * Rule: the category that leads today gets a 100 day head start, then the project untouched for longest wins.
- * "Swap focus" moves to a project you pick (or the next candidate). The project swapped away from is skipped for the
- * day, never counted as worked on, so it keeps its neglect and comes back. Every skip is logged in the Skips tab,
+ * Nothing is picked for you: each day starts with no focus until you pick one ("Pick today's focus"), and no session
+ * can start before that. The pick list puts the leading category's projects first, then the ones untouched longest.
+ * Changing away from a project you picked counts as a skip: it is logged in the Skips tab, never counted as worked on,
  * and "remind me" adds a row to the Reminders tab that shows as a banner when due.
  *
  * The weekly rotation (a lead category, "any", or away for each weekday) is the mode's default until edited.
@@ -60,7 +60,7 @@ function todayModule() {
   function load_(dayKey) {
     var raw = PropertiesService.getUserProperties().getProperty(KEY);
     var s = raw ? JSON.parse(raw) : {};
-    if (s.day !== dayKey) s = { day: dayKey, skipped: [], session: s.session || null };
+    if (s.day !== dayKey) s = { day: dayKey, session: s.session || null };
     return s;
   }
 
@@ -214,7 +214,7 @@ function todayModule() {
       .map(function (r) { return { id: r.id, project_id: r.project_id, due: r.due, created: r.created }; });
   }
 
-  /** Active projects best first. Locked ones are left out, and so are ones waiting on an unfinished project (links module, if installed). */
+  /** Active projects in pick-list order: the lead category first, then the most neglected. Locked ones are left out, and so are ones waiting on an unfinished project (links module, if installed). */
   function ranked_(ctx, lead) {
     var waiting = ctx.optional('links', 'waiting', {}) || {};
     return ctx.call('projects', 'list', {})
@@ -233,10 +233,9 @@ function todayModule() {
     var usual = usual_(ids), week = weekChanges_(d.weekKey, ids), plan = plan_(usual, week);
     var lead = plan[d.weekday] === AWAY ? null : plan[d.weekday];
     var ranked = ranked_(ctx, lead);
-    var pool = ranked.filter(function (id) { return s.skipped.indexOf(id) === -1; });
-    if (!pool.length) pool = ranked;
+    // Only a project picked today (and still pickable) or the running session's project. Never a guess.
     var picked = s.focusPick && ranked.indexOf(s.focusPick) !== -1 ? s.focusPick : null;
-    var focusId = s.session ? s.session.projectId : (picked || pool[0] || null);
+    var focusId = s.session ? s.session.projectId : picked;
     return {
       day: d.key, weekday: d.weekday, lead: lead, away: plan[d.weekday] === AWAY, usual: usual, week: week,
       labels: labels_(plan, categories), focusId: focusId, ranked: ranked, weekKey: d.weekKey, nextWeekKey: nextWeekKey_(d.weekKey),
@@ -253,27 +252,23 @@ function todayModule() {
       state: function (a, ctx) { return compute_(ctx); },
 
       /**
-       * Skip today's focus. a.toId: the project to switch to (optional; the next candidate if left out).
-       * a.remindDays: 0 (no reminder), 1, 3 or 7 days until a reminder about the skipped project.
+       * Pick today's focus. a.projectId: an active project, or '' for no focus. a.remindDays: 0 (no reminder), 1, 3
+       * or 7 days until a reminder about the project picked before (only when there was one).
+       * Moving away from a picked project is logged as a skip; clearing the pick or picking the first time is not.
        */
-      swap: function (a, ctx) {
+      pick: function (a, ctx) {
         var d = dayInfo_(), s = load_(d.key);
-        assert_(!s.session, 'Finish the current session before swapping focus.');
+        assert_(!s.session, 'Finish the current session before changing today\'s focus.');
         var remindDays = Number(a.remindDays || 0);
         assert_(REMIND_DAYS.indexOf(remindDays) !== -1, 'Unknown reminder: ' + a.remindDays);
-        var snap = compute_(ctx), fromId = snap.focusId;
-        if (a.toId) {
-          assert_(snap.ranked.indexOf(a.toId) !== -1, 'Pick an active project to switch to.');
-          assert_(a.toId !== fromId, 'That project is already today\'s focus.');
+        var snap = compute_(ctx), fromId = snap.focusId, toId = a.projectId || null;
+        if (toId) {
+          assert_(snap.ranked.indexOf(toId) !== -1, 'Pick an active project.');
+          assert_(toId !== fromId, 'That project is already today\'s focus.');
         }
-        if (fromId) {
-          s.skipped.push(fromId);
-          SKIPS.insert({ project_id: fromId, to_project_id: a.toId || '', date: nowIso_() });
-          if (remindDays) REMINDERS.insert({ project_id: fromId, due: dateInDays_(remindDays), created: nowIso_(), done: '' });
-        }
-        s.focusPick = a.toId || null;
-        var everyoneSkipped = snap.ranked.every(function (id) { return s.skipped.indexOf(id) !== -1; });
-        if (!a.toId && everyoneSkipped) s.skipped = fromId ? [fromId] : [];
+        if (fromId && toId) SKIPS.insert({ project_id: fromId, to_project_id: toId, date: nowIso_() });
+        if (fromId && remindDays) REMINDERS.insert({ project_id: fromId, due: dateInDays_(remindDays), created: nowIso_(), done: '' });
+        s.focusPick = toId;
         save_(s);
         ctx.refresh('today');
         return true;
@@ -285,7 +280,9 @@ function todayModule() {
         assert_(reminder, 'Reminder not found.');
         var d = dayInfo_(), s = load_(d.key);
         assert_(!s.session, 'Finish the current session first.');
-        assert_(compute_(ctx).ranked.indexOf(reminder.project_id) !== -1, 'That project is not active any more.');
+        var snap = compute_(ctx);
+        assert_(snap.ranked.indexOf(reminder.project_id) !== -1, 'That project is not active any more.');
+        if (snap.focusId && snap.focusId !== reminder.project_id) SKIPS.insert({ project_id: snap.focusId, to_project_id: reminder.project_id, date: nowIso_() });
         s.focusPick = reminder.project_id;
         save_(s);
         REMINDERS.update(a.id, { done: nowIso_() });

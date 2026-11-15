@@ -8,7 +8,7 @@
  *
  * Habit log tab (app only): one row per habit per day for `done` and `plan` (count updated on each tap, not one row per
  * tap), plus `level` rows (value "4 a week, 30 min", day = the day it applies from), `prompt` rows (value yes, not now,
- * at goal, stop asking, keep asking) and `pause` / `resume` rows. Insights compare each week with the level then.
+ * at goal, stop asking, keep asking), `pause` / `resume` rows and `skip` rows ("Not today" on Today's list, count 1). Insights compare each week with the level then.
  *
  * A level never changes by itself. "Yes, adjust" on the step-up prompt writes a `pending` row (value the new level, day
  * the day it is due: next Monday, or tomorrow for a daily habit). From that day Today shows it with Accept and Not now;
@@ -287,7 +287,7 @@ function habitsModule() {
         if (pending) out.pendingLevel = { value: pending.value, from: pending.day, due: pending.day <= today };
         return out;
       }),
-      log: log.filter(function (r) { return (r.kind === 'done' || r.kind === 'plan') && r.day >= from && r.day <= until; })
+      log: log.filter(function (r) { return (r.kind === 'done' || r.kind === 'plan' || (r.kind === 'skip' && r.day === today)) && r.day >= from && r.day <= until; })
         .map(function (r) { return { id: r.id, habit_id: r.habit_id, day: r.day, kind: r.kind, count: r.count }; }),
       prompt: prompt_(habits.filter(function (h) { return !isAspiring_(h); }), today, awayDays_(ctx))
     };
@@ -449,6 +449,17 @@ function habitsModule() {
         var count = changeCount_(h, day, 'done', function (n) { return n + delta; });
         ctx.refresh('habits');
         return count;
+      },
+
+      /**
+       * "Not today" on Today's list: a.on true hides the habit from the list for today (a `skip` row, count 1), false
+       * brings it back. Never a session and never a miss: Insights leave skip rows out.
+       */
+      notToday: function (a, ctx) {
+        var h = habit_(a.id), today = todayIso_();
+        changeCount_(h, today, 'skip', function () { return a.on ? 1 : 0; });
+        ctx.refresh('habits');
+        return !!a.on;
       },
 
       /** Plan my week: a.count sessions planned for a.day, from today to the end of next week (never further). */

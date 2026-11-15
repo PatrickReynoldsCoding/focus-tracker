@@ -190,7 +190,29 @@
 
   function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
 
-  FT.module({ id: 'todos' });
+  /**
+   * To do today (slot today.list, drawn by the today module): open to-dos for today or left from an earlier day, from
+   * every to-do list, and the ones for today ticked today. Anytime ones stay in their list. Ticking moves one to done.
+   */
+  function listItems() {
+    var s = slice(), today = s.day, open = [], done = [];
+    s.items.filter(function (t) { return t.day && t.day <= today && (!t.done || t.done === today); })
+      .sort(function (a, b) { return a.day.localeCompare(b.day) || a.order - b.order; })
+      .forEach(function (t) {
+        var id = FT.esc(t.id), title = FT.esc(t.title);
+        var label = '<span class="nm"><span class="nmt">' + FT.linkify(t.title) + '</span></span>';
+        if (t.done) {
+          done.push('<li class="ckrow done"><span class="tk sq on" aria-hidden="true">✓</span>' + label +
+            '<button class="ckact" data-act="todos.check" data-id="' + id + '" data-done="0" aria-label="Not done: ' + title + '">Undo</button></li>');
+        } else {
+          open.push('<li class="ckrow"><button class="tk sq" data-act="todos.check" data-id="' + id + '" data-done="1" aria-label="Done: ' + title + '"></button>' + label +
+            (t.day < today ? '<span class="mt late">' + FT.esc(dayWord(t.day, today).toLowerCase()) + '</span>' : '') + '</li>');
+        }
+      });
+    return { label: 'To-dos', open: open, done: done };
+  }
+
+  FT.module({ id: 'todos', slots: { 'today.list': [{ order: 10, render: listItems }] } });
 
   /** Add a to-do for an ISO day ('' for anytime), to a list and group (the first to-do list and its first group if not given). Shows at once. */
   function add(title, day, listId, groupId) {
@@ -223,13 +245,17 @@
   FT.action('todos.addBtn', addFromBox);
   FT.on('change', 'todos.pickDay', function (el) { addDayByList[el.dataset.list] = el.value; });
 
-  FT.on('change', 'todos.tick', function (el) {
-    var t = byId(el.dataset.id), today = slice().day;
+  FT.on('change', 'todos.tick', function (el) { tick(el.dataset.id, el.checked); });
+  FT.action('todos.check', function (el) { tick(el.dataset.id, el.dataset.done === '1'); });
+
+  /** Tick (on) or untick a to-do: shown at once, saved behind. */
+  function tick(id, on) {
+    var t = byId(id), today = slice().day;
     if (!t) return;
-    var before = t.done, on = el.checked;
+    var before = t.done;
     FT.optimistic(function () { t.done = on ? today : ''; return function () { t.done = before; }; },
       function () { return FT.rpc('todos', 'toggle', { id: t.id, done: on }, { render: false }); }).catch(function () {});
-  });
+  }
 
   FT.action('todos.remove', function (el) {
     var s = slice(), t = byId(el.dataset.id);

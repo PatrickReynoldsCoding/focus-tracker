@@ -31,6 +31,7 @@ async function waitFor(fn, label, ms = 3000) {
   const server = loadServer();
   server.run('setup()');
   server.run('seedStarterData()');
+  server.run("setSettings_({ 'rotation.monday': 'coding', 'rotation.tuesday': 'coding', 'rotation.wednesday': 'job', 'rotation.thursday': 'coding', 'rotation.friday': 'house', 'rotation.saturday': 'house' })");
   server.mock.weekday = 3;
   const modules = JSON.parse(JSON.stringify(server.run('MODULES')));
 
@@ -72,11 +73,17 @@ async function waitFor(fn, label, ms = 3000) {
   let passed = 0;
   async function step(name, fn) { await fn(); passed++; console.log('  ok  ' + name); }
 
-  await step('loads and shows tabs and today\'s focus', async () => {
-    await waitFor(() => $('.focus-name'), 'focus name');
+  await step('loads with no focus picked: no Start session until a project is picked, then the pick shows at once', async () => {
+    await waitFor(() => $('.pickhead'), 'the empty focus panel');
     assert.deepStrictEqual($$('.tab').map((t) => t.textContent), ['Today', 'Projects', 'Notes', 'Whiteboards', 'Insights']);
-    assert.strictEqual($('.focus-name').textContent, 'CV and portfolio', 'Wednesday leads with job, longest untouched first');
-    assert.ok($('.timer') === null);
+    assert.ok(!$('[data-act="today.start"]') && !$('.focus-name') && !$('.timer'), 'no project and no session without a pick');
+    assert.strictEqual(server.run('bootstrap()').data.today.focusId, null);
+    const first = $('[data-act="today.pick"]');
+    assert.strictEqual(first.childNodes[0].textContent, 'CV and portfolio', 'Wednesday leads with job: its projects come first, longest untouched first');
+    click(first);
+    await waitFor(() => $('.focus-name') && $('.focus-name').textContent === 'CV and portfolio', 'the picked project shows at once');
+    assert.ok($('[data-act="today.start"]'), 'now a session can start');
+    await waitFor(() => server.run('bootstrap()').data.today.focusId === first.dataset.id, 'the pick reached the server');
   });
 
   await step('next action is hidden by default (Today, the Projects table and its search, the project page, Finish session); Settings → Show turns it on for the mode', async () => {
@@ -712,7 +719,7 @@ async function waitFor(fn, label, ms = 3000) {
   await step('swap focus lets you pick the project and a reminder, and the skip shows on the project', async () => {
     click(tab('Today'));
     const before = await waitFor(() => $('.focus-name') && $('.focus-name').textContent, 'focus');
-    click($('[data-act="today.swap"]'));
+    click($('[data-act="today.pickAll"]'));
     await waitFor(() => $('#dlg-to'), 'swap dialog');
     const fan = Array.from($('#dlg-to').options).find((o) => o.textContent.startsWith('Bathroom extractor fan'));
     assert.ok(fan, 'other projects are offered');
@@ -938,7 +945,7 @@ async function waitFor(fn, label, ms = 3000) {
     const fan = projectNamed('Bathroom extractor fan'), note = errandsNote();
     await waitFor(() => editorOf(note.id) && editorOf(note.id).getAttribute('contenteditable') === 'true', 'editable');
     typeInto(note.id, editorOf(note.id).innerHTML + '<p>Typed just before the swap</p>'); // no focusout, inside the save delay
-    click($('[data-act="today.swap"]'));
+    click($('[data-act="today.pickAll"]'));
     await waitFor(() => $('#dlg-to'), 'swap dialog');
     const to = $('#dlg-to').options[0];
     const toName = to.textContent.split(' (')[0];
@@ -1010,6 +1017,51 @@ async function waitFor(fn, label, ms = 3000) {
     assert.ok(!habitRow('Job search').querySelector('.extra'), 'the extra goes at once');
     await waitFor(() => habitsNow().log.find((r) => r.kind === 'done' && r.day === TODAY).count === 1, 'back to one');
     assert.strictEqual(rowsOfTab('Habit log').filter((r) => r.kind === 'done').length, 1, 'one row per habit per day, its count updated');
+  });
+
+  await step('To do today: habits and to-dos for today in one slim list; done ones leave it, Not today hides a weekly habit, all done folds it to one line', async () => {
+    click(tab('Today'));
+    const row = (text) => $$('.daylist .cksec + ul .ckrow').find((li) => li.textContent.includes(text));
+    const doneRow = (text) => $$('.daylist .ckdone .ckrow').find((li) => li.textContent.includes(text));
+    const openShow = () => { const b = $('[data-act="today.showDone"]'); if (b && b.getAttribute('aria-expanded') !== 'true') click(b); };
+    await waitFor(() => $('.daylist'), 'the To do today panel');
+    // A weekly habit: shows until the week is met; Not today hides it for today only
+    const guitar = await w.FT.rpc('habits', 'create', { name: 'Guitar', sessions: 2, per: 'week', size: '15 min' });
+    const g = await waitFor(() => row('Guitar'), 'weekly habit on the list');
+    assert.ok(/0\/2 wk/.test(g.textContent) && g.querySelector('[data-act="habits.notToday"]'), 'its week in short, and Not today');
+    click(g.querySelector('[data-act="habits.notToday"]'));
+    assert.ok(!row('Guitar'), 'Not today hides it at once');
+    await waitFor(() => rowsOfTab('Habit log').some((r) => r.habit_id === guitar.id && r.kind === 'skip' && r.day === TODAY && String(r.count) === '1'), 'skip row saved');
+    openShow();
+    assert.ok(/not today/.test(doneRow('Guitar').textContent), 'listed under done as not today');
+    click(doneRow('Guitar').querySelector('[data-act="habits.notToday"]'));
+    assert.ok(row('Guitar'), 'Back puts it on the list');
+    await waitFor(() => !rowsOfTab('Habit log').some((r) => r.habit_id === guitar.id && r.kind === 'skip'), 'skip row gone');
+    click(row('Guitar').querySelector('[data-act="habits.tap"]'));
+    assert.ok(!row('Guitar') && /1\/2 wk/.test(doneRow('Guitar').textContent), 'one session today hides it until tomorrow, though the week needs two');
+    await waitFor(() => habitsNow().log.some((r) => r.habit_id === guitar.id && r.kind === 'done' && r.count === 1), 'session saved');
+    // A to-do for today, from the to-do list
+    const vet = w.FT.todos.add('Ring the vet', TODAY);
+    const v = await waitFor(() => row('Ring the vet'), 'today\'s to-do on the list');
+    assert.ok(v.querySelector('.tk.sq'), 'a square box for a to-do');
+    click(v.querySelector('[data-act="todos.check"]'));
+    assert.ok(!row('Ring the vet'), 'ticked: it leaves the list');
+    await waitFor(() => todosNow().some((t) => t.id === vet.id && t.done === TODAY), 'tick saved');
+    // Everything done: one line
+    const ticked = [];
+    $$('.daylist .tk[data-act]').forEach((b) => { if (!b.closest('.ckdone')) ticked.push([b.dataset.act, b.dataset.id]); });
+    for (const [act, id] of ticked) { const b = $('.daylist .tk[data-act="' + act + '"][data-id="' + id + '"]'); if (b && !b.closest('.ckdone')) click(b); }
+    await waitFor(() => /All done for today/.test($('.daylist').textContent), 'all done: one line');
+    assert.ok(!$('.daylist .cksec'), 'no sections left');
+    // Put back what this step ticked, so later steps see the day as it was
+    openShow();
+    for (const [act, id] of ticked) {
+      const undo = $('.daylist .ckdone [data-act="' + (act === 'habits.tap' ? 'habits.untap' : 'todos.check') + '"][data-id="' + id + '"]');
+      if (undo) click(undo);
+    }
+    click($('[data-act="today.showDone"]'));
+    await w.FT.rpc('habits', 'remove', { id: guitar.id });
+    await waitFor(() => !row('Guitar') && !doneRow('Guitar'), 'removed again');
   });
 
   await step('To-dos: tick, add for anytime with Enter, delete with Undo at once', async () => {
@@ -2317,6 +2369,7 @@ async function waitFor(fn, label, ms = 3000) {
     click($('#dlg-submit'));
     await waitFor(() => $('.board'), 'work project page');
     click(tab('Today'));
+    click(await waitFor(() => $$('[data-act="today.pick"]').find((b) => b.textContent.startsWith('Wiz tickets')), 'work pick list'));
     await waitFor(() => $('.focus-name') && $('.focus-name').textContent === 'Wiz tickets', 'work focus');
     assert.ok(!$('.habits-panel .habit'), 'work mode has no habits');
     setVal($('#modeSelect'), 'personal', 'change');
@@ -2584,12 +2637,13 @@ async function waitFor(fn, label, ms = 3000) {
     assert.strictEqual(savedPills(), undefined, 'no pills saved yet');
     assert.ok($('.ppinned .fcompact .fc-name') && $('.ppinned [data-act="today.start"]'), 'the pinned focus: its name and Start');
     assert.ok(/Next/.test($('.ppinned .fc-next').textContent), 'and the next action');
-    assert.ok(!$('.ppinned [data-act="today.swap"]'), 'the rest waits behind More');
+    assert.ok(!$('.ppinned [data-act="today.pickAll"]'), 'the rest waits behind More');
     click($('.ppinned-more'));
-    assert.ok($('.ppinned [data-act="today.swap"]') && $('.ppinned-more').getAttribute('aria-expanded') === 'true', 'More shows the whole focus');
+    assert.ok($('.ppinned [data-act="today.pickAll"]') && $('.ppinned-more').getAttribute('aria-expanded') === 'true', 'More shows the whole focus');
     click($('.ppinned-more'));
     assert.ok($('.ppinned .fcompact'), 'Less goes back');
-    assert.deepStrictEqual(chipIds().slice(0, 2), [TODOS(), 'habits'], 'pills follow the phone order');
+    assert.strictEqual(chipIds()[0], 'daylist', 'To do today is the first pill');
+    assert.deepStrictEqual(chipIds().slice(1, 3), [TODOS(), 'habits'], 'then the pills follow the phone order');
     assert.ok(!chipIds().includes('focus'), 'the pinned focus has no pill');
     const someday = w.FT.store.lists.find((l) => l.name === 'Someday ideas');
     assert.ok(chipIds().includes('list-' + someday.id), 'a list on Today is a pill of its own');
@@ -2966,6 +3020,30 @@ async function waitFor(fn, label, ms = 3000) {
     w.__narrow = false;
     w.FT.render();
     assert.ok(panelIds().includes('focus') && !$('#app .ppager'), 'the desktop\'s Today is unchanged');
+  });
+
+  await step('phone Today: pills saved before To do today existed get it once as the first pill; deleting it keeps it gone', async () => {
+    const wasNarrow = w.__narrow, pillsWere = savedPills(), offeredWere = (serverData().layout['today.view'] || {}).pillsOffered || null;
+    w.__narrow = true;
+    const before = [{ id: 'habits', name: 'Habits', icon: '', panels: ['habits'] }, { id: 'rotation', name: 'Rotation', icon: '', panels: ['rotation'] }];
+    await w.FT.rpc('layout', 'savePills', { page: 'today', pills: before });
+    await w.FT.reload();
+    w.FT.render();
+    assert.strictEqual(chipIds()[0], 'daylist', 'added in front at once');
+    await waitFor(() => (savedPills() || []).length === 3 && savedPills()[0].panels[0] === 'daylist', 'and saved');
+    await waitFor(() => ((serverData().layout['today.view'] || {}).pillsOffered || []).includes('daylist'), 'remembered as offered');
+    w.FT.pills.save('today', w.FT.pills.list('today').filter((p) => p.id !== 'daylist'));
+    w.FT.render();
+    assert.ok(!chipIds().includes('daylist'), 'deleted');
+    await waitFor(() => savedPills().length === 2, 'the delete saved');
+    await w.FT.reload();
+    w.FT.render();
+    assert.ok(!chipIds().includes('daylist'), 'and not added again');
+    await w.FT.rpc('layout', 'savePills', { page: 'today', pills: pillsWere || [] });
+    await w.FT.rpc('layout', 'saveView', { page: 'today', view: { pillsOffered: offeredWere } });
+    await w.FT.reload();
+    w.__narrow = wasNarrow;
+    w.FT.render();
   });
 
   await step('a page whose panels are all removed says so and how to bring them back', async () => {

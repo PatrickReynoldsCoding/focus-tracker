@@ -45,28 +45,34 @@ test('columns can be reordered by hand in the sheet without breaking reads', () 
   assert.strictEqual(list[0].name, 'A');
 });
 
-test('today favours the leading category, then the most neglected project, and swap moves on', () => {
+test('today picks nothing by itself: no focus until one is picked, and the pick list puts the lead category first', () => {
   const s = fresh();
+  s.run("setSettings_({ 'rotation.wednesday': 'job' })");
   s.mock.weekday = 3; // Wednesday leads with job
   const a = s.call('projects', 'create', { name: 'Code A', category: 'coding' }).result;
   const b = s.call('projects', 'create', { name: 'Job B', category: 'job' }).result;
   const c = s.call('projects', 'create', { name: 'Job C', category: 'job' }).result;
-  const old = new Date(Date.now() - 10 * 86400000).toISOString();
-  s.sandbox.__old = old;
-  s.run(`new Table('Projects',['id']).update('${a.id}', { last_touched: __old })`);
+  s.run(`new Table('Projects',['id']).update('${a.id}', { last_touched: '${new Date(Date.now() - 10 * 86400000).toISOString()}' })`);
   s.run(`new Table('Projects',['id']).update('${c.id}', { last_touched: '${new Date(Date.now() - 4 * 86400000).toISOString()}' })`);
   let t = s.call('today', 'state').result;
-  assert.strictEqual(t.focusId, c.id, 'job project untouched longest should lead on a job day');
-  s.call('today', 'swap');
-  t = s.call('today', 'state').result;
+  assert.strictEqual(t.focusId, null, 'a new day has no focus');
+  assert.deepStrictEqual(t.ranked, [c.id, b.id, a.id], 'job first (most neglected first), then the rest');
+  assert.throws(() => s.call('today', 'pick', { projectId: 'nope' }), /active project/);
+  t = s.call('today', 'pick', { projectId: b.id }).slices.today;
   assert.strictEqual(t.focusId, b.id);
-  s.call('today', 'swap'); // all job projects skipped, then falls back through the pool
-  t = s.call('today', 'state').result;
-  assert.ok([a.id, b.id, c.id].includes(t.focusId));
-  s.mock.weekday = 7; // Sunday: no lead category, pure neglect
-  s.run("PropertiesService.getUserProperties().setProperty('today.state', '')");
-  t = s.call('today', 'state').result;
-  assert.strictEqual(t.focusId, a.id);
+  assert.deepStrictEqual(t.skipCounts, {}, 'a first pick is not a skip');
+  assert.throws(() => s.call('today', 'pick', { projectId: b.id }), /already today/);
+  t = s.call('today', 'pick', { projectId: '' }).slices.today;
+  assert.strictEqual(t.focusId, null, 'the pick can be cleared');
+  assert.deepStrictEqual(t.skipCounts, {}, 'clearing is not a skip');
+  // The next day starts empty again
+  s.call('today', 'pick', { projectId: a.id });
+  const state = JSON.parse(s.user._m['today.state']);
+  state.day = '2000-01-01';
+  s.user._m['today.state'] = JSON.stringify(state);
+  assert.strictEqual(s.call('today', 'state').result.focusId, null, 'yesterday\'s pick does not carry over');
+  s.mock.weekday = 7; // Sunday: no lead category, pure neglect order
+  assert.deepStrictEqual(s.call('today', 'state').result.ranked, [a.id, c.id, b.id]);
 });
 
 /** Rewrite the saved session as if it had happened earlier. change(session, minutesAgoIso) edits it in place. */
@@ -294,36 +300,38 @@ test('a locked project leaves the focus pick, cannot start a session, and liftin
   const a = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
   const b = s.call('projects', 'create', { name: 'B', category: 'house' }).result;
   s.run(`new Table('Projects',['id']).update('${a.id}', { last_touched: '${new Date(Date.now() - 9 * 86400000).toISOString()}' })`);
-  assert.strictEqual(s.call('today', 'state').result.focusId, a.id);
+  assert.strictEqual(s.call('today', 'state').result.focusId, null);
+  s.call('today', 'pick', { projectId: a.id });
   const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: '2001-01-01' }), /future/);
   assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: 'soon' }), /valid date/);
   s.call('projects', 'setLock', { id: a.id, until: day(3) });
   const state = s.call('today', 'state').result;
-  assert.strictEqual(state.focusId, b.id, 'the locked project is not picked');
-  assert.ok(state.ranked.indexOf(a.id) === -1, 'and is not in the ranking');
+  assert.strictEqual(state.focusId, null, 'a locked project stops being the focus');
+  assert.ok(state.ranked.indexOf(a.id) === -1, 'and cannot be picked');
+  assert.throws(() => s.call('today', 'pick', { projectId: a.id }), /active project/);
   assert.throws(() => s.call('today', 'start', { projectId: a.id }), /locked/);
   s.call('projects', 'setLock', { id: a.id, until: day(6) }); // longer is always allowed
   assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: day(2) }), /confirmation/);
   assert.throws(() => s.call('projects', 'setLock', { id: a.id, until: '' }), /confirmation/);
   s.call('projects', 'setLock', { id: a.id, until: '', early: true });
-  assert.strictEqual(s.call('today', 'state').result.focusId, a.id, 'lifted, it is the most neglected again');
+  assert.strictEqual(s.call('today', 'state').result.ranked[0], a.id, 'lifted, it can be picked again');
   s.call('projects', 'setLock', { id: a.id, until: new Date(Date.now() + 3600000).toISOString() }); // date and time
   assert.throws(() => s.call('today', 'start', { projectId: a.id }), /locked/);
 });
 
-test('swap to a chosen project logs the skip, sets a reminder, and keeps the skipped project neglected', () => {
+test('changing a picked focus logs the skip, sets a reminder, and keeps the skipped project neglected', () => {
   const s = fresh();
   s.mock.weekday = 7;
   const a = s.call('projects', 'create', { name: 'A', category: 'coding' }).result;
   const b = s.call('projects', 'create', { name: 'B', category: 'house' }).result;
   const c = s.call('projects', 'create', { name: 'C', category: 'job' }).result;
   s.run(`new Table('Projects',['id']).update('${a.id}', { last_touched: '${new Date(Date.now() - 9 * 86400000).toISOString()}' })`);
-  assert.strictEqual(s.call('today', 'state').result.focusId, a.id);
-  assert.throws(() => s.call('today', 'swap', { toId: a.id }), /already today/);
-  assert.throws(() => s.call('today', 'swap', { toId: 'nope' }), /active project/);
-  assert.throws(() => s.call('today', 'swap', { toId: c.id, remindDays: 2 }), /Unknown reminder/);
-  const t = s.call('today', 'swap', { toId: c.id, remindDays: 1 }).slices.today;
+  s.call('today', 'pick', { projectId: a.id });
+  assert.throws(() => s.call('today', 'pick', { projectId: a.id }), /already today/);
+  assert.throws(() => s.call('today', 'pick', { projectId: 'nope' }), /active project/);
+  assert.throws(() => s.call('today', 'pick', { projectId: c.id, remindDays: 2 }), /Unknown reminder/);
+  const t = s.call('today', 'pick', { projectId: c.id, remindDays: 1 }).slices.today;
   assert.strictEqual(t.focusId, c.id);
   assert.deepStrictEqual(t.skipCounts, { [a.id]: 1 });
   assert.deepStrictEqual(t.reminders, [], 'not due until tomorrow');
@@ -339,7 +347,8 @@ test('swap to a chosen project logs the skip, sets a reminder, and keeps the ski
   const after = s.call('today', 'focusReminder', { id: due[0].id }).slices.today;
   assert.strictEqual(after.focusId, a.id);
   assert.deepStrictEqual(after.reminders, []);
-  s.call('today', 'swap', { toId: b.id, remindDays: 7 });
+  assert.strictEqual(after.skipCounts[c.id], 1, 'leaving the picked project for the reminder is a skip too');
+  s.call('today', 'pick', { projectId: b.id, remindDays: 7 });
   s.ss.sheets.Reminders.rows[2][2] = '2000-01-01';
   assert.strictEqual(s.call('today', 'dismissReminder', { id: s.call('today', 'state').result.reminders[0].id }).slices.today.reminders.length, 0);
   assert.strictEqual(s.call('today', 'state').result.skipCounts[a.id], 2);
@@ -352,7 +361,8 @@ test('the rotation can be edited; this-week changes and away days apply only thi
   const s = fresh();
   s.mock.weekday = 3;
   let t = s.call('today', 'state').result;
-  assert.strictEqual(t.lead, 'job');
+  assert.strictEqual(t.lead, null, 'every day is any category until you choose');
+  assert.strictEqual(t.labels[3], 'Any category');
   assert.deepStrictEqual(t.week, {});
   const usual = { 1: 'house', 2: 'coding', 3: 'coding', 4: '', 5: 'house', 6: 'away', 7: 'away' };
   assert.throws(() => s.call('today', 'saveRotation', { usual: Object.assign({}, usual, { 1: 'nope' }) }), /Unknown category/);
@@ -812,7 +822,8 @@ test('work mode gets its own spreadsheet, folder, categories and Today state', (
   assert.deepStrictEqual(wb.data.categories.map((c) => c.id), ['delivery', 'ops', 'learning', 'career', 'admin']);
   assert.strictEqual(wb.data.today.session, null, 'the personal session does not show in work');
   assert.deepStrictEqual(wb.data.habits.habits, [], 'work has no habits');
-  assert.strictEqual(wb.data.today.focusId, ticket.id);
+  assert.strictEqual(wb.data.today.focusId, null, 'nothing is picked for you');
+  assert.deepStrictEqual(wb.data.today.ranked, [ticket.id]);
   assert.notStrictEqual(wb.config.folderUrl, json(s.run('bootstrap()')).config.folderUrl);
   assert.deepStrictEqual(wb.config.modes.map((m) => m.id), ['personal', 'work']);
 
@@ -867,6 +878,7 @@ test('categories can be added, renamed, recoloured and deleted only when unused'
 
 test('a deleted lead category makes that day "Any category"', () => {
   const s = fresh();
+  s.run("setSettings_({ 'rotation.monday': 'coding', 'rotation.wednesday': 'job' })");
   s.mock.weekday = 3;
   assert.strictEqual(s.call('today', 'state').result.lead, 'job');
   s.call('categories', 'remove', { id: 'job' });
@@ -1453,17 +1465,17 @@ test('a project blocked by an unfinished project leaves the focus pick until the
   const a = s.call('projects', 'create', { name: 'Blocker', category: 'coding' }).result;
   const b = s.call('projects', 'create', { name: 'Waits', category: 'house' }).result;
   s.run(`new Table('Projects',['id']).update('${b.id}', { last_touched: '${new Date(Date.now() - 9 * 86400000).toISOString()}' })`);
-  assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'the most neglected project leads');
+  s.call('today', 'pick', { projectId: b.id });
   const r = s.call('links', 'add', { fromId: a.id, toId: b.id, type: 'blocks' });
   assert.ok(r.slices.today.ranked.indexOf(b.id) === -1, 'the answer brings Today up to date');
   assert.deepStrictEqual(s.call('links', 'waiting').result, { [b.id]: [a.id] });
   const state = s.call('today', 'state').result;
-  assert.strictEqual(state.focusId, a.id, 'the waiting project is not picked');
-  assert.ok(state.ranked.indexOf(b.id) === -1, 'and is not offered in Swap');
-  assert.throws(() => s.call('today', 'swap', { toId: b.id }), /active project/);
+  assert.strictEqual(state.focusId, null, 'the waiting project stops being the focus');
+  assert.ok(state.ranked.indexOf(b.id) === -1, 'and is not offered in the pick list');
+  assert.throws(() => s.call('today', 'pick', { projectId: b.id }), /active project/);
   s.call('projects', 'update', { id: a.id, status: 'done' });
   assert.deepStrictEqual(s.call('links', 'waiting').result, {});
-  assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'once the blocker is done it can be picked again');
+  assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'once the blocker is done the pick holds again');
   s.call('projects', 'update', { id: a.id, status: 'archived' });
   assert.strictEqual(s.call('today', 'state').result.focusId, b.id, 'an archived blocker holds nothing up either');
   s.call('projects', 'update', { id: a.id, status: 'paused' });
@@ -1474,7 +1486,7 @@ test('today works without the links module', () => {
   const s = fresh();
   s.run("MODULES = MODULES.filter(function (m) { return m !== 'links'; })");
   const p = s.call('projects', 'create', { name: 'Alone', category: 'coding' }).result;
-  assert.strictEqual(s.call('today', 'state').result.focusId, p.id);
+  assert.deepStrictEqual(s.call('today', 'state').result.ranked, [p.id]);
   assert.strictEqual(s.call('projects', 'remove', { id: p.id }).result, true);
 });
 
@@ -1700,6 +1712,7 @@ test('insights: weeks run Monday to Sunday, and levels are read as people write 
 
 test('insights: focus sessions and minutes per week and per project, split on Monday', () => {
   const s = insightsServer();
+  s.run("setSettings_({ 'rotation.wednesday': 'job' })");
   const a = s.call('projects', 'create', { name: 'Focus Tracker', category: 'coding' }).result;
   const b = s.call('projects', 'create', { name: 'Garden app', category: 'coding' }).result;
   const log = s.ss.sheets.Log;
@@ -1831,6 +1844,23 @@ function onDay(day) {
   return s;
 }
 const WED = '2026-11-04', MON = '2026-11-02';
+
+test('habits: Not today is one skip row for today, can be taken back, and is never a session', () => {
+  const s = onDay(WED);
+  const h = s.call('habits', 'create', { name: 'Guitar', sessions: 2, per: 'week' }).result;
+  let slice = s.call('habits', 'notToday', { id: h.id, on: true }).slices.habits;
+  assert.deepStrictEqual(slice.log.filter((r) => r.kind === 'skip').map((r) => [r.habit_id, r.day, r.count]), [[h.id, WED, 1]]);
+  s.call('habits', 'notToday', { id: h.id, on: true }); // twice is still one row
+  assert.strictEqual(s.rows('Habit log').filter((r) => r.kind === 'skip').length, 1);
+  assert.strictEqual(s.call('habits', 'history', { from: MON, to: WED }).result.log.filter((r) => r.kind === 'done').length, 0, 'not a session');
+  s.setDay('2026-11-05');
+  assert.deepStrictEqual(json(s.run('bootstrap()')).data.habits.log.filter((r) => r.kind === 'skip'), [], 'tomorrow it is back on the list');
+  s.setDay(WED);
+  slice = s.call('habits', 'notToday', { id: h.id, on: false }).slices.habits;
+  assert.deepStrictEqual(slice.log.filter((r) => r.kind === 'skip'), []);
+  assert.strictEqual(s.rows('Habit log').filter((r) => r.kind === 'skip').length, 0, 'Back removes the row');
+  assert.throws(() => s.call('habits', 'notToday', { id: 'nope', on: true }));
+});
 
 test('habits: create with a level row, edit, reorder, pause, resume, end and delete', () => {
   const s = onDay(WED);
@@ -1975,8 +2005,9 @@ test('plan my week: habit sessions and to-dos only from today to the end of next
   assert.throws(() => s.call('todos', 'setDay', { id: t.id, day: '2026-11-20' }), /end of next week/);
 
   // the focus lead: this week and next week, never further; next week's plan applies when it starts
-  assert.throws(() => s.call('today', 'planDay', { week: '2026-11-16', day: 1, plan: 'house' }), /this week or next/);
-  let today = s.call('today', 'state').result;
+  let today = s.call('today', 'state').result; // Today's weeks follow the real clock, not the mocked todayIso_
+  const weekAfterNext = new Date(Date.parse(today.nextWeekKey + 'T00:00:00Z') + 7 * 86400000).toISOString().slice(0, 10);
+  assert.throws(() => s.call('today', 'planDay', { week: weekAfterNext, day: 1, plan: 'house' }), /this week or next/);
   s.call('today', 'planDay', { week: today.nextWeekKey, day: 1, plan: 'away' });
   today = s.call('today', 'state').result;
   assert.deepStrictEqual([today.next[1], today.week[1]], ['away', undefined]);

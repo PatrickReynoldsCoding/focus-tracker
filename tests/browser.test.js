@@ -38,7 +38,7 @@ async function run(browser, size) {
   const sleep = (ms) => pg.waitForTimeout(ms);
 
   await pg.goto(env.url);
-  await pg.waitForSelector(size.mobile ? '.fc-name' : '.focus-name');
+  await pg.waitForSelector(size.mobile ? '.fc-name' : '.pickhead'); // nothing is picked for you
 
   // Anything on screen that a click could change: the page, the dialog, the message, the page address.
   const signature = () => pg.evaluate(() => [document.getElementById('app').innerText, document.getElementById('dialogRoot').innerHTML.length,
@@ -72,12 +72,23 @@ async function run(browser, size) {
   // On a phone Today shows one panel at a time: tap its chip first (the pager's own checks are further down).
   const showPanel = (id) => quickly(async () => {
     const chip = '#app .pchip[data-id="' + id + '"]';
-    if (size.mobile && await pg.isVisible(chip)) await pg.click(chip);
+    if (size.mobile && await pg.isVisible(chip)) { await pg.click(chip); await sleep(400); } // let the pill change settle
   });
 
   env.latency = LATENCY;
 
   // ---------- 1 and 2: Today ----------
+  assert.ok(!(await pg.isVisible('[data-act="today.start"]')), 'no Start session before a project is picked');
+  if (size.mobile) {
+    await quick('Today: Pick a project (dialog)', pg.locator('.ppinned [data-act="today.pickAll"]'));
+    await quickly(async () => { await pg.click('#dlg-submit'); await sleep(300); });
+  } else {
+    await quick('Today: pick a project', pg.locator('[data-act="today.pick"]').first());
+    assert.ok(await pg.isVisible('.focus-name'), 'the picked project shows straight away');
+  }
+  await settle();
+  assert.ok(todayState().focusId, 'the pick reached the server');
+  await pg.waitForSelector('[data-act="today.start"]');
   await quick('Today: Start session', pg.locator('[data-act="today.start"]'));
   assert.ok(await pg.isVisible('#timer'), 'the timer shows straight away');
   await settle();
@@ -156,7 +167,19 @@ async function run(browser, size) {
   await settle();
   assert.strictEqual(todayState().session, null, 'deleted on the server');
   log('Today: Delete session answers at once and the server catches up');
-  await quick('Today: Swap focus dialog', pg.locator('[data-act="today.swap"]')); await closeDialog();
+  // The steps above may have paused or finished the picked project: then nothing is picked, so pick one again.
+  if (!todayState().focusId) {
+    await quickly(async () => {
+      if (size.mobile) { await pg.click('.ppinned [data-act="today.pickAll"]'); await pg.click('#dlg-submit'); } else await pg.locator('[data-act="today.pick"]').first().click();
+      await sleep(300);
+    });
+    await settle();
+  }
+  // On a phone Change is behind More on the pinned card (it may be open already).
+  const openedMore = size.mobile && await pg.isVisible('.ppinned-more[aria-expanded="false"]');
+  if (openedMore) await quickly(async () => { await pg.click('.ppinned-more'); await sleep(200); });
+  await quick('Today: Change focus dialog', pg.locator('[data-act="today.pickAll"]').first()); await closeDialog();
+  if (openedMore) await quickly(async () => { await pg.click('.ppinned-more'); await sleep(200); });
   // ---------- 1 and 2: the Habits and To-dos panels ----------
   const srv = (code) => { const v = env.server.run('(function () { tableCache_ = {}; return ' + code + '; })()'); return v === undefined ? null : JSON.parse(JSON.stringify(v)); };
   const habitsNow = () => env.server.run('bootstrap()').data.habits;
@@ -199,6 +222,37 @@ async function run(browser, size) {
   await settle();
   assert.ok(!todosNow().some((t) => t.title === 'Post parcel'), 'the delete reached the server');
   log('To-dos: tick, add and delete answer at once and reach the server');
+
+  // ---------- To do today: habits and to-dos for today in one slim list (a pill on a phone) ----------
+  await showPanel('daylist');
+  const openRow = (sel) => pg.locator('.daylist .cksec + ul ' + sel);
+  const doneRow = (sel) => pg.locator('.daylist .ckdone ' + sel);
+  await quick('To do today: a daily habit', openRow(`[data-act="habits.tap"][data-id="${jobId}"]`));
+  assert.ok(!(await openRow(`[data-act="habits.tap"][data-id="${jobId}"]`).count()), 'it leaves the list at once');
+  await settle();
+  assert.strictEqual(doneToday(jobId), 1, 'the session reached the server');
+  await quick('To do today: Show done', pg.locator('.daylist [data-act="today.showDone"]'));
+  await quick('To do today: Undo a habit', doneRow(`[data-act="habits.untap"][data-id="${jobId}"]`));
+  await settle();
+  assert.strictEqual(doneToday(jobId), 0, 'the Undo reached the server');
+  const groceryId = grocery().id;
+  await quick('To do today: Undo a to-do', doneRow(`[data-act="todos.check"][data-id="${groceryId}"]`));
+  await settle();
+  assert.strictEqual(grocery().done, '', 'the untick reached the server');
+  await quick('To do today: tick a to-do', openRow(`[data-act="todos.check"][data-id="${groceryId}"]`));
+  await settle();
+  assert.strictEqual(grocery().done, today, 'the tick reached the server');
+  const guitar = await quickly(async () => { const h = await pg.evaluate(() => FT.rpc('habits', 'create', { name: 'Guitar', sessions: 2, per: 'week' })); await sleep(200); return h; });
+  const skipped = () => habitsNow().log.some((r) => r.habit_id === guitar.id && r.kind === 'skip');
+  await quick('To do today: Not today', openRow(`[data-act="habits.notToday"][data-id="${guitar.id}"]`));
+  assert.ok(!(await openRow(`[data-id="${guitar.id}"]`).count()), 'hidden at once');
+  await settle();
+  assert.ok(skipped(), 'the skip reached the server');
+  await quick('To do today: Back', doneRow(`[data-act="habits.notToday"][data-id="${guitar.id}"]`));
+  await settle();
+  assert.ok(!skipped(), 'Back reached the server');
+  await quickly(async () => { await pg.evaluate((id) => FT.rpc('habits', 'remove', { id }), guitar.id); await pg.click('.daylist [data-act="today.showDone"]'); await sleep(200); });
+  log('To do today: ticks, Undo, Not today and Back answer at once and reach the server');
 
   if (size.mobile) {
     const todoListId = todosPanel().slice('list-'.length);

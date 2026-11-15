@@ -29,7 +29,7 @@ var MODES = [
       { id: 'job', label: 'Job search', color: '2' },
       { id: 'house', label: 'House', color: '3' }
     ],
-    rotation: { 1: 'coding', 2: 'coding', 3: 'job', 4: 'coding', 5: 'house', 6: 'house', 7: null }
+    rotation: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null }
   },
   {
     id: 'work', label: 'Work',
